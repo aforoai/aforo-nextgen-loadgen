@@ -6,8 +6,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // weightTolerance is the absolute tolerance used to decide whether a set of
@@ -122,23 +120,6 @@ func (v *validator) addAt(path []string, msg string) {
 				col = parent.Column
 			}
 		}
-	}
-	v.errs = append(v.errs, ValidationError{
-		File:    v.doc.Path,
-		Line:    line,
-		Column:  col,
-		Path:    pathStr,
-		Message: msg,
-	})
-}
-
-// addAtNode records a violation at the position of a known yaml.Node. Used
-// when iterating over nodes whose logical path is hard to reconstruct.
-func (v *validator) addAtNode(n *yaml.Node, path []string, msg string) {
-	pathStr := joinPath(path)
-	line, col := 0, 0
-	if n != nil {
-		line, col = n.Line, n.Column
 	}
 	v.errs = append(v.errs, ValidationError{
 		File:    v.doc.Path,

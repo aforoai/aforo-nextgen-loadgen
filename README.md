@@ -16,16 +16,16 @@ architecture, services, and conventions see
 
 ## Status
 
-Session 2 of 12. The command tree is in place; the `version` and
-`scenarios` subcommands are fully implemented. Other subcommands are stubs
-that announce the session in which they ship. The scenario YAML schema
-itself is defined in [`docs/scenario-schema.md`](docs/scenario-schema.md).
+Session 3 of 12. The command tree is in place; `version`, `scenarios`, and
+`seed` are fully implemented. Other subcommands are stubs that announce the
+session in which they ship. The scenario YAML schema itself is defined in
+[`docs/scenario-schema.md`](docs/scenario-schema.md).
 
 | Subcommand  | Ships in   | What it does                                                      |
 | ----------- | ---------- | ----------------------------------------------------------------- |
-| `seed`      | Session 3  | Seed tenants, products, rate plans, subscriptions for a run.      |
+| `seed`      | _Session 3_ ✓ | Provision tenants per archetype via Aforo's REST APIs.           |
 | `scenarios` | _Session 2_ ✓ | List, describe, validate, and show built-in scenarios.          |
-| `run`       | Session 3  | Drive a load-test scenario against a target.                      |
+| `run`       | Session 4  | Drive a load-test scenario against a target.                      |
 | `validate`  | Session 4  | Static-validate a scenario or config file with no traffic.        |
 | `lifecycle` | Session 5  | Drive subscription lifecycle transitions.                         |
 | `payments`  | Session 6  | Drive payment, tax, and ERP integration flows.                    |
@@ -71,9 +71,40 @@ aforo-loadgen scenarios list                                  # list built-in sc
 aforo-loadgen scenarios show ci-smoke                         # print one's YAML
 aforo-loadgen scenarios archetypes walk-realistic-50t         # list its archetypes
 aforo-loadgen scenarios validate ./my-scenario.yaml           # validate a custom file
+aforo-loadgen seed --scenario matrix-billing --dry-run        # plan a seed without sending
+aforo-loadgen seed --scenario matrix-billing --target local \
+                   --out manifest.json                        # provision against local Aforo
+aforo-loadgen seed --scenario matrix-billing \
+                   --archetypes-only mtx-flat-postpaid-cancelled \
+                   --target local                             # seed a subset for fast iteration
+aforo-loadgen seed --clean --out manifest.json --target local # archive everything in manifest
 aforo-loadgen run --target https://usage-ingestor.aforo.space \
-                  --config ./loadgen.yaml                     # run a scenario (Session 3)
+                  --config ./loadgen.yaml                     # run a scenario (Session 4)
 aforo-loadgen report --run-id <id>                            # render results (Session 10)
+```
+
+## Seed harness (Session 3)
+
+`aforo-loadgen seed` materializes one tenant per archetype slot end-to-end
+via Aforo's REST APIs: tenant → products → billable units → rate plan →
+offering → customers → subscriptions (incl. CANCELLED + EXPIRED for stale
+key tests) → wallets (PREPAID/HYBRID) → payment methods → discounts → API
+keys. Outputs `manifest.json` (schema v2) that downstream subcommands read.
+
+Auth: set `AFORO_ADMIN_TOKEN` in the environment. The harness self-rate-
+limits at one request every 200ms (configurable) and caps in-flight HTTP
+requests at 50 to keep from DDoS'ing the admin API.
+
+Idempotency: every entity is created with a deterministic `external_id`
+(`loadgen-{kind}-{archetype}-{run_id}-{seq}`); a re-run with the same run id
+hits the GET-by-externalId cache and never double-POSTs.
+
+Live integration test (against running Aforo):
+
+```bash
+docker compose up -d                          # in ../aforo-nextgen-docker
+export AFORO_ADMIN_TOKEN=$(...your token...)
+go test -tags integration ./internal/seed/... # seeds, picks a stale key, hits ingestor
 ```
 
 ## Global flags

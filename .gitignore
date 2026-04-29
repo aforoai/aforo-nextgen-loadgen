@@ -23,3 +23,7 @@ go.work.sum
 # Coverage
 coverage.out
 coverage.html
+
+# Loadgen output (default --out path; per-run manifests should not land in VCS)
+manifest.json
+manifest-*.json

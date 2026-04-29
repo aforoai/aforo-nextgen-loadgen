@@ -43,13 +43,23 @@ func TestRootHelpListsAllSubcommands(t *testing.T) {
 }
 
 func TestEverySubcommandExitsZero(t *testing.T) {
+	// Subcommands that are fully wired with real entry points need at least
+	// one flag/argument to do non-error work. Map each one to invocation args
+	// that should print useful output without hitting the network.
+	specialArgs := map[string][]string{
+		"seed": {"seed", "--scenario", "ci-smoke", "--dry-run"},
+	}
 	for _, name := range expectedSubcommands {
 		t.Run(name, func(t *testing.T) {
 			cmd := NewRootCommand()
 			var buf bytes.Buffer
 			cmd.SetOut(&buf)
 			cmd.SetErr(&buf)
-			cmd.SetArgs([]string{name})
+			args := []string{name}
+			if a, ok := specialArgs[name]; ok {
+				args = a
+			}
+			cmd.SetArgs(args)
 
 			if err := cmd.Execute(); err != nil {
 				t.Fatalf("subcommand %q returned error: %v\noutput: %s", name, err, buf.String())
@@ -67,9 +77,10 @@ func TestStubsAdvertiseSession(t *testing.T) {
 	// builds know what to expect.
 	//
 	// Implemented in Session 2: scenarios (parent + 4 sub-leaves).
+	// Implemented in Session 3: seed.
 	stubs := []string{
 		"doctor", "e2e", "lifecycle", "payments", "replay", "report",
-		"run", "seed", "server", "validate",
+		"run", "server", "validate",
 	}
 	for _, name := range stubs {
 		t.Run(name, func(t *testing.T) {
