@@ -16,20 +16,21 @@ architecture, services, and conventions see
 
 ## Status
 
-Session 3 of 12. The command tree is in place; `version`, `scenarios`, and
-`seed` are fully implemented. Other subcommands are stubs that announce the
-session in which they ship. The scenario YAML schema itself is defined in
+Session 4 of 12. The command tree is in place; `version`, `scenarios`,
+`seed`, `run`, and `replay` are fully implemented. Other subcommands are
+stubs that announce the session in which they ship. The scenario YAML
+schema itself is defined in
 [`docs/scenario-schema.md`](docs/scenario-schema.md).
 
 | Subcommand  | Ships in   | What it does                                                      |
 | ----------- | ---------- | ----------------------------------------------------------------- |
 | `seed`      | _Session 3_ ✓ | Provision tenants per archetype via Aforo's REST APIs.           |
 | `scenarios` | _Session 2_ ✓ | List, describe, validate, and show built-in scenarios.          |
-| `run`       | Session 4  | Drive a load-test scenario against a target.                      |
-| `validate`  | Session 4  | Static-validate a scenario or config file with no traffic.        |
-| `lifecycle` | Session 5  | Drive subscription lifecycle transitions.                         |
-| `payments`  | Session 6  | Drive payment, tax, and ERP integration flows.                    |
-| `replay`    | Session 7  | Replay captured event traffic from a recorded log.                |
+| `run`       | _Session 4_ ✓ | Drive a load-test scenario against a target.                    |
+| `replay`    | _Session 4_ ✓ | Replay a recorded run-output against a target.                  |
+| `validate`  | Session 5  | Static-validate run output against scenario assertions.           |
+| `lifecycle` | Session 6  | Drive subscription lifecycle transitions.                         |
+| `payments`  | Session 9  | Drive payment, tax, and ERP integration flows.                    |
 | `e2e`       | Session 8  | End-to-end smoke flows against a live target.                     |
 | `report`    | Session 10 | Render results from a completed run.                              |
 | `doctor`    | Session 11 | Diagnose local environment and target reachability.               |
@@ -78,10 +79,48 @@ aforo-loadgen seed --scenario matrix-billing \
                    --archetypes-only mtx-flat-postpaid-cancelled \
                    --target local                             # seed a subset for fast iteration
 aforo-loadgen seed --clean --out manifest.json --target local # archive everything in manifest
-aforo-loadgen run --target https://usage-ingestor.aforo.space \
-                  --config ./loadgen.yaml                     # run a scenario (Session 4)
+aforo-loadgen run --scenario ci-smoke --manifest manifest.json \
+                  --target local --out runs/ci-smoke-$(date +%s) # drive a scenario (Session 4)
+aforo-loadgen replay --run-output runs/ci-smoke-... --target local # re-run from recorded output
 aforo-loadgen report --run-id <id>                            # render results (Session 10)
 ```
+
+## Run engine (Session 4)
+
+`aforo-loadgen run` drives a scenario against a target, generating events
+end-to-end:
+
+- **Generator**: tenant traffic shaped by Pareto 80/20 / Zipf / Uniform;
+  product mix sampled from `ProductMix`; per-product-type templates for
+  API / AI_AGENT / MCP_SERVER / AGENTIC_API matching Aforo's
+  `MetricTemplateRegistry`; payload variation small / medium / large;
+  six negative-path injectors (`late_event`, `future_event`, `malformed`,
+  `wrong_auth`, `stale_key`, `oversize`).
+- **Driver**: REST direct path POSTs to `/v1/ingest` with
+  `Authorization: Bearer <key>` + `X-Tenant-Id`. Custom transport
+  (MaxIdleConnsPerHost=100, no auto-redirect).
+- **Resilience**: rolling-window backpressure (5%/30s → 0.5× TPS) and
+  circuit breaker (50%/60s → 30s pause → half-open probe).
+  Negative-path-induced failures are tagged "expected" and don't trip
+  these — otherwise an `oversize_pct=0.05` scenario would flap the
+  breaker.
+- **Output dir**:
+  - `run.json` — per-archetype, per-tenant, per-negative-path counts +
+    p50/p90/p99 latency + state-change timestamps
+  - `events.jsonl` — first 1000 events with debug metadata (incl.
+    `subscription_id`, `stale_reason`, `stale_since` for stale_key)
+  - `latencies.hdr` — HDR distribution
+  - `per_archetype.json` — flat archetype counts
+  - `scenario.yaml` — copy of the scenario for byte-identical replay
+- **Metrics**: `--metrics-addr :9095` exposes Prometheus
+  `/metrics` + `/healthz`; `--pprof-port` adds `/debug/pprof/*`.
+- **Reproducibility**: `scenario.seed + manifest + scenario` →
+  identical event sequence. `replay` reads the recorded scenario.yaml
+  and re-runs.
+
+Stale-key safety: a scenario with `negative_paths.stale_keys_pct > 0`
+fails at startup if the manifest has zero stale subscriptions — the
+load test won't silently skip the fault injection.
 
 ## Seed harness (Session 3)
 
