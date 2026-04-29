@@ -1,0 +1,57 @@
+# ci-smoke — tiny CI gate
+#
+# Purpose: prove the loadgen binary, target endpoint, and at least one
+# happy-path event flow are functional. Runs in under 90 seconds, suitable
+# for every PR.
+#
+# Coverage: 1 tenant, 1 archetype (PER_UNIT POSTPAID API), REST direct only,
+# 50 TPS, 60s. No fault injection. No lifecycle. No payments.
+
+schema_version: 1
+name: ci-smoke
+description: 60-second happy-path smoke test for CI. One tenant, REST direct, no faults.
+target_tps: 50
+duration: 60s
+seed: 1
+
+tenants:
+  count: 1
+  distribution: uniform
+  archetypes:
+    - name: ci-smoke-baseline
+      weight: 1.0
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+time_pattern: constant
+
+product_mix:
+  API: 1.0
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.001
+  p99_latency_ms_max: 500
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: ci
+  notes: Anything red here blocks the merge.

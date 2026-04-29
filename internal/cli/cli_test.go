@@ -62,11 +62,14 @@ func TestEverySubcommandExitsZero(t *testing.T) {
 }
 
 func TestStubsAdvertiseSession(t *testing.T) {
-	// Every stub except `version` must announce the session it's slated for so
-	// users running pre-release builds know what to expect.
+	// Every stub except `version` and the fully-implemented subcommands must
+	// announce the session it's slated for so users running pre-release
+	// builds know what to expect.
+	//
+	// Implemented in Session 2: scenarios (parent + 4 sub-leaves).
 	stubs := []string{
 		"doctor", "e2e", "lifecycle", "payments", "replay", "report",
-		"run", "scenarios", "seed", "server", "validate",
+		"run", "seed", "server", "validate",
 	}
 	for _, name := range stubs {
 		t.Run(name, func(t *testing.T) {

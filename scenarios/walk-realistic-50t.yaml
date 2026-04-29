@@ -1,0 +1,231 @@
+# walk-realistic-50t — realistic mid-scale sustained load
+#
+# Purpose: a 24-hour run on a representative tenant population. Catches
+# leaks, GC pressure, p99 drift, scheduler overlap, and cache-key issues
+# that only surface at scale.
+#
+# Coverage: 50 tenants, 8 archetypes, all 4 product types, 4 ingest paths
+# (incl. one gateway), 2K TPS, 24h. Sine-24h time pattern. Light fault
+# injection. Lifecycle off (lifecycle-stress.yaml owns that).
+
+schema_version: 1
+name: walk-realistic-50t
+description: 50 tenants, 8 archetypes, sine-24h pattern, 2K TPS for 24 hours.
+target_tps: 2000
+duration: 24h
+seed: 7
+
+tenants:
+  count: 50
+  distribution: pareto_80_20
+  archetypes:
+    - name: walk-api-postpaid-perunit
+      weight: 0.20
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 100
+      currency_mix:
+        USD: 0.7
+        EUR: 0.2
+        GBP: 0.1
+      subscription_state_mix:
+        ACTIVE: 0.85
+        TRIALING: 0.05
+        PAUSED: 0.03
+        PAST_DUE: 0.04
+        CANCELLED: 0.02
+        EXPIRED: 0.01
+      discount_mix:
+        none: 0.7
+        pct_10: 0.2
+        fixed_50: 0.1
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+    - name: walk-api-prepaid-flat
+      weight: 0.10
+      pricing_model: FLAT_RATE
+      billing_mode: PREPAID
+      product_types: [API]
+      customer_count: 80
+      currency_mix:
+        USD: 0.8
+        EUR: 0.2
+      subscription_state_mix:
+        ACTIVE: 0.90
+        TRIALING: 0.05
+        CANCELLED: 0.05
+      rate_config:
+        flat_fee_usd: 199.00
+        wallet_initial_balance_usd: 1000.00
+
+    - name: walk-aiagent-postpaid-quota
+      weight: 0.15
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: POSTPAID
+      product_types: [AI_AGENT]
+      customer_count: 60
+      currency_mix:
+        USD: 0.6
+        EUR: 0.3
+        GBP: 0.1
+      subscription_state_mix:
+        ACTIVE: 0.80
+        TRIALING: 0.10
+        PAUSED: 0.05
+        CANCELLED: 0.03
+        EXPIRED: 0.02
+      discount_mix:
+        none: 0.6
+        pct_10: 0.25
+        fixed_50: 0.15
+      rate_config:
+        included_free_units: 5000
+        per_unit_rate_usd: 0.002
+
+    - name: walk-aiagent-hybrid-graduated
+      weight: 0.10
+      pricing_model: GRADUATED
+      billing_mode: HYBRID
+      product_types: [AI_AGENT]
+      customer_count: 40
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.85
+        EXPIRING_SOON: 0.10
+        CANCELLED: 0.05
+      rate_config:
+        wallet_initial_balance_usd: 500.00
+        graduated_tiers:
+          - up_to_units: 10000
+            unit_price_usd: 0.005
+          - up_to_units: 100000
+            unit_price_usd: 0.003
+          - up_to_units: 0
+            unit_price_usd: 0.002
+
+    - name: walk-mcp-postpaid-perunit
+      weight: 0.15
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [MCP_SERVER]
+      customer_count: 70
+      currency_mix:
+        USD: 0.7
+        EUR: 0.2
+        GBP: 0.1
+      subscription_state_mix:
+        ACTIVE: 0.80
+        TRIALING: 0.10
+        PAST_DUE: 0.05
+        CANCELLED: 0.03
+        EXPIRED: 0.02
+      rate_config:
+        per_unit_rate_usd: 0.0005
+
+    - name: walk-mcp-prepaid-volume
+      weight: 0.10
+      pricing_model: VOLUME_TIERED
+      billing_mode: PREPAID
+      product_types: [MCP_SERVER]
+      customer_count: 30
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.95
+        CANCELLED: 0.05
+      rate_config:
+        wallet_initial_balance_usd: 2000.00
+        volume_tiers:
+          - up_to_units: 50000
+            unit_price_usd: 0.003
+          - up_to_units: 500000
+            unit_price_usd: 0.002
+          - up_to_units: 0
+            unit_price_usd: 0.001
+
+    - name: walk-agentic-postpaid-percentage
+      weight: 0.10
+      pricing_model: PERCENTAGE
+      billing_mode: POSTPAID
+      product_types: [AGENTIC_API]
+      customer_count: 25
+      currency_mix:
+        USD: 0.5
+        EUR: 0.3
+        GBP: 0.2
+      subscription_state_mix:
+        ACTIVE: 0.90
+        TRIALING: 0.05
+        CANCELLED: 0.05
+      rate_config:
+        percentage_rate: 0.025
+        min_fee_usd: 5.00
+
+    - name: walk-agentic-hybrid-flat
+      weight: 0.10
+      pricing_model: FLAT_RATE
+      billing_mode: HYBRID
+      product_types: [AGENTIC_API]
+      customer_count: 35
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.85
+        TRIALING: 0.10
+        SUSPENDED: 0.05
+      rate_config:
+        flat_fee_usd: 499.00
+        wallet_initial_balance_usd: 1500.00
+
+time_pattern: sine_24h
+
+product_mix:
+  API: 0.4
+  AI_AGENT: 0.25
+  MCP_SERVER: 0.25
+  AGENTIC_API: 0.10
+
+ingestion_paths:
+  rest_direct: 0.5
+  sdk_node: 0.2
+  sdk_python: 0.15
+  gateway_kong: 0.15
+
+payload_variation:
+  small_pct: 0.7
+  medium_pct: 0.25
+  large_pct: 0.05
+
+negative_paths:
+  late_events_pct: 0.01
+  future_events_pct: 0.001
+  malformed_pct: 0.001
+  wrong_auth_pct: 0.001
+  stale_keys_pct: 0.001
+
+tax:
+  engine: mock
+  jurisdictions:
+    US-CA: 0.0925
+    EU-DE: 0.19
+    GB: 0.20
+
+wallet:
+  hold_expiry_audit: true
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.005
+  p99_latency_ms_max: 1000
+  per_tenant_p99_fairness_max_stddev_pct: 0.20
+  redis_cache_hit_ratio_min: 0.85
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: walk
+  expected_archetype_count: 8

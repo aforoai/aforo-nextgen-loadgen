@@ -1,0 +1,189 @@
+# lifecycle-stress — saturate the subscription state machine
+#
+# Purpose: drive aggressive lifecycle transitions (upgrade, downgrade,
+# pause, resume, trial conversion, migrate, payment retry) at high rate
+# to expose state-machine races, scheduler overlap, in-flight migration
+# audit-row gaps, and grace-period bugs.
+#
+# Coverage: 20 tenants, 5 archetypes biased toward states that can
+# transition (TRIALING, ACTIVE, PAST_DUE, PAUSED, EXPIRING_SOON),
+# 1K TPS, 4h. Lifecycle on at full intensity. Light fault injection.
+# Payments off (use payments=true overlay for a fuller stress run).
+
+schema_version: 1
+name: lifecycle-stress
+description: 4-hour 1K-TPS run with full subscription lifecycle transitions enabled.
+target_tps: 1000
+duration: 4h
+seed: 11
+
+tenants:
+  count: 20
+  distribution: uniform
+  archetypes:
+    - name: lifecycle-perunit-postpaid
+      weight: 0.25
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 100
+      currency_mix:
+        USD: 0.7
+        EUR: 0.3
+      # Skewed toward states the lifecycle engine can transition out of.
+      subscription_state_mix:
+        ACTIVE: 0.50
+        TRIALING: 0.20
+        PAUSED: 0.10
+        PAST_DUE: 0.10
+        EXPIRING_SOON: 0.05
+        CANCELLED: 0.05
+      discount_mix:
+        none: 0.7
+        pct_10: 0.3
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+    - name: lifecycle-flat-prepaid
+      weight: 0.20
+      pricing_model: FLAT_RATE
+      billing_mode: PREPAID
+      product_types: [AI_AGENT]
+      customer_count: 60
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.55
+        TRIALING: 0.25
+        PAUSED: 0.10
+        EXPIRING_SOON: 0.05
+        EXPIRED: 0.05
+      rate_config:
+        flat_fee_usd: 99.00
+        wallet_initial_balance_usd: 500.00
+        trial_days: 14
+
+    - name: lifecycle-quota-hybrid
+      weight: 0.20
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: HYBRID
+      product_types: [MCP_SERVER]
+      customer_count: 50
+      currency_mix:
+        USD: 0.6
+        EUR: 0.4
+      subscription_state_mix:
+        ACTIVE: 0.50
+        TRIALING: 0.20
+        PAUSED: 0.10
+        PAST_DUE: 0.10
+        EXPIRING_SOON: 0.05
+        CANCELLED: 0.05
+      rate_config:
+        included_free_units: 10000
+        per_unit_rate_usd: 0.001
+        wallet_initial_balance_usd: 500.00
+        trial_days: 7
+
+    - name: lifecycle-graduated-postpaid
+      weight: 0.20
+      pricing_model: GRADUATED
+      billing_mode: POSTPAID
+      product_types: [AGENTIC_API]
+      customer_count: 40
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.60
+        TRIALING: 0.20
+        PAST_DUE: 0.10
+        SUSPENDED: 0.05
+        CANCELLED: 0.05
+      discount_mix:
+        none: 0.5
+        pct_10: 0.3
+        fixed_50: 0.2
+      rate_config:
+        graduated_tiers:
+          - up_to_units: 1000
+            unit_price_usd: 0.010
+          - up_to_units: 0
+            unit_price_usd: 0.005
+
+    - name: lifecycle-volume-prepaid
+      weight: 0.15
+      pricing_model: VOLUME_TIERED
+      billing_mode: PREPAID
+      product_types: [API]
+      customer_count: 30
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.60
+        TRIALING: 0.20
+        EXPIRING_SOON: 0.10
+        CANCELLED: 0.05
+        EXPIRED: 0.05
+      rate_config:
+        wallet_initial_balance_usd: 1000.00
+        volume_tiers:
+          - up_to_units: 10000
+            unit_price_usd: 0.004
+          - up_to_units: 0
+            unit_price_usd: 0.002
+
+time_pattern: bursty
+
+product_mix:
+  API: 0.4
+  AI_AGENT: 0.2
+  MCP_SERVER: 0.2
+  AGENTIC_API: 0.2
+
+ingestion_paths:
+  rest_direct: 0.5
+  sdk_node: 0.25
+  sdk_python: 0.15
+  gateway_kong: 0.10
+
+payload_variation:
+  small_pct: 0.7
+  medium_pct: 0.25
+  large_pct: 0.05
+
+# Stale-key injection — allowed because all archetypes carry CANCELLED
+# or EXPIRED states.
+negative_paths:
+  late_events_pct: 0.005
+  malformed_pct: 0.001
+  stale_keys_pct: 0.005
+
+# Full intensity. Together these drive ~30% of subscriptions through some
+# transition each hour, simulating a busy mid-month period.
+lifecycle:
+  enabled: true
+  upgrades_per_hour_pct: 0.05
+  downgrades_per_hour_pct: 0.05
+  pause_resume_per_hour_pct: 0.05
+  trial_conversion_per_hour_pct: 0.10
+  trial_cancel_per_hour_pct: 0.05
+  migrate_per_hour_pct: 0.02
+  retry_payment_per_hour_pct: 0.10
+
+tax:
+  engine: mock
+
+wallet:
+  hold_expiry_audit: true
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.005
+  p99_latency_ms_max: 1500
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: stress
+  notes: Adjust lifecycle.*_per_hour_pct to dial intensity. Pair with chaos.enabled=true for a chaos-lifecycle stress run.

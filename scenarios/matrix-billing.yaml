@@ -1,0 +1,536 @@
+# matrix-billing — exhaustive 6×3 pricing×billing coverage
+#
+# Purpose: prove that every supported pricing model works correctly under
+# every supported billing mode. The 18 base archetypes are the cartesian
+# product (PER_UNIT, FLAT_RATE, PERCENTAGE, INCLUDED_QUOTA, GRADUATED,
+# VOLUME_TIERED) × (POSTPAID, PREPAID, HYBRID). 12 additional variants
+# stress different currency mixes, subscription state mixes (incl. stale
+# CANCELLED/EXPIRED for stale-key fault injection), and discount mixes.
+#
+# 30 archetypes, weight distribution: 20 × 0.033 + 10 × 0.034 = 1.000.
+#
+# Coverage: 90 tenants, 30 archetypes, full ingest path mix, 1K TPS, 2h.
+# Negative paths on at low rates incl. stale_keys (since several archetypes
+# include CANCELLED/EXPIRED states). Lifecycle off (separate scenario).
+
+schema_version: 1
+name: matrix-billing
+description: 30 archetypes covering every (pricing × billing) combination plus stale-state variants.
+target_tps: 1000
+duration: 2h
+seed: 2026
+
+tenants:
+  count: 90
+  distribution: uniform
+  archetypes:
+    # ---------- 18 base archetypes (6 pricing × 3 billing) ----------
+
+    - name: mtx-perunit-postpaid
+      weight: 0.034
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+    - name: mtx-perunit-prepaid
+      weight: 0.034
+      pricing_model: PER_UNIT
+      billing_mode: PREPAID
+      product_types: [API]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        per_unit_rate_usd: 0.001
+        wallet_initial_balance_usd: 500.00
+
+    - name: mtx-perunit-hybrid
+      weight: 0.034
+      pricing_model: PER_UNIT
+      billing_mode: HYBRID
+      product_types: [API]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        per_unit_rate_usd: 0.001
+        wallet_initial_balance_usd: 250.00
+
+    - name: mtx-flat-postpaid
+      weight: 0.034
+      pricing_model: FLAT_RATE
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        flat_fee_usd: 99.00
+
+    - name: mtx-flat-prepaid
+      weight: 0.034
+      pricing_model: FLAT_RATE
+      billing_mode: PREPAID
+      product_types: [AI_AGENT]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        flat_fee_usd: 99.00
+        wallet_initial_balance_usd: 500.00
+
+    - name: mtx-flat-hybrid
+      weight: 0.034
+      pricing_model: FLAT_RATE
+      billing_mode: HYBRID
+      product_types: [AI_AGENT]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        flat_fee_usd: 199.00
+        wallet_initial_balance_usd: 600.00
+
+    - name: mtx-percentage-postpaid
+      weight: 0.034
+      pricing_model: PERCENTAGE
+      billing_mode: POSTPAID
+      product_types: [AGENTIC_API]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        percentage_rate: 0.025
+        min_fee_usd: 5.00
+
+    - name: mtx-percentage-prepaid
+      weight: 0.033
+      pricing_model: PERCENTAGE
+      billing_mode: PREPAID
+      product_types: [AGENTIC_API]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        percentage_rate: 0.025
+        min_fee_usd: 5.00
+        wallet_initial_balance_usd: 400.00
+
+    - name: mtx-percentage-hybrid
+      weight: 0.033
+      pricing_model: PERCENTAGE
+      billing_mode: HYBRID
+      product_types: [AGENTIC_API]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        percentage_rate: 0.030
+        min_fee_usd: 10.00
+        wallet_initial_balance_usd: 300.00
+
+    - name: mtx-quota-postpaid
+      weight: 0.033
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: POSTPAID
+      product_types: [MCP_SERVER]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        included_free_units: 5000
+        per_unit_rate_usd: 0.002
+
+    - name: mtx-quota-prepaid
+      weight: 0.033
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: PREPAID
+      product_types: [MCP_SERVER]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        included_free_units: 5000
+        per_unit_rate_usd: 0.002
+        wallet_initial_balance_usd: 750.00
+
+    - name: mtx-quota-hybrid
+      weight: 0.033
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: HYBRID
+      product_types: [MCP_SERVER]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        included_free_units: 10000
+        per_unit_rate_usd: 0.001
+        block_size_units: 100
+        wallet_initial_balance_usd: 500.00
+
+    - name: mtx-graduated-postpaid
+      weight: 0.033
+      pricing_model: GRADUATED
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        graduated_tiers:
+          - up_to_units: 1000
+            unit_price_usd: 0.010
+          - up_to_units: 10000
+            unit_price_usd: 0.007
+          - up_to_units: 0
+            unit_price_usd: 0.005
+
+    - name: mtx-graduated-prepaid
+      weight: 0.033
+      pricing_model: GRADUATED
+      billing_mode: PREPAID
+      product_types: [AI_AGENT]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        wallet_initial_balance_usd: 1000.00
+        graduated_tiers:
+          - up_to_units: 1000
+            unit_price_usd: 0.010
+          - up_to_units: 10000
+            unit_price_usd: 0.007
+          - up_to_units: 0
+            unit_price_usd: 0.005
+
+    - name: mtx-graduated-hybrid
+      weight: 0.033
+      pricing_model: GRADUATED
+      billing_mode: HYBRID
+      product_types: [AI_AGENT]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        wallet_initial_balance_usd: 600.00
+        graduated_tiers:
+          - up_to_units: 5000
+            unit_price_usd: 0.008
+          - up_to_units: 50000
+            unit_price_usd: 0.005
+          - up_to_units: 0
+            unit_price_usd: 0.003
+
+    - name: mtx-volume-postpaid
+      weight: 0.033
+      pricing_model: VOLUME_TIERED
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        volume_tiers:
+          - up_to_units: 10000
+            unit_price_usd: 0.005
+          - up_to_units: 100000
+            unit_price_usd: 0.003
+          - up_to_units: 0
+            unit_price_usd: 0.002
+
+    - name: mtx-volume-prepaid
+      weight: 0.033
+      pricing_model: VOLUME_TIERED
+      billing_mode: PREPAID
+      product_types: [MCP_SERVER]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        wallet_initial_balance_usd: 1500.00
+        volume_tiers:
+          - up_to_units: 50000
+            unit_price_usd: 0.003
+          - up_to_units: 500000
+            unit_price_usd: 0.002
+          - up_to_units: 0
+            unit_price_usd: 0.001
+
+    - name: mtx-volume-hybrid
+      weight: 0.033
+      pricing_model: VOLUME_TIERED
+      billing_mode: HYBRID
+      product_types: [AGENTIC_API]
+      customer_count: 20
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        wallet_initial_balance_usd: 800.00
+        volume_tiers:
+          - up_to_units: 20000
+            unit_price_usd: 0.008
+          - up_to_units: 200000
+            unit_price_usd: 0.005
+          - up_to_units: 0
+            unit_price_usd: 0.003
+
+    # ---------- 12 variants (currencies, states, discounts) ----------
+
+    - name: mtx-perunit-postpaid-eur
+      weight: 0.033
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 15
+      currency_mix: { EUR: 0.7, GBP: 0.2, JPY: 0.1 }
+      subscription_state_mix: { ACTIVE: 0.95, TRIALING: 0.05 }
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+    - name: mtx-flat-postpaid-cancelled
+      weight: 0.033
+      pricing_model: FLAT_RATE
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 15
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix:
+        ACTIVE: 0.60
+        CANCELLED: 0.25
+        EXPIRED: 0.15
+      rate_config:
+        flat_fee_usd: 99.00
+
+    - name: mtx-flat-prepaid-mixed
+      weight: 0.033
+      pricing_model: FLAT_RATE
+      billing_mode: PREPAID
+      product_types: [AI_AGENT]
+      customer_count: 15
+      currency_mix: { USD: 0.5, EUR: 0.3, GBP: 0.2 }
+      subscription_state_mix:
+        ACTIVE: 0.85
+        TRIALING: 0.10
+        EXPIRED: 0.05
+      rate_config:
+        flat_fee_usd: 99.00
+        wallet_initial_balance_usd: 500.00
+
+    - name: mtx-percentage-hybrid-discount
+      weight: 0.033
+      pricing_model: PERCENTAGE
+      billing_mode: HYBRID
+      product_types: [AGENTIC_API]
+      customer_count: 15
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      discount_mix:
+        none: 0.3
+        pct_10: 0.2
+        fixed_50: 0.5
+      rate_config:
+        percentage_rate: 0.030
+        min_fee_usd: 10.00
+        wallet_initial_balance_usd: 300.00
+
+    - name: mtx-quota-postpaid-eur
+      weight: 0.033
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: POSTPAID
+      product_types: [MCP_SERVER]
+      customer_count: 15
+      currency_mix: { EUR: 0.6, GBP: 0.4 }
+      subscription_state_mix:
+        ACTIVE: 0.80
+        TRIALING: 0.10
+        PAUSED: 0.05
+        CANCELLED: 0.05
+      rate_config:
+        included_free_units: 5000
+        per_unit_rate_usd: 0.002
+
+    - name: mtx-quota-hybrid-paused
+      weight: 0.033
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: HYBRID
+      product_types: [MCP_SERVER]
+      customer_count: 15
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix:
+        ACTIVE: 0.70
+        PAUSED: 0.20
+        EXPIRING_SOON: 0.10
+      rate_config:
+        included_free_units: 10000
+        per_unit_rate_usd: 0.001
+        wallet_initial_balance_usd: 500.00
+
+    - name: mtx-graduated-postpaid-paused
+      weight: 0.033
+      pricing_model: GRADUATED
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 15
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix:
+        ACTIVE: 0.75
+        PAUSED: 0.10
+        PAST_DUE: 0.10
+        CANCELLED: 0.05
+      rate_config:
+        graduated_tiers:
+          - up_to_units: 1000
+            unit_price_usd: 0.010
+          - up_to_units: 0
+            unit_price_usd: 0.005
+
+    - name: mtx-graduated-hybrid-multi
+      weight: 0.033
+      pricing_model: GRADUATED
+      billing_mode: HYBRID
+      product_types: [AI_AGENT, API]
+      customer_count: 15
+      currency_mix: { USD: 0.5, EUR: 0.5 }
+      subscription_state_mix:
+        ACTIVE: 0.85
+        TRIALING: 0.10
+        EXPIRED: 0.05
+      discount_mix:
+        none: 0.5
+        pct_10: 0.5
+      rate_config:
+        wallet_initial_balance_usd: 600.00
+        graduated_tiers:
+          - up_to_units: 5000
+            unit_price_usd: 0.008
+          - up_to_units: 0
+            unit_price_usd: 0.003
+
+    - name: mtx-volume-postpaid-trialing
+      weight: 0.033
+      pricing_model: VOLUME_TIERED
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 15
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix:
+        ACTIVE: 0.65
+        TRIALING: 0.30
+        CANCELLED: 0.05
+      rate_config:
+        volume_tiers:
+          - up_to_units: 10000
+            unit_price_usd: 0.005
+          - up_to_units: 0
+            unit_price_usd: 0.002
+
+    - name: mtx-volume-prepaid-eur
+      weight: 0.034
+      pricing_model: VOLUME_TIERED
+      billing_mode: PREPAID
+      product_types: [MCP_SERVER]
+      customer_count: 15
+      currency_mix: { EUR: 0.7, GBP: 0.3 }
+      subscription_state_mix:
+        ACTIVE: 0.95
+        EXPIRED: 0.05
+      rate_config:
+        wallet_initial_balance_usd: 1500.00
+        volume_tiers:
+          - up_to_units: 50000
+            unit_price_usd: 0.003
+          - up_to_units: 0
+            unit_price_usd: 0.001
+
+    - name: mtx-volume-hybrid-discount
+      weight: 0.034
+      pricing_model: VOLUME_TIERED
+      billing_mode: HYBRID
+      product_types: [AGENTIC_API]
+      customer_count: 15
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix:
+        ACTIVE: 0.85
+        TRIALING: 0.10
+        EXPIRED: 0.05
+      discount_mix:
+        none: 0.4
+        pct_10: 0.3
+        fixed_50: 0.3
+      rate_config:
+        wallet_initial_balance_usd: 800.00
+        volume_tiers:
+          - up_to_units: 20000
+            unit_price_usd: 0.008
+          - up_to_units: 0
+            unit_price_usd: 0.003
+
+    - name: mtx-perunit-hybrid-stale
+      weight: 0.034
+      pricing_model: PER_UNIT
+      billing_mode: HYBRID
+      product_types: [API]
+      customer_count: 15
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix:
+        ACTIVE: 0.50
+        CANCELLED: 0.30
+        EXPIRED: 0.20
+      rate_config:
+        per_unit_rate_usd: 0.001
+        wallet_initial_balance_usd: 200.00
+
+time_pattern: constant
+
+product_mix:
+  API: 0.40
+  AI_AGENT: 0.20
+  MCP_SERVER: 0.20
+  AGENTIC_API: 0.20
+
+ingestion_paths:
+  rest_direct: 0.4
+  sdk_node: 0.2
+  sdk_python: 0.1
+  gateway_kong: 0.1
+  gateway_aws: 0.1
+  gateway_azure: 0.1
+
+payload_variation:
+  small_pct: 0.7
+  medium_pct: 0.25
+  large_pct: 0.05
+
+# Stale-key injection — allowed because several archetypes carry CANCELLED
+# or EXPIRED states (mtx-flat-postpaid-cancelled, mtx-perunit-hybrid-stale,
+# and others).
+negative_paths:
+  late_events_pct: 0.005
+  malformed_pct: 0.001
+  wrong_auth_pct: 0.001
+  stale_keys_pct: 0.002
+
+tax:
+  engine: mock
+  jurisdictions:
+    US-CA: 0.0925
+    EU-DE: 0.19
+    GB: 0.20
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.005
+  p99_latency_ms_max: 1200
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: matrix
+  pricing_billing_combos_covered: 18
+  variant_archetypes: 12

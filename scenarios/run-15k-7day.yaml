@@ -1,0 +1,337 @@
+# run-15k-7day — full-scale endurance run
+#
+# Purpose: prove the platform sustains the headline target (15K TPS) for a
+# full week across 500 tenants without degradation. This is the
+# acceptance-test profile.
+#
+# Coverage: 500 tenants, 12 archetypes, all 4 product types, all 6 pricing
+# models, all 3 billing modes, full ingest path mix incl. all 9 gateways,
+# 15K TPS, 7d. Sine-24h. Light fault injection. Lifecycle on at low rate.
+# Payments off in this baseline (toggle on for end-to-end revenue runs).
+
+schema_version: 1
+name: run-15k-7day
+description: 500 tenants, 12 archetypes, 15K TPS for 7 days. The headline endurance run.
+target_tps: 15000
+duration: 168h
+seed: 1729
+
+tenants:
+  count: 500
+  distribution: pareto_80_20
+  archetypes:
+    - name: run-api-postpaid-perunit
+      weight: 0.15
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 200
+      currency_mix:
+        USD: 0.6
+        EUR: 0.2
+        GBP: 0.1
+        JPY: 0.1
+      subscription_state_mix:
+        ACTIVE: 0.80
+        TRIALING: 0.05
+        PAUSED: 0.03
+        PAST_DUE: 0.05
+        EXPIRING_SOON: 0.02
+        CANCELLED: 0.03
+        EXPIRED: 0.02
+      discount_mix:
+        none: 0.6
+        pct_10: 0.25
+        fixed_50: 0.15
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+    - name: run-api-prepaid-flat
+      weight: 0.10
+      pricing_model: FLAT_RATE
+      billing_mode: PREPAID
+      product_types: [API]
+      customer_count: 150
+      currency_mix:
+        USD: 0.7
+        EUR: 0.3
+      subscription_state_mix:
+        ACTIVE: 0.90
+        TRIALING: 0.05
+        CANCELLED: 0.05
+      rate_config:
+        flat_fee_usd: 199.00
+        wallet_initial_balance_usd: 1500.00
+
+    - name: run-api-hybrid-quota
+      weight: 0.10
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: HYBRID
+      product_types: [API]
+      customer_count: 120
+      currency_mix:
+        USD: 0.5
+        EUR: 0.3
+        GBP: 0.2
+      subscription_state_mix:
+        ACTIVE: 0.85
+        TRIALING: 0.05
+        PAST_DUE: 0.05
+        EXPIRED: 0.05
+      rate_config:
+        included_free_units: 10000
+        per_unit_rate_usd: 0.0008
+        wallet_initial_balance_usd: 1000.00
+
+    - name: run-aiagent-postpaid-graduated
+      weight: 0.10
+      pricing_model: GRADUATED
+      billing_mode: POSTPAID
+      product_types: [AI_AGENT]
+      customer_count: 80
+      currency_mix:
+        USD: 0.7
+        EUR: 0.3
+      subscription_state_mix:
+        ACTIVE: 0.85
+        TRIALING: 0.10
+        CANCELLED: 0.05
+      discount_mix:
+        none: 0.5
+        pct_10: 0.30
+        fixed_50: 0.20
+      rate_config:
+        graduated_tiers:
+          - up_to_units: 10000
+            unit_price_usd: 0.005
+          - up_to_units: 100000
+            unit_price_usd: 0.003
+          - up_to_units: 0
+            unit_price_usd: 0.002
+
+    - name: run-aiagent-prepaid-volume
+      weight: 0.05
+      pricing_model: VOLUME_TIERED
+      billing_mode: PREPAID
+      product_types: [AI_AGENT]
+      customer_count: 50
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.95
+        CANCELLED: 0.05
+      rate_config:
+        wallet_initial_balance_usd: 3000.00
+        volume_tiers:
+          - up_to_units: 100000
+            unit_price_usd: 0.004
+          - up_to_units: 1000000
+            unit_price_usd: 0.0025
+          - up_to_units: 0
+            unit_price_usd: 0.0015
+
+    - name: run-aiagent-hybrid-percentage
+      weight: 0.05
+      pricing_model: PERCENTAGE
+      billing_mode: HYBRID
+      product_types: [AI_AGENT]
+      customer_count: 40
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.90
+        TRIALING: 0.05
+        EXPIRED: 0.05
+      rate_config:
+        percentage_rate: 0.030
+        min_fee_usd: 10.00
+        wallet_initial_balance_usd: 500.00
+
+    - name: run-mcp-postpaid-perunit
+      weight: 0.10
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [MCP_SERVER]
+      customer_count: 100
+      currency_mix:
+        USD: 0.5
+        EUR: 0.3
+        GBP: 0.2
+      subscription_state_mix:
+        ACTIVE: 0.85
+        TRIALING: 0.05
+        PAUSED: 0.03
+        CANCELLED: 0.04
+        EXPIRED: 0.03
+      rate_config:
+        per_unit_rate_usd: 0.0005
+
+    - name: run-mcp-prepaid-quota
+      weight: 0.05
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: PREPAID
+      product_types: [MCP_SERVER]
+      customer_count: 60
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.95
+        EXPIRED: 0.05
+      rate_config:
+        included_free_units: 50000
+        per_unit_rate_usd: 0.0003
+        wallet_initial_balance_usd: 800.00
+
+    - name: run-mcp-hybrid-flat
+      weight: 0.05
+      pricing_model: FLAT_RATE
+      billing_mode: HYBRID
+      product_types: [MCP_SERVER]
+      customer_count: 30
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.90
+        SUSPENDED: 0.05
+        CANCELLED: 0.05
+      rate_config:
+        flat_fee_usd: 299.00
+        wallet_initial_balance_usd: 800.00
+
+    - name: run-agentic-postpaid-graduated
+      weight: 0.10
+      pricing_model: GRADUATED
+      billing_mode: POSTPAID
+      product_types: [AGENTIC_API]
+      customer_count: 70
+      currency_mix:
+        USD: 0.6
+        EUR: 0.4
+      subscription_state_mix:
+        ACTIVE: 0.85
+        TRIALING: 0.05
+        PAST_DUE: 0.05
+        CANCELLED: 0.05
+      rate_config:
+        graduated_tiers:
+          - up_to_units: 5000
+            unit_price_usd: 0.010
+          - up_to_units: 50000
+            unit_price_usd: 0.007
+          - up_to_units: 0
+            unit_price_usd: 0.004
+
+    - name: run-agentic-prepaid-perunit
+      weight: 0.10
+      pricing_model: PER_UNIT
+      billing_mode: PREPAID
+      product_types: [AGENTIC_API]
+      customer_count: 50
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.95
+        EXPIRED: 0.05
+      rate_config:
+        per_unit_rate_usd: 0.005
+        wallet_initial_balance_usd: 1000.00
+
+    - name: run-agentic-hybrid-volume
+      weight: 0.05
+      pricing_model: VOLUME_TIERED
+      billing_mode: HYBRID
+      product_types: [AGENTIC_API]
+      customer_count: 40
+      currency_mix:
+        USD: 0.7
+        EUR: 0.3
+      subscription_state_mix:
+        ACTIVE: 0.90
+        TRIALING: 0.05
+        CANCELLED: 0.05
+      rate_config:
+        wallet_initial_balance_usd: 1200.00
+        volume_tiers:
+          - up_to_units: 20000
+            unit_price_usd: 0.008
+          - up_to_units: 200000
+            unit_price_usd: 0.005
+          - up_to_units: 0
+            unit_price_usd: 0.003
+
+time_pattern: sine_24h
+
+product_mix:
+  API: 0.45
+  AI_AGENT: 0.20
+  MCP_SERVER: 0.20
+  AGENTIC_API: 0.15
+
+# Realistic mix across all 9 gateways + 4 SDKs + REST + webhook + CSV.
+ingestion_paths:
+  rest_direct: 0.30
+  sdk_node: 0.10
+  sdk_python: 0.10
+  sdk_java: 0.05
+  sdk_go: 0.05
+  gateway_kong: 0.08
+  gateway_apigee: 0.05
+  gateway_aws: 0.05
+  gateway_azure: 0.04
+  gateway_mulesoft: 0.04
+  gateway_apisix: 0.03
+  gateway_tyk: 0.03
+  gateway_gravitee: 0.02
+  gateway_envoy: 0.02
+  webhook_receiver: 0.03
+  csv_upload: 0.01
+
+payload_variation:
+  small_pct: 0.7
+  medium_pct: 0.25
+  large_pct: 0.05
+
+negative_paths:
+  late_events_pct: 0.01
+  future_events_pct: 0.001
+  malformed_pct: 0.001
+  wrong_auth_pct: 0.001
+  stale_keys_pct: 0.001
+  oversize_pct: 0.0001
+
+lifecycle:
+  enabled: true
+  upgrades_per_hour_pct: 0.02
+  downgrades_per_hour_pct: 0.02
+  pause_resume_per_hour_pct: 0.02
+  trial_conversion_per_hour_pct: 0.05
+  trial_cancel_per_hour_pct: 0.02
+  migrate_per_hour_pct: 0.01
+  retry_payment_per_hour_pct: 0.05
+
+tax:
+  engine: mock
+  jurisdictions:
+    US-CA: 0.0925
+    US-NY: 0.08875
+    EU-DE: 0.19
+    EU-FR: 0.20
+    GB: 0.20
+    JP: 0.10
+
+wallet:
+  hold_expiry_audit: true
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.005
+  p99_latency_ms_max: 1500
+  per_tenant_p99_fairness_max_stddev_pct: 0.25
+  redis_cache_hit_ratio_min: 0.90
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: run
+  notes: Headline endurance run. Pin a release here only after this passes.

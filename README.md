@@ -16,14 +16,15 @@ architecture, services, and conventions see
 
 ## Status
 
-Session 1 of 12. The command tree is in place; most subcommands are stubs
-that announce the session in which they ship. The `version` subcommand is the
-only fully-implemented command.
+Session 2 of 12. The command tree is in place; the `version` and
+`scenarios` subcommands are fully implemented. Other subcommands are stubs
+that announce the session in which they ship. The scenario YAML schema
+itself is defined in [`docs/scenario-schema.md`](docs/scenario-schema.md).
 
 | Subcommand  | Ships in   | What it does                                                      |
 | ----------- | ---------- | ----------------------------------------------------------------- |
-| `seed`      | Session 2  | Seed tenants, products, rate plans, subscriptions for a run.      |
-| `scenarios` | Session 2  | List, describe, and inspect built-in scenarios.                   |
+| `seed`      | Session 3  | Seed tenants, products, rate plans, subscriptions for a run.      |
+| `scenarios` | _Session 2_ ✓ | List, describe, validate, and show built-in scenarios.          |
 | `run`       | Session 3  | Drive a load-test scenario against a target.                      |
 | `validate`  | Session 4  | Static-validate a scenario or config file with no traffic.        |
 | `lifecycle` | Session 5  | Drive subscription lifecycle transitions.                         |
@@ -64,12 +65,15 @@ make build
 ## Quickstart
 
 ```bash
-aforo-loadgen --help                              # see all subcommands
-aforo-loadgen version                             # print build metadata
-aforo-loadgen scenarios                           # list scenarios (Session 2)
+aforo-loadgen --help                                          # see all subcommands
+aforo-loadgen version                                         # print build metadata
+aforo-loadgen scenarios list                                  # list built-in scenarios
+aforo-loadgen scenarios show ci-smoke                         # print one's YAML
+aforo-loadgen scenarios archetypes walk-realistic-50t         # list its archetypes
+aforo-loadgen scenarios validate ./my-scenario.yaml           # validate a custom file
 aforo-loadgen run --target https://usage-ingestor.aforo.space \
-                  --config ./loadgen.yaml        # run a scenario (Session 3)
-aforo-loadgen report --run-id <id>                # render results (Session 10)
+                  --config ./loadgen.yaml                     # run a scenario (Session 3)
+aforo-loadgen report --run-id <id>                            # render results (Session 10)
 ```
 
 ## Global flags
@@ -102,6 +106,15 @@ CI runs `make build`, `make test`, and `golangci-lint` on every PR.
 
 The Session 1 acceptance test (`TestEverySubcommandExitsZero`) enforces that
 every registered subcommand exits 0 with output.
+
+### Adding a built-in scenario
+
+1. Drop a `.yaml` file in `scenarios/`. The `embed.FS` picks it up at build time.
+2. Run `aforo-loadgen scenarios validate scenarios/<name>.yaml` and fix anything red.
+3. Update the catalog list in `internal/scenario/golden_test.go` so the
+   golden-file test enforces the new file is present and valid.
+4. Document the scenario in [`docs/scenario-schema.md`](docs/scenario-schema.md)
+   under "Reference: built-in scenarios".
 
 ## License
 
