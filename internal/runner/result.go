@@ -48,6 +48,15 @@ type RunResult struct {
 	PerArchetype       map[string]int64                     `json:"per_archetype"`
 	PerTenant          map[string]int64                     `json:"per_tenant"`
 	PerProductType     map[string]int64                     `json:"per_product_type"`
+	PerIngestionPath   map[string]int64                     `json:"per_ingestion_path,omitempty"` // Session 8
+
+	// Session 8 — per-tenant fairness summary. Computed when the runner
+	// has per-tenant histograms recorded; nil otherwise.
+	PerTenantP99Ms        map[string]float64           `json:"per_tenant_p99_ms,omitempty"`
+	PerTenantPathP99Ms    map[string]map[string]float64 `json:"per_tenant_path_p99_ms,omitempty"`
+	Fairness              *FairnessReport              `json:"fairness,omitempty"`
+	FairnessGateDeferred  int64                        `json:"fairness_gate_deferred,omitempty"`
+	PerTenantHistogramsMB float64                      `json:"per_tenant_histograms_mb,omitempty"`
 
 	LatencyP50ms float64 `json:"latency_p50_ms"`
 	LatencyP90ms float64 `json:"latency_p90_ms"`

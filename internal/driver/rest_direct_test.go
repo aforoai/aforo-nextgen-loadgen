@@ -171,8 +171,10 @@ func TestRESTDirectTransportError(t *testing.T) {
 // TestRESTDirectRedirectIsTransport — auto-redirect is disabled; a 302
 // surfaces as a transport error so misconfigurations don't pass silently.
 func TestRESTDirectRedirectIsTransport(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Redirect(w, &http.Request{}, "/elsewhere", http.StatusFound)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Pass the real request — http.Redirect dereferences r.URL to
+		// compute the absolute URL, so a synthetic &http.Request{} panics.
+		http.Redirect(w, r, "/elsewhere", http.StatusFound)
 	}))
 	defer ts.Close()
 

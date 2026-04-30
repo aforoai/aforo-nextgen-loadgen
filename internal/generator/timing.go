@@ -45,11 +45,33 @@ type PacerConfig struct {
 	// Sine knobs (applied only when Pattern==TimeSine24h).
 	SineAmplitude float64 // 0..1 — fraction of TargetTPS swing (default 0.4)
 
+	// SinePeaksPerDay sets the number of equal-amplitude peaks across a 24h
+	// window. Default 3 (US / EU / Asia regional load cycles). Set to 1 for
+	// the legacy single-peak shape.
+	//
+	// Three peaks per day approximates real-world SaaS load: the US peak
+	// sits roughly 8h after the EU peak which sits 8h after the Asia peak
+	// (the regions take turns being awake). The pacer plants them at
+	// FirstPeakOffset, FirstPeakOffset + 8h, FirstPeakOffset + 16h.
+	SinePeaksPerDay int
+
+	// FirstPeakOffset is the seconds-since-midnight at which the first peak
+	// of the day lands. Default 6h UTC (Asia business hours). With three
+	// peaks per day, the others fall at 14h (EU late afternoon) and 22h
+	// (US late afternoon to evening).
+	FirstPeakOffset time.Duration
+
 	// Now is for tests. nil → time.Now.
 	Now func() time.Time
 	// Sleep is for tests. nil → blocks via time.NewTimer + ctx.
 	Sleep func(ctx context.Context, d time.Duration) error
 }
+
+// DefaultSinePeaksPerDay reflects the regional split (US/EU/Asia).
+const DefaultSinePeaksPerDay = 3
+
+// DefaultFirstPeakOffset is 06:00 UTC — middle of the Asia business day.
+var DefaultFirstPeakOffset = 6 * time.Hour
 
 // NewPacer constructs the appropriate Pacer for the scenario time pattern.
 func NewPacer(cfg PacerConfig) Pacer {
@@ -73,6 +95,12 @@ func NewPacer(cfg PacerConfig) Pacer {
 	}
 	if cfg.SineAmplitude <= 0 || cfg.SineAmplitude > 1 {
 		cfg.SineAmplitude = 0.4
+	}
+	if cfg.SinePeaksPerDay <= 0 {
+		cfg.SinePeaksPerDay = DefaultSinePeaksPerDay
+	}
+	if cfg.FirstPeakOffset <= 0 {
+		cfg.FirstPeakOffset = DefaultFirstPeakOffset
 	}
 
 	base := basePacer{
@@ -168,33 +196,76 @@ func (p *sinePacer) Wait(ctx context.Context) (time.Time, error) {
 	return deadline, nil
 }
 
-// cumulativeSineCount returns ∫₀ᵗ TPS·m·(1+amp·sin(2π s / 86400)) ds
-// = TPS·m·t - TPS·m·amp·86400/(2π)·(cos(2π t/86400) - 1).
+// cumulativeSineCount returns the integrated event count over [0, seconds]
+// for the N-peaks-per-day shape:
+//
+//	rate(t) = TPS · m · (1 + amp · cos(2π · N · (t - φ₀) / 86400))
+//
+// where N = SinePeaksPerDay and φ₀ = FirstPeakOffset is the seconds-since-
+// midnight at which the FIRST peak lands. Subsequent peaks repeat every
+// 86400/N seconds. The cosine peaks at +1 when its argument is 0, so the
+// rate's maximum is at t = φ₀ + k·(86400/N) for integer k ≥ 0.
+//
+// Three peaks per day → period 8h → peaks at φ₀, φ₀+8h, φ₀+16h. With the
+// default φ₀ = 6h, that's 06:00, 14:00, 22:00 UTC — Asia / EU / US local
+// business hours respectively (the regions take turns being awake).
+//
+// Cumulative (integrated):
+//
+//	C(t) = TPS·m·t + TPS·m·amp/ω · (sin(ω(t-φ₀)) - sin(-ω·φ₀))
+//
+// where ω = 2π·N/86400. Monotone-non-decreasing for amp ≤ 1: derivative =
+// TPS·m·(1 + amp·cos(ω(t-φ₀))) ∈ [TPS·m·(1-amp), TPS·m·(1+amp)] ≥ 0.
 func (p *sinePacer) cumulativeSineCount(seconds float64) float64 {
 	tps := float64(p.cfg.TargetTPS) * p.multiplier
 	if tps <= 0 {
 		return 0
 	}
-	period := 86400.0
-	omega := 2.0 * math.Pi / period
+	const period = 86400.0
+	n := float64(p.cfg.SinePeaksPerDay)
+	if n <= 0 {
+		n = 1
+	}
 	amp := p.cfg.SineAmplitude
-	return tps*seconds + tps*amp*(1.0-math.Cos(omega*seconds))/omega
+	phi0 := p.cfg.FirstPeakOffset.Seconds()
+	omega := 2.0 * math.Pi * n / period
+	cum := tps*seconds + tps*amp/omega*(math.Sin(omega*(seconds-phi0))-math.Sin(-omega*phi0))
+	return cum
+}
+
+// instantaneousRate is d/dt cumulativeSineCount.
+func (p *sinePacer) instantaneousRate(seconds float64) float64 {
+	tps := float64(p.cfg.TargetTPS) * p.multiplier
+	if tps <= 0 {
+		return 0
+	}
+	const period = 86400.0
+	n := float64(p.cfg.SinePeaksPerDay)
+	if n <= 0 {
+		n = 1
+	}
+	amp := p.cfg.SineAmplitude
+	phi0 := p.cfg.FirstPeakOffset.Seconds()
+	omega := 2.0 * math.Pi * n / period
+	return tps * (1 + amp*math.Cos(omega*(seconds-phi0)))
 }
 
 func (p *sinePacer) solveForCumulative(target float64) float64 {
-	// Decent initial guess: linear inverse at mean rate (ignore amplitude).
+	// Decent initial guess: linear inverse at mean rate (the sum-of-sines
+	// has zero mean over a full period, so TPS is a good linear estimate).
 	tps := float64(p.cfg.TargetTPS) * p.multiplier
 	if tps <= 0 {
-		// Degenerate: return 1s in the future.
 		return 1.0
 	}
 	t := target / tps
-	// Newton-Raphson — d/dt cumulativeSineCount = tps*(1+amp*sin(2πt/86400))
-	for iter := 0; iter < 16; iter++ {
+	for iter := 0; iter < 24; iter++ {
 		f := p.cumulativeSineCount(t) - target
-		dfdt := tps * (1.0 + p.cfg.SineAmplitude*math.Sin(2*math.Pi*t/86400.0))
+		dfdt := p.instantaneousRate(t)
 		if dfdt <= 0 {
-			break
+			// Degenerate (extreme amp + multiplier collapse). Fall back to
+			// linear advance so the pacer keeps producing.
+			t += 1.0 / tps
+			continue
 		}
 		dt := f / dfdt
 		t -= dt

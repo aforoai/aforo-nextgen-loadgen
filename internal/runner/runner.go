@@ -40,6 +40,15 @@ type Config struct {
 	MetricsAddr string
 	PprofPort   int
 
+	// Session 8 — multi-driver fanout. When non-empty, the runner uses the
+	// driver registry + multiplex. When empty, the legacy rest_direct-only
+	// behavior is preserved (Sessions 4-7 tests still pass).
+	WebhookSources map[string]driver.WebhookSource
+
+	// Session 8 — fairness scheduler. When >0, a fairness gate is wired
+	// between the generator and the worker pool. 0 disables it.
+	FairnessMinShareFraction float64
+
 	// Now is for tests. nil → time.Now.
 	Now func() time.Time
 
@@ -62,10 +71,15 @@ type Runner struct {
 	eventsBufMu    sync.Mutex
 	perTenant      sync.Map // tenant_id → *atomic.Int64
 	perProductType sync.Map // product_type → *atomic.Int64
+	perPath        sync.Map // ingestion_path → *atomic.Int64  (Session 8)
 	bpEngaged      []time.Time
 	cbOpened       []time.Time
 	bpEvtMu        sync.Mutex
 	scenarioYAML   []byte
+	perTenantStore *perTenantStore // Session 8 — per-tenant fairness histograms
+	fairnessGate   *driver.FairnessGate
+	deferredCount  atomic.Int64 // events deferred by the fairness gate
+	driverRegistry *driver.Registry
 
 	registry *metrics.Registry
 	mserver  *metrics.Server
@@ -116,14 +130,29 @@ func New(cfg Config) (*Runner, error) {
 		return nil, fmt.Errorf("runner: generator: %w", err)
 	}
 
-	// Driver — REST direct only in Session 4.
-	rest, err := driver.NewRESTDirect(driver.RESTDirectConfig{
-		Target:     cfg.Target,
-		AdminToken: cfg.AdminToken,
+	// Session 8 — driver fanout via registry + multiplex. The multiplex
+	// dispatches each event to the per-event ingestion-path's underlying
+	// driver. When the scenario only references rest_direct, the registry
+	// constructs only the rest_direct driver — no extra cost for the
+	// non-multi-path case.
+	driverRegistry, err := driver.NewRegistry(driver.RegistryConfig{
+		Target:         cfg.Target,
+		AdminToken:     cfg.AdminToken,
+		WebhookSources: cfg.WebhookSources,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("runner: driver: %w", err)
+		return nil, fmt.Errorf("runner: driver registry: %w", err)
 	}
+	// Pre-warm: any ingestion path the scenario references, validate now so
+	// constructor errors surface before the run starts.
+	for _, name := range scenarioReferencedPaths(cfg.Scenario) {
+		if _, err := driverRegistry.Get(name); err != nil {
+			// Release any drivers already constructed before bailing.
+			_ = driverRegistry.Close()
+			return nil, fmt.Errorf("runner: %s: %w", name, err)
+		}
+	}
+	mux := driver.NewMultiplex(driverRegistry)
 
 	// Resilience layer — backpressure (5% / 30s / 50%) + circuit breaker
 	// (50% / 60s / 30s pause).
@@ -150,22 +179,30 @@ func New(cfg Config) (*Runner, error) {
 	reg := metrics.NewRegistry()
 
 	r := &Runner{
-		cfg:       cfg,
-		now:       cfg.Now,
-		runID:     randomRunID(),
-		eventsCap: 1000,
-		registry:  reg,
-		driver:    rest,
-		bp:        bp,
-		cb:        cb,
-		gen:       gen,
-		pacer:     pacer,
-		histogram: hist,
+		cfg:            cfg,
+		now:            cfg.Now,
+		runID:          randomRunID(),
+		eventsCap:      1000,
+		registry:       reg,
+		driver:         mux,
+		bp:             bp,
+		cb:             cb,
+		gen:            gen,
+		pacer:          pacer,
+		histogram:      hist,
+		perTenantStore: newPerTenantStore(),
+		driverRegistry: driverRegistry,
+	}
+	if cfg.FairnessMinShareFraction > 0 {
+		r.fairnessGate = driver.NewFairnessGate(driver.FairnessConfig{
+			MinShareFraction: cfg.FairnessMinShareFraction,
+			Now:              cfg.Now,
+		})
 	}
 
-	// Pool wires generator → driver, with the backpressure / breaker.
+	// Pool wires generator → multiplexed driver, with the backpressure / breaker.
 	pool, err := driver.NewPool(driver.PoolConfig{
-		Driver:         rest,
+		Driver:         mux,
 		Workers:        cfg.Workers,
 		Backpressure:   bp,
 		CircuitBreaker: cb,
@@ -199,9 +236,42 @@ func New(cfg Config) (*Runner, error) {
 	// Initial gauge values.
 	reg.TenantsActive.Set(float64(gen.TenantsActive()))
 	reg.BackpressureActive.Set(0)
-	reg.CircuitBreakerState.WithLabelValues(rest.Name()).Set(float64(driver.StateClosed))
+	reg.CircuitBreakerState.WithLabelValues(mux.Name()).Set(float64(driver.StateClosed))
 
 	return r, nil
+}
+
+// scenarioReferencedPaths returns the list of ingestion paths the scenario
+// references with positive weight. Used for registry pre-warming so
+// constructor errors surface before the run starts.
+func scenarioReferencedPaths(s *scenario.Scenario) []string {
+	paths := []string{}
+	add := func(name string, w float64) {
+		if w > 0 {
+			paths = append(paths, name)
+		}
+	}
+	p := s.IngestionPaths
+	add("rest_direct", p.RestDirect)
+	add("sdk_node", p.SDKNode)
+	add("sdk_python", p.SDKPython)
+	add("sdk_java", p.SDKJava)
+	add("sdk_go", p.SDKGo)
+	add("gateway_kong", p.GatewayKong)
+	add("gateway_apigee", p.GatewayApigee)
+	add("gateway_aws", p.GatewayAWS)
+	add("gateway_azure", p.GatewayAzure)
+	add("gateway_mulesoft", p.GatewayMuleSoft)
+	add("gateway_apisix", p.GatewayAPISIX)
+	add("gateway_tyk", p.GatewayTyk)
+	add("gateway_gravitee", p.GatewayGravitee)
+	add("gateway_envoy", p.GatewayEnvoy)
+	add("webhook_receiver", p.WebhookReceiver)
+	add("csv_upload", p.CSVUpload)
+	if len(paths) == 0 {
+		paths = append(paths, "rest_direct")
+	}
+	return paths
 }
 
 // Run blocks until the scenario completes, ctx cancels, or a fatal error
@@ -229,8 +299,18 @@ func (r *Runner) Run(ctx context.Context) (*RunResult, error) {
 		genErrCh <- r.gen.Run(ctx, r.pacerWithBackpressure())
 	}()
 
+	// Optional fairness filter — when enabled, the gate reshapes the
+	// generator's distribution by deferring events for tenants that exceed
+	// their per-window cap. Deferred events are counted but not dispatched
+	// (re-pick happens at the generator's next tick).
+	events := r.gen.Out()
+	if r.fairnessGate != nil {
+		events = driver.NewFairnessFilter(events, r.fairnessGate, r.gen.TenantsActive(), func(*generator.Event) {
+			r.deferredCount.Add(1)
+		})
+	}
 	// Pool blocks until the generator's channel closes.
-	r.pool.Run(ctx, r.gen.Out())
+	r.pool.Run(ctx, events)
 
 	// Generator may still be in flight if it errored without closing — so
 	// wait for it to return.
@@ -329,6 +409,10 @@ func (r *Runner) onResult(res driver.Result) {
 		r.histMu.Lock()
 		_ = r.histogram.RecordValue(res.Latency.Microseconds())
 		r.histMu.Unlock()
+		// Per-tenant fairness — Session 8.
+		if r.perTenantStore != nil {
+			r.perTenantStore.Record(res.Event.Envelope.TenantID, ipath, pt, res.Latency)
+		}
 	} else {
 		switch {
 		case res.IsExpectedFailure():
@@ -347,9 +431,10 @@ func (r *Runner) onResult(res driver.Result) {
 		r.registry.NegativePathTotal.WithLabelValues(string(res.Event.NegativePath)).Inc()
 	}
 
-	// Per-tenant + per-product-type counters.
+	// Per-tenant + per-product-type + per-path counters.
 	atomic64Inc(&r.perTenant, res.Event.Envelope.TenantID)
 	atomic64Inc(&r.perProductType, pt)
+	atomic64Inc(&r.perPath, ipath)
 
 	// events.jsonl — capped at first eventsCap events so 7-day runs don't
 	// blow disk. We log irrespective of outcome so debug includes failures.
@@ -432,7 +517,16 @@ func (r *Runner) buildResult(genErr error) *RunResult {
 		PerArchetype:       stats.ArchetypeSnapshot(),
 		PerTenant:          atomicMap(&r.perTenant),
 		PerProductType:     atomicMap(&r.perProductType),
+		PerIngestionPath:   atomicMap(&r.perPath),
 	}
+	if r.perTenantStore != nil {
+		res.PerTenantP99Ms = r.perTenantStore.PerTenantP99()
+		res.PerTenantPathP99Ms = r.perTenantStore.PerTenantPathBreakdown()
+		fr := r.perTenantStore.FairnessReport()
+		res.Fairness = &fr
+		res.PerTenantHistogramsMB = float64(r.perTenantStore.MemoryFootprint()) / (1 << 20)
+	}
+	res.FairnessGateDeferred = r.deferredCount.Load()
 	res.EventsFailed = res.ClientErrors + res.ServerErrors + res.TransportFailures + res.CircuitOpenSkipped
 
 	r.histMu.Lock()

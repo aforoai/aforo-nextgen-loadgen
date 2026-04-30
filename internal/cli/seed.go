@@ -22,17 +22,18 @@ import (
 )
 
 type seedFlags struct {
-	scenarioFlag   string
-	target         string
-	out            string
-	dryRun         bool
-	clean          bool
-	cleanFromFile  string
-	archetypesOnly []string
-	concurrency    int
-	maxConcurrency int
-	minIntervalMS  int
-	tokenEnv       string
+	scenarioFlag      string
+	target            string
+	out               string
+	dryRun            bool
+	clean             bool
+	cleanFromFile     string
+	archetypesOnly    []string
+	concurrency       int
+	maxConcurrency    int
+	minIntervalMS     int
+	tokenEnv          string
+	provisionWebhooks bool
 }
 
 // newSeedCommand wires `aforo-loadgen seed`. The body is intentionally thin —
@@ -71,6 +72,7 @@ Examples:
 	cmd.Flags().IntVar(&f.maxConcurrency, "max-http-concurrency", 50, "max concurrent in-flight HTTP requests")
 	cmd.Flags().IntVar(&f.minIntervalMS, "min-interval-ms", 200, "minimum interval between any two HTTP requests")
 	cmd.Flags().StringVar(&f.tokenEnv, "token-env", "AFORO_ADMIN_TOKEN", "env var holding the bearer token")
+	cmd.Flags().BoolVar(&f.provisionWebhooks, "provision-webhooks", false, "create one webhook ingest source per tenant via /api/v1/webhook-sources and write the bundle alongside the manifest (Session 8)")
 	return cmd
 }
 
@@ -148,6 +150,21 @@ func runSeed(ctx context.Context, out, errOut io.Writer, f *seedFlags) error {
 	if res != nil && res.Manifest != nil {
 		printSummary(out, res.Manifest, manifestPath, len(res.Errors))
 	}
+
+	// Session 8 — optional webhook source provisioning. Run after the
+	// main seed so we know the tenant population is in place.
+	if f.provisionWebhooks && !f.dryRun && res != nil && res.Manifest != nil {
+		bundle, errs := seed.ProvisionWebhookSources(ctx, c, res.Manifest)
+		if path, saveErr := seed.SaveWebhookSources(manifestPath, bundle); saveErr == nil {
+			fmt.Fprintf(out, "webhook sources: %d provisioned → %s\n", len(bundle), path)
+		} else {
+			fmt.Fprintf(errOut, "webhook sources: failed to save bundle: %v\n", saveErr)
+		}
+		for _, e := range errs {
+			fmt.Fprintln(errOut, "webhook source: "+e.Error())
+		}
+	}
+
 	if len(res.Errors) > 0 {
 		for _, e := range res.Errors {
 			fmt.Fprintln(errOut, e.Error())

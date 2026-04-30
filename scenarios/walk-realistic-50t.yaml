@@ -189,10 +189,31 @@ product_mix:
   AGENTIC_API: 0.10
 
 ingestion_paths:
-  rest_direct: 0.5
-  sdk_node: 0.2
-  sdk_python: 0.15
-  gateway_kong: 0.15
+  # Session 8 — exercises ALL 16 supported ingestion paths so the walk-tier
+  # run hits every driver at least once per archetype.
+  #
+  # Tier weights:
+  #   REST direct:       0.40   — primary admin/server-to-server path
+  #   SDK family:        0.20   — split four ways (node, python, java, go)
+  #   Gateway family:    0.30   — five real adapters + four stubs
+  #   Webhook:           0.05
+  #   CSV upload:        0.05
+  rest_direct: 0.40
+  sdk_node: 0.05
+  sdk_python: 0.05
+  sdk_java: 0.05
+  sdk_go: 0.05
+  gateway_kong: 0.07
+  gateway_apigee: 0.05
+  gateway_aws: 0.05
+  gateway_azure: 0.04
+  gateway_mulesoft: 0.04
+  gateway_apisix: 0.0125
+  gateway_tyk: 0.0125
+  gateway_gravitee: 0.0125
+  gateway_envoy: 0.0125
+  webhook_receiver: 0.05
+  csv_upload: 0.05
 
 payload_variation:
   small_pct: 0.7
