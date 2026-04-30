@@ -1,0 +1,134 @@
+# erp-sync-validation — proves invoices land in ERP within SLA
+#
+# Purpose: drive a small population through bill-run + ERP sync to assert
+# every invoice synced within 60s and the externalDocumentId resolves at
+# the provider sandbox. All 4 ERP providers exercised across the
+# population.
+#
+# Coverage: 8 tenants (2 per provider), 4 archetypes, 100 TPS, 3m.
+
+schema_version: 1
+name: erp-sync-validation
+description: ERP sync coverage across all 4 providers. Verifies SLA + provider-side round-trip.
+target_tps: 100
+duration: 3m
+seed: 9002
+
+tenants:
+  count: 8
+  distribution: uniform
+  archetypes:
+    - name: erp-perunit-quickbooks
+      weight: 0.25
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 25
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+    - name: erp-flat-xero
+      weight: 0.25
+      pricing_model: FLAT_RATE
+      billing_mode: POSTPAID
+      product_types: [AI_AGENT]
+      customer_count: 25
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        flat_fee_usd: 199.00
+
+    - name: erp-quota-netsuite
+      weight: 0.25
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: POSTPAID
+      product_types: [MCP_SERVER]
+      customer_count: 25
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        included_free_units: 5000
+        per_unit_rate_usd: 0.002
+
+    - name: erp-perunit-webhook
+      weight: 0.25
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [AGENTIC_API]
+      customer_count: 25
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.005
+
+time_pattern: constant
+
+product_mix:
+  API: 0.25
+  AI_AGENT: 0.25
+  MCP_SERVER: 0.25
+  AGENTIC_API: 0.25
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+
+payments:
+  enabled: true
+  stripe_mode: test
+  success_pct: 1.0
+
+tax:
+  engine: mock
+  jurisdictions:
+    US-CA: 0.0925
+  default_jurisdiction: US-CA
+
+# All four providers — each archetype maps to one. The driver picks the
+# highest-weight provider per tenant; a balanced mix exercises all four.
+erp:
+  enabled: true
+  providers_per_tenant_mix:
+    quickbooks: 0.25
+    xero: 0.25
+    netsuite: 0.25
+    custom_webhook: 0.25
+  sync_sla_seconds: 60
+  multi_erp_enabled: false
+  max_retries: 3
+  verify_external_ids: true
+
+credit_notes:
+  enabled: false
+
+wallet:
+  hold_expiry_audit: false
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.005
+  p99_latency_ms_max: 1500
+  cross_tenant_leakage_max: 0
+
+metadata:
+  tier: erp
+  notes: |
+    Per-provider env vars enable real round-trip:
+      QBO_ACCESS_TOKEN + QBO_COMPANY_ID
+      XERO_ACCESS_TOKEN + XERO_TENANT_ID
+      NETSUITE_REST_TOKEN + NETSUITE_ACCOUNT_ID
+      CUSTOM_WEBHOOK_URL (optional — defaults to in-process receiver)
+    Without env vars, providers run in shadow mode (Verified=true; checks
+    only the platform's erp_sync_log entries).

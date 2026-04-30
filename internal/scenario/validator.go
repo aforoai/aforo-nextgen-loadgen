@@ -148,6 +148,8 @@ func (v *validator) run() {
 	v.checkTax(s)
 	v.checkERP(s)
 	v.checkCreditNotes(s)
+	v.checkWallet(s)
+	v.checkFX(s)
 	v.checkChaos(s)
 	v.checkAssertions(s)
 
@@ -475,6 +477,14 @@ func (v *validator) checkPayments(s *Scenario) {
 		v.addAt([]string{"payments"},
 			fmt.Sprintf("payments success+decline+insufficient_funds = %.4f; must be 1.0 ± %g (or all 0 for runner default)", sum, weightTolerance))
 	}
+	if s.Payments.DunningMaxAttempts < 0 {
+		v.addAt([]string{"payments", "dunning_max_attempts"},
+			"dunning_max_attempts must be >= 0")
+	}
+	if s.Payments.DunningRetryIntervalSeconds < 0 {
+		v.addAt([]string{"payments", "dunning_retry_interval_seconds"},
+			"dunning_retry_interval_seconds must be >= 0")
+	}
 }
 
 func (v *validator) checkTax(s *Scenario) {
@@ -490,6 +500,35 @@ func (v *validator) checkTax(s *Scenario) {
 			v.addAt([]string{"tax", "jurisdictions", jurisdiction},
 				fmt.Sprintf("tax rate %v for %q must be in [0, 1] (express percentages as decimals: 0.0925 for 9.25%%)", rate, jurisdiction))
 		}
+	}
+	for currency, jur := range s.Tax.JurisdictionByCurrency {
+		if currency == "" {
+			v.addAt([]string{"tax", "jurisdiction_by_currency"},
+				"jurisdiction_by_currency keys must be non-empty currency codes (e.g. USD, EUR, GBP)")
+		}
+		if jur == "" {
+			v.addAt([]string{"tax", "jurisdiction_by_currency", currency},
+				"jurisdiction code must be non-empty")
+			continue
+		}
+		// If a Jurisdictions table is set, the by-currency map must
+		// reference codes that resolve there — otherwise we'd silently
+		// fall back to default at run time.
+		if len(s.Tax.Jurisdictions) > 0 {
+			if _, ok := s.Tax.Jurisdictions[jur]; !ok {
+				v.addAt([]string{"tax", "jurisdiction_by_currency", currency},
+					fmt.Sprintf("jurisdiction %q is not present in tax.jurisdictions", jur))
+			}
+		}
+	}
+	if s.Tax.DefaultJurisdiction != "" && len(s.Tax.Jurisdictions) > 0 {
+		if _, ok := s.Tax.Jurisdictions[s.Tax.DefaultJurisdiction]; !ok {
+			v.addAt([]string{"tax", "default_jurisdiction"},
+				fmt.Sprintf("default_jurisdiction %q is not present in tax.jurisdictions", s.Tax.DefaultJurisdiction))
+		}
+	}
+	if s.Tax.ToleranceUSD < 0 {
+		v.addAt([]string{"tax", "tolerance_usd"}, "tolerance_usd must be >= 0")
 	}
 }
 
@@ -508,6 +547,9 @@ func (v *validator) checkERP(s *Scenario) {
 				fmt.Sprintf("provider %q is not one of: quickbooks, xero, netsuite, custom_webhook", k))
 		}
 	}
+	if s.ERP.MaxRetries < 0 {
+		v.addAt([]string{"erp", "max_retries"}, "max_retries must be >= 0")
+	}
 }
 
 func (v *validator) checkCreditNotes(s *Scenario) {
@@ -522,6 +564,70 @@ func (v *validator) checkCreditNotes(s *Scenario) {
 		v.addAt([]string{"credit_notes", "partial_pct"},
 			fmt.Sprintf("credit_notes.partial_pct %v must be in [0, 1]", s.CreditNotes.PartialPct))
 	}
+	if s.CreditNotes.RefundPct+s.CreditNotes.PartialPct > 1.0+weightTolerance {
+		v.addAt([]string{"credit_notes"},
+			fmt.Sprintf("refund_pct + partial_pct = %.4f > 1.0; an invoice cannot be both fully and partially credited",
+				s.CreditNotes.RefundPct+s.CreditNotes.PartialPct))
+	}
+	if s.CreditNotes.PartialAmountPct < 0 || s.CreditNotes.PartialAmountPct > 1 {
+		v.addAt([]string{"credit_notes", "partial_amount_pct"},
+			fmt.Sprintf("credit_notes.partial_amount_pct %v must be in [0, 1]", s.CreditNotes.PartialAmountPct))
+	}
+	if s.CreditNotes.ApplyToInvoicePct < 0 || s.CreditNotes.ApplyToInvoicePct > 1 {
+		v.addAt([]string{"credit_notes", "apply_to_invoice_pct"},
+			fmt.Sprintf("credit_notes.apply_to_invoice_pct %v must be in [0, 1]", s.CreditNotes.ApplyToInvoicePct))
+	}
+}
+
+// checkWallet validates the wallet block.
+func (v *validator) checkWallet(s *Scenario) {
+	if s.Wallet.HoldTTLSeconds < 0 {
+		v.addAt([]string{"wallet", "hold_ttl_seconds"}, "hold_ttl_seconds must be >= 0")
+	}
+}
+
+// checkFX validates the FX block — keys "FROM->TO" with positive rates.
+func (v *validator) checkFX(s *Scenario) {
+	if !s.FX.Enabled && len(s.FX.PinnedRates) == 0 {
+		return
+	}
+	for pair, rate := range s.FX.PinnedRates {
+		if rate <= 0 {
+			v.addAt([]string{"fx", "pinned_rates", pair},
+				fmt.Sprintf("fx rate for %q is %v; must be > 0", pair, rate))
+		}
+		if !isValidFXPair(pair) {
+			v.addAt([]string{"fx", "pinned_rates", pair},
+				fmt.Sprintf("fx pinned_rates key %q must look like \"FROM->TO\" (e.g. \"USD->EUR\")", pair))
+		}
+	}
+	switch s.FX.AppliedAt {
+	case "", "bill_run_time", "event_ingest_time":
+		// ok — empty handled by defaults; "event_ingest_time" is the
+		// known WRONG path the validator asserts the platform does NOT take.
+	default:
+		v.addAt([]string{"fx", "applied_at"},
+			fmt.Sprintf("fx.applied_at %q must be \"bill_run_time\" or \"event_ingest_time\"", s.FX.AppliedAt))
+	}
+}
+
+// isValidFXPair recognises "FROM->TO" pairs of three uppercase letters.
+func isValidFXPair(pair string) bool {
+	if len(pair) != 8 {
+		return false
+	}
+	if pair[3] != '-' || pair[4] != '>' {
+		return false
+	}
+	for i := 0; i < 3; i++ {
+		if pair[i] < 'A' || pair[i] > 'Z' {
+			return false
+		}
+		if pair[i+5] < 'A' || pair[i+5] > 'Z' {
+			return false
+		}
+	}
+	return true
 }
 
 func (v *validator) checkChaos(s *Scenario) {

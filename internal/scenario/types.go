@@ -186,6 +186,7 @@ type Scenario struct {
 	ERP              ERP              `yaml:"erp,omitempty"`
 	CreditNotes      CreditNotes      `yaml:"credit_notes,omitempty"`
 	Wallet           Wallet           `yaml:"wallet,omitempty"`
+	FX               FX               `yaml:"fx,omitempty"`
 	Chaos            Chaos            `yaml:"chaos,omitempty"`
 	Assertions       Assertions       `yaml:"assertions,omitempty"`
 	Metadata         map[string]any   `yaml:"metadata,omitempty"`
@@ -318,39 +319,127 @@ type LifecycleProfile struct {
 
 // Payments drives Stripe-mode payment simulation. Exercised by Session 9.
 //
-// stripe_mode=test pulls AFORO_STRIPE_TEST_KEY from the environment at run
+// stripe_mode=test pulls STRIPE_TEST_SECRET_KEY from the environment at run
 // time. Validator does NOT read the env — it only enforces shape.
+//
+// SuccessPct + DeclinePct + InsufficientFundsPct must sum to 1.0 when any
+// of them is non-zero. Setting all three to zero leaves the runner default
+// (which is success=1.0).
 type Payments struct {
 	Enabled              bool       `yaml:"enabled"`
 	StripeMode           StripeMode `yaml:"stripe_mode,omitempty"`
 	SuccessPct           float64    `yaml:"success_pct,omitempty"`
 	DeclinePct           float64    `yaml:"decline_pct,omitempty"`
 	InsufficientFundsPct float64    `yaml:"insufficient_funds_pct,omitempty"`
+
+	// DunningMaxAttempts mirrors the platform's
+	// aforo.dunning.max-attempts. Used by the dunning driver to assert
+	// escalation to SUSPEND/CANCEL after this many failed retries.
+	// Default 3.
+	DunningMaxAttempts int `yaml:"dunning_max_attempts,omitempty"`
+
+	// DunningRetryIntervalSeconds compresses the platform retry cadence
+	// for load-test purposes. Real dunning runs over days; tests use 60s.
+	// Default 60.
+	DunningRetryIntervalSeconds int `yaml:"dunning_retry_interval_seconds,omitempty"`
+
+	// IdempotencyPrefix prefixes every Stripe Idempotency-Key generated
+	// by the payment driver. Recommended: include the run id when set
+	// from the orchestrator. Default "aforo-loadgen".
+	IdempotencyPrefix string `yaml:"idempotency_prefix,omitempty"`
 }
 
-// Tax configures the tax-calculation engine. Exercised by Session 5.
+// Tax configures the tax-calculation engine. Exercised by Session 9.
+//
+// Two ways to configure jurisdictions:
+//
+//	Jurisdictions: map[code]rate                   — flat lookup table
+//	JurisdictionByCurrency: map[currency]code      — pick a default rate per currency
+//
+// DefaultJurisdiction is the fallback when neither map matches.
+//
+// ToleranceUSD is the per-line absolute tolerance the validator allows when
+// comparing platform tax_amount to the engine's expected number. 0 → 0.01
+// (one cent — covers IEEE rounding).
 type Tax struct {
-	Engine        TaxEngine          `yaml:"engine,omitempty"`
-	Jurisdictions map[string]float64 `yaml:"jurisdictions,omitempty"`
+	Engine                 TaxEngine          `yaml:"engine,omitempty"`
+	Jurisdictions          map[string]float64 `yaml:"jurisdictions,omitempty"`
+	JurisdictionByCurrency map[string]string  `yaml:"jurisdiction_by_currency,omitempty"`
+	DefaultJurisdiction    string             `yaml:"default_jurisdiction,omitempty"`
+	ToleranceUSD           float64            `yaml:"tolerance_usd,omitempty"`
 }
 
-// ERP drives ERP sync simulation. Exercised by Session 10.
+// ERP drives ERP sync simulation. Exercised by Session 9.
+//
+// MultiERPEnabled overrides the platform aforo.multi-erp.enabled flag at
+// runtime — needed for the single-ERP-invariant check (Check 18) to assert
+// that a SECOND connect fails with 409 by default.
 type ERP struct {
 	Enabled               bool               `yaml:"enabled"`
 	ProvidersPerTenantMix map[string]float64 `yaml:"providers_per_tenant_mix,omitempty"`
 	SyncSLASeconds        int                `yaml:"sync_sla_seconds,omitempty"`
+
+	// MultiERPEnabled controls whether the load test asserts the
+	// single-ERP invariant (default false → asserts 409 on second
+	// connect) or the multi-ERP path (true → asserts both succeed).
+	MultiERPEnabled bool `yaml:"multi_erp_enabled,omitempty"`
+
+	// MaxRetries mirrors the platform's ErpSyncService retry policy.
+	// Default 3.
+	MaxRetries int `yaml:"max_retries,omitempty"`
+
+	// VerifyExternalIDs requires the validator to confirm each invoice
+	// has a non-empty externalDocumentId after sync (provider-side proof
+	// of insertion). Default true when erp.enabled.
+	VerifyExternalIDs bool `yaml:"verify_external_ids,omitempty"`
 }
 
 // CreditNotes drives refund / partial credit simulation.
+//
+// RefundPct is the share of PAID invoices that get a full credit note.
+// PartialPct is the share that get a partial credit note. The two are
+// mutually exclusive per invoice — an invoice goes through at most one.
+//
+// PartialAmountPct controls the amount of the partial: 0.30 means the
+// credit note is 30% of the invoice total. 0 → 0.50 (half).
+//
+// ApplyToInvoicePct is the share of issued credit notes that are applied
+// back against an open invoice (vs. cash refunded). 1.0 → all applied.
 type CreditNotes struct {
-	Enabled    bool    `yaml:"enabled"`
-	RefundPct  float64 `yaml:"refund_pct,omitempty"`
-	PartialPct float64 `yaml:"partial_pct,omitempty"`
+	Enabled           bool    `yaml:"enabled"`
+	RefundPct         float64 `yaml:"refund_pct,omitempty"`
+	PartialPct        float64 `yaml:"partial_pct,omitempty"`
+	PartialAmountPct  float64 `yaml:"partial_amount_pct,omitempty"`
+	ApplyToInvoicePct float64 `yaml:"apply_to_invoice_pct,omitempty"`
+	Reason            string  `yaml:"reason,omitempty"`
 }
 
 // Wallet controls wallet-specific assertions during a run.
+//
+// HoldTTLSeconds compresses the platform's hold expiry from "billing period"
+// down to a short TTL so HoldExpiryScheduler can complete inside a test
+// window. Default 60s.
+//
+// BalanceAuditEnabled enables the pre/post wallet audit (Check 17).
 type Wallet struct {
-	HoldExpiryAudit bool `yaml:"hold_expiry_audit,omitempty"`
+	HoldExpiryAudit     bool `yaml:"hold_expiry_audit,omitempty"`
+	HoldTTLSeconds      int  `yaml:"hold_ttl_seconds,omitempty"`
+	BalanceAuditEnabled bool `yaml:"balance_audit_enabled,omitempty"`
+}
+
+// FX configures multi-currency reproducibility. Pinning rates in the scenario
+// keeps assertions stable across runs even though the platform pulls live FX
+// at bill-run time in production.
+//
+// PinnedRates keys are "FROM->TO" — e.g. "USD->EUR": 0.92.
+//
+// AppliedAt records WHERE in the pipeline the rate is applied. The platform
+// applies FX at bill-run time (NOT event-ingest time); Check 14 asserts
+// this. Default "bill_run_time".
+type FX struct {
+	Enabled     bool               `yaml:"enabled,omitempty"`
+	PinnedRates map[string]float64 `yaml:"pinned_rates,omitempty"`
+	AppliedAt   string             `yaml:"applied_at,omitempty"`
 }
 
 // Chaos drives infra-level fault injection. Exercised by Session 11.

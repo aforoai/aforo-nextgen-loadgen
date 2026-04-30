@@ -133,6 +133,20 @@ func (v *Validator) dispatch(ctx context.Context, name string) *CheckResult {
 		return v.runStateMachineInvariants(ctx)
 	case CheckLifecycleVsBillRun:
 		return v.runLifecycleVsBillRun(ctx)
+	case CheckPaymentProcessing:
+		return v.runPaymentProcessing(ctx)
+	case CheckTaxMath:
+		return v.runTaxMath(ctx)
+	case CheckMultiCurrency:
+		return v.runMultiCurrency(ctx)
+	case CheckERPSync:
+		return v.runERPSync(ctx)
+	case CheckCreditNotes:
+		return v.runCreditNotes(ctx)
+	case CheckWalletLifecycle:
+		return v.runWalletLifecycle(ctx)
+	case CheckSingleERPInvariant:
+		return v.runSingleERPInvariant(ctx)
 	default:
 		return NewCheckResult(name).Skip("unknown check name %q", name)
 	}

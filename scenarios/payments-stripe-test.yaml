@@ -1,0 +1,146 @@
+# payments-stripe-test — focused payment-flow scenario
+#
+# Purpose: drive payments end-to-end against Stripe test mode + Aforo's
+# /payments/intent + /retry-payment + dunning sequence. Asserts decline
+# cards trigger PAST_DUE → dunning → SUSPEND. Two currencies (USD + EUR).
+#
+# Coverage: 10 tenants, 3 archetypes (POSTPAID, PREPAID, HYBRID), 200 TPS,
+# 5m. Lifecycle disabled — payments + dunning are the focus.
+
+schema_version: 1
+name: payments-stripe-test
+description: 5-minute payment-flow run against Stripe test mode. 80% success / 15% decline / 5% insufficient funds.
+target_tps: 200
+duration: 5m
+seed: 9001
+
+tenants:
+  count: 10
+  distribution: uniform
+  archetypes:
+    - name: pay-perunit-postpaid
+      weight: 0.5
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 50
+      currency_mix:
+        USD: 0.7
+        EUR: 0.3
+      subscription_state_mix:
+        ACTIVE: 0.85
+        TRIALING: 0.10
+        PAST_DUE: 0.05
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+    - name: pay-flat-prepaid
+      weight: 0.3
+      pricing_model: FLAT_RATE
+      billing_mode: PREPAID
+      product_types: [AI_AGENT]
+      customer_count: 30
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.90
+        PAST_DUE: 0.10
+      rate_config:
+        flat_fee_usd: 99.00
+        wallet_initial_balance_usd: 500.00
+
+    - name: pay-quota-hybrid
+      weight: 0.2
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: HYBRID
+      product_types: [MCP_SERVER]
+      customer_count: 20
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.85
+        PAST_DUE: 0.10
+        SUSPENDED: 0.05
+      rate_config:
+        included_free_units: 10000
+        per_unit_rate_usd: 0.001
+        wallet_initial_balance_usd: 500.00
+
+time_pattern: constant
+
+product_mix:
+  API: 0.5
+  AI_AGENT: 0.3
+  MCP_SERVER: 0.2
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+
+# Headline mix — drives test cards (4242, 4000-0002, 4000-9995).
+payments:
+  enabled: true
+  stripe_mode: test
+  success_pct: 0.80
+  decline_pct: 0.15
+  insufficient_funds_pct: 0.05
+  dunning_max_attempts: 3
+  dunning_retry_interval_seconds: 30
+  idempotency_prefix: aforo-loadgen-pay-test
+
+tax:
+  engine: mock
+  jurisdictions:
+    US-CA: 0.0925
+    EU-DE: 0.19
+  jurisdiction_by_currency:
+    USD: US-CA
+    EUR: EU-DE
+  default_jurisdiction: US-CA
+  tolerance_usd: 0.01
+
+# FX pinned for deterministic assertions.
+fx:
+  enabled: true
+  pinned_rates:
+    USD->EUR: 0.92
+    EUR->USD: 1.087
+  applied_at: bill_run_time
+
+# Single-ERP invariant (Check 18) — two providers configured but only one
+# may be CONNECTED on a tenant.
+erp:
+  enabled: true
+  providers_per_tenant_mix:
+    quickbooks: 0.6
+    xero: 0.4
+  sync_sla_seconds: 60
+  multi_erp_enabled: false
+  max_retries: 3
+  verify_external_ids: true
+
+credit_notes:
+  enabled: false
+
+wallet:
+  hold_expiry_audit: true
+  hold_ttl_seconds: 60
+  balance_audit_enabled: true
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.01
+  p99_latency_ms_max: 1500
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+
+metadata:
+  tier: payments
+  notes: |
+    Run with STRIPE_TEST_SECRET_KEY set in the env (sk_test_... only;
+    the binary refuses sk_live_). When unset, the driver runs in offline
+    synthesis mode and Check 12 still passes — the platform-side
+    /payments/intent calls go through real, only the Stripe round-trip
+    is synthesized.

@@ -16,22 +16,31 @@ func TestGolden_BuiltInScenariosLoadAndValidate(t *testing.T) {
 		t.Fatal("no built-in scenarios bundled — embed.FS missing or empty")
 	}
 
-	// Sanity-check the catalog count matches the Session 2 contract.
-	const expectedCount = 6
+	// Sanity-check the catalog count. Sessions add scenarios; this number
+	// is updated when a session ships new ones. The hard contract is the
+	// `expectedNames` list below — anything in it MUST exist; new entries
+	// can be added without breaking older tests.
+	const expectedCount = 10
 	if len(names) != expectedCount {
-		t.Errorf("catalog has %d scenarios; Session 2 contract is %d (%v)",
+		t.Errorf("catalog has %d scenarios; expected %d (%v)",
 			len(names), expectedCount, names)
 	}
 
 	// Each canonical scenario name MUST be present. If a future session
 	// renames one, update both this list and docs/scenario-schema.md.
 	expectedNames := []string{
+		// Session 2 (Crawl/Walk/Run + matrix + lifecycle):
 		"ci-smoke",
 		"crawl-e2e",
 		"lifecycle-stress",
 		"matrix-billing",
 		"run-15k-7day",
 		"walk-realistic-50t",
+		// Session 9 (payments / ERP / multi-currency / wallet):
+		"payments-stripe-test",
+		"erp-sync-validation",
+		"multi-currency",
+		"wallet-lifecycle",
 	}
 	have := make(map[string]bool, len(names))
 	for _, n := range names {

@@ -1,0 +1,111 @@
+# wallet-lifecycle — full PREPAID + HYBRID hold coverage
+#
+# Purpose: stress the wallet hold/release lifecycle. Short hold TTL (60s)
+# so HoldExpiryScheduler has time to converge inside the run. Asserts:
+#   1. sum of pending holds ≤ initial wallet balance
+#   2. expired holds released by the scheduler
+#   3. final balance = initial − committed_charges
+#
+# Coverage: 4 tenants (PREPAID + HYBRID), 100 TPS, 4m. The 4m duration
+# leaves enough slack for several hold/expiry cycles.
+
+schema_version: 1
+name: wallet-lifecycle
+description: 4-minute hold/release lifecycle stress on PREPAID + HYBRID wallets. Asserts platform invariants.
+target_tps: 100
+duration: 4m
+seed: 9004
+
+tenants:
+  count: 4
+  distribution: uniform
+  archetypes:
+    - name: wal-flat-prepaid
+      weight: 0.5
+      pricing_model: FLAT_RATE
+      billing_mode: PREPAID
+      product_types: [AI_AGENT]
+      customer_count: 25
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.85
+        TRIALING: 0.10
+        PAUSED: 0.05
+      rate_config:
+        flat_fee_usd: 50.00
+        wallet_initial_balance_usd: 250.00
+        trial_days: 7
+
+    - name: wal-quota-hybrid
+      weight: 0.5
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: HYBRID
+      product_types: [MCP_SERVER]
+      customer_count: 25
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 0.90
+        TRIALING: 0.10
+      rate_config:
+        included_free_units: 1000
+        per_unit_rate_usd: 0.005
+        wallet_initial_balance_usd: 100.00
+
+time_pattern: constant
+
+product_mix:
+  AI_AGENT: 0.5
+  MCP_SERVER: 0.5
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+
+payments:
+  enabled: true
+  stripe_mode: test
+  success_pct: 1.0
+
+tax:
+  engine: mock
+  jurisdictions:
+    US-CA: 0.0925
+  default_jurisdiction: US-CA
+
+erp:
+  enabled: false
+
+credit_notes:
+  enabled: true
+  refund_pct: 0.10
+  partial_pct: 0.10
+  partial_amount_pct: 0.5
+  apply_to_invoice_pct: 1.0
+  reason: PRORATION
+
+# 60s TTL — short enough that HoldExpiryScheduler completes its first
+# release pass inside this 4-minute scenario.
+wallet:
+  hold_expiry_audit: true
+  hold_ttl_seconds: 60
+  balance_audit_enabled: true
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.01
+  p99_latency_ms_max: 1500
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+
+metadata:
+  tier: wallet
+  notes: |
+    Pair with `aforo-loadgen lifecycle --scenario lifecycle-stress` to
+    additionally stir pause/resume; the wallet collector will record the
+    holds released as a side effect of pause and re-acquired on resume.
+    Final post-expiry snapshot fires 90s + hold_ttl after run-end so
+    HoldExpiryScheduler has time to converge.

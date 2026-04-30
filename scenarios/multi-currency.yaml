@@ -1,0 +1,124 @@
+# multi-currency — USD / EUR / GBP coverage
+#
+# Purpose: prove the platform applies pinned FX rates at bill-run time
+# (NOT event-ingest time). EUR + GBP customers must receive invoices in
+# their currency; the loadgen checks that amount_usd × pinned rate equals
+# the recorded amount.
+#
+# Coverage: 6 tenants, 3 archetypes (one per currency), 150 TPS, 3m.
+
+schema_version: 1
+name: multi-currency
+description: Three-currency invoice coverage with pinned FX rates. Asserts FX applied at bill-run time.
+target_tps: 150
+duration: 3m
+seed: 9003
+
+tenants:
+  count: 6
+  distribution: uniform
+  archetypes:
+    - name: mc-perunit-usd
+      weight: 0.34
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 30
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+    - name: mc-flat-eur
+      weight: 0.33
+      pricing_model: FLAT_RATE
+      billing_mode: POSTPAID
+      product_types: [AI_AGENT]
+      customer_count: 25
+      currency_mix:
+        EUR: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        flat_fee_usd: 99.00
+
+    - name: mc-perunit-gbp
+      weight: 0.33
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [MCP_SERVER]
+      customer_count: 25
+      currency_mix:
+        GBP: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.002
+
+time_pattern: constant
+
+product_mix:
+  API: 0.34
+  AI_AGENT: 0.33
+  MCP_SERVER: 0.33
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+
+payments:
+  enabled: true
+  stripe_mode: test
+  success_pct: 1.0
+
+# Per-currency tax routing. UK VAT for GBP; German VAT for EUR; CA tax for USD.
+tax:
+  engine: mock
+  jurisdictions:
+    US-CA: 0.0925
+    EU-DE: 0.19
+    UK: 0.20
+  jurisdiction_by_currency:
+    USD: US-CA
+    EUR: EU-DE
+    GBP: UK
+  default_jurisdiction: US-CA
+  tolerance_usd: 0.01
+
+# Pinned rates so Check 14 has stable expectations across runs.
+fx:
+  enabled: true
+  pinned_rates:
+    USD->EUR: 0.92
+    USD->GBP: 0.79
+    EUR->USD: 1.087
+    GBP->USD: 1.265
+  applied_at: bill_run_time
+
+erp:
+  enabled: false
+
+credit_notes:
+  enabled: false
+
+wallet:
+  hold_expiry_audit: false
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.01
+  p99_latency_ms_max: 1500
+  cross_tenant_leakage_max: 0
+
+metadata:
+  tier: payments
+  notes: |
+    Pinned FX rates make this scenario reproducible. Live FX would be
+    appropriate only for a "drift detection" scenario, not for a
+    pass/fail load test. Check 14 fails if applied_at = event_ingest_time
+    or if the platform's recorded amount diverges from the pinned-rate
+    expectation by more than 0.5% relative.

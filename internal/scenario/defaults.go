@@ -40,6 +40,47 @@ func applyDefaults(s *Scenario) {
 	if s.Payments.Enabled && s.Payments.StripeMode == "" {
 		s.Payments.StripeMode = StripeTest
 	}
+	if s.Payments.Enabled {
+		if s.Payments.DunningMaxAttempts <= 0 {
+			s.Payments.DunningMaxAttempts = 3
+		}
+		if s.Payments.DunningRetryIntervalSeconds <= 0 {
+			s.Payments.DunningRetryIntervalSeconds = 60
+		}
+		if s.Payments.IdempotencyPrefix == "" {
+			s.Payments.IdempotencyPrefix = "aforo-loadgen"
+		}
+	}
+	if s.Tax.ToleranceUSD <= 0 {
+		s.Tax.ToleranceUSD = 0.01
+	}
+	if s.ERP.Enabled {
+		if s.ERP.MaxRetries <= 0 {
+			s.ERP.MaxRetries = 3
+		}
+		// Default verification on — load tests should prove the round-trip
+		// to the provider, not just that we POSTed.
+		if !s.ERP.VerifyExternalIDs {
+			s.ERP.VerifyExternalIDs = true
+		}
+	}
+	if s.CreditNotes.Enabled {
+		if s.CreditNotes.PartialAmountPct <= 0 {
+			s.CreditNotes.PartialAmountPct = 0.5
+		}
+		if s.CreditNotes.ApplyToInvoicePct <= 0 {
+			s.CreditNotes.ApplyToInvoicePct = 1.0
+		}
+		if s.CreditNotes.Reason == "" {
+			s.CreditNotes.Reason = "PRORATION"
+		}
+	}
+	if s.Wallet.HoldTTLSeconds <= 0 {
+		s.Wallet.HoldTTLSeconds = 60
+	}
+	if s.FX.AppliedAt == "" {
+		s.FX.AppliedAt = "bill_run_time"
+	}
 	// Assertions defaults — when the author sets none, refuse to allow
 	// cross-tenant leakage. Other fields stay at zero (= unconfigured).
 	// The runner treats zero as "no assertion" except where documented.

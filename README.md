@@ -16,10 +16,10 @@ architecture, services, and conventions see
 
 ## Status
 
-Session 7 of 12. The command tree is in place; `version`, `scenarios`,
+Session 9 of 12. The command tree is in place; `version`, `scenarios`,
 `seed`, `run`, `replay`, `validate`, `report`, `lifecycle`, `doctor`,
-and `e2e` are fully implemented. Other subcommands are stubs that
-announce the session in which they ship. The scenario YAML schema
+`e2e`, and `payments` are fully implemented. `server` is a stub that
+announces the session in which it ships. The scenario YAML schema
 itself is defined in [`docs/scenario-schema.md`](docs/scenario-schema.md).
 
 | Subcommand  | Ships in      | What it does                                                  |
@@ -28,12 +28,12 @@ itself is defined in [`docs/scenario-schema.md`](docs/scenario-schema.md).
 | `scenarios` | _Session 2_ ✓ | List, describe, validate, and show built-in scenarios.        |
 | `run`       | _Session 4_ ✓ | Drive a load-test scenario against a target.                  |
 | `replay`    | _Session 4_ ✓ | Replay a recorded run-output against a target.                |
-| `validate`  | _Session 5_ ✓ | Validate a completed run vs the platform (11 checks).         |
+| `validate`  | _Session 5_ ✓ | Validate a completed run vs the platform (18 checks).         |
 | `report`    | _Session 5_ ✓ | Render a self-contained HTML run + validation report.         |
 | `lifecycle` | _Session 6_ ✓ | Drive subscription state-machine transitions during a run.    |
 | `doctor`    | _Session 7_ ✓ | Diagnose local environment and target reachability.           |
 | `e2e`       | _Session 7_ ✓ | doctor → seed → run + lifecycle → validate → report → clean.  |
-| `payments`  | Session 8     | Drive payment, tax, and ERP integration flows.                |
+| `payments`  | _Session 9_ ✓ | Drive payment, tax, FX, ERP, credit-note, and wallet flows.   |
 | `server`    | Session 12    | Control-plane server (dashboard + multi-node coordinator).    |
 | `version`   | Session 1     | Print semver, commit SHA, and build date.                     |
 
@@ -241,11 +241,59 @@ Output: `<out>/transitions.jsonl` (one record per intent + one per
 outcome) plus the standard `run.json` + `scenario.yaml` artifacts. Pass
 the same `<out>` to `aforo-loadgen validate` to run Checks 9–11.
 
-## Validation oracle (Sessions 5–6)
+## Payments + ERP + tax + FX + wallet (Session 9)
+
+`aforo-loadgen payments` drives the **full post-invoice pipeline** for a
+seeded population:
+
+  * **Stripe test-mode** payment execution per
+    `scenario.payments.success_pct` mix (decline cards trigger the
+    dunning sequence to its terminal `SUSPENDED` state).
+  * **Tax** — engines: `mock` (deterministic, default), `avalara`
+    (AvaTax v2), `vertex` (O Series). Per-currency jurisdiction
+    routing. See [docs/tax-engines.md](docs/tax-engines.md).
+  * **Multi-currency FX** with pinned rates in `scenario.fx` so
+    cross-run reproducibility is exact. The validator asserts FX is
+    applied at bill-run time (not event-ingest time).
+  * **ERP sync** verification across all four providers (QuickBooks,
+    Xero, NetSuite, custom webhook). Per-tenant single-ERP invariant
+    asserted (Check 18). See [docs/erp-onboarding.md](docs/erp-onboarding.md).
+  * **Credit notes** — full + partial refunds with `apply-to-invoice`
+    flow.
+  * **Wallet lifecycle** — pre/post snapshots, hold/release events,
+    `HoldExpiryScheduler` convergence asserted.
+
+```bash
+# 80% success / 15% decline / 5% insufficient — drives dunning on the
+# decline records to SUSPEND.
+aforo-loadgen payments \
+    --scenario scenarios/payments-stripe-test.yaml \
+    --target staging \
+    --manifest manifest.json \
+    --out runs/pay-$(date +%s)
+
+# Override the tax engine + ERP providers from the CLI:
+aforo-loadgen payments --tax-engine avalara --erp-providers quickbooks,xero ...
+```
+
+Outputs (under `--out`):
+  * `payments.jsonl`     — every charge attempt + outcome (Check 12)
+  * `erp_sync.jsonl`     — per-invoice sync record + provider verification (Check 15)
+  * `credit_notes.jsonl` — DRAFT → ISSUED → APPLIED transitions (Check 16)
+  * `wallet_audit.jsonl` — pre/mid/post snapshots + hold-state events (Check 17)
+  * `transitions.jsonl`  — extends the lifecycle agent's log with retry-payment + dunning rows
+
+See [docs/payments-setup.md](docs/payments-setup.md) for env vars.
+**Live Stripe and ERP creds are optional** — the binary runs in offline
+synthesis mode in CI and the validator's checks still pass.
+
+## Validation oracle (Sessions 5–9)
 
 `aforo-loadgen validate` is the post-run oracle. It reads a completed
-run's output (`run.json` + `scenario.yaml` + optional `transitions.jsonl`)
-plus the seed manifest and runs eleven independent checks:
+run's output (`run.json` + `scenario.yaml` + optional `transitions.jsonl`,
+`payments.jsonl`, `erp_sync.jsonl`, `credit_notes.jsonl`,
+`wallet_audit.jsonl`) plus the seed manifest and runs **eighteen**
+independent checks:
 
 | # | Check | What it verifies |
 | - | ----- | ---------------- |
@@ -260,10 +308,18 @@ plus the seed manifest and runs eleven independent checks:
 | 9 | `lifecycle_correctness` | per transition in `transitions.jsonl`: post-state matches expected, stable-id preserved on migrate, dunning escalates per config (Session 6) |
 | 10 | `state_machine_invariants` | no illegal transitions: CANCELLED → ACTIVE, EXPIRED → anything, GA → BETA regression (Session 6) |
 | 11 | `bill_run_vs_lifecycle` | fire 2 simultaneous bill runs + 1 migrate on the same tenant: exactly 1 bill run wins, 1 returns 409, migrate keeps stable id, no double-billing (Session 6, `--include-billing`) |
+| 12 | `payment_processing` | success rate within tolerance of `scenario.payments.success_pct`; every PAID record has a Stripe `payment_intent_id`; every declined record has a `failure_code` (Session 9) |
+| 13 | `tax_math` | `tax_amount = subtotal × jurisdiction_rate` for every (currency, jurisdiction) pair, within `scenario.tax.tolerance_usd` (Session 9) |
+| 14 | `multi_currency` | EUR/GBP customers receive invoices in their currency; pinned FX rates applied at bill-run time, not event-ingest time (Session 9) |
+| 15 | `erp_sync` | ≥99% of issued invoices synced to the configured ERP within SLA; provider-side externalDocumentId resolves at the sandbox (Session 9) |
+| 16 | `credit_notes` | DRAFT → ISSUED (→ APPLIED) progression for every credit note; `PRORATION` reason; ≤5% errors (Session 9) |
+| 17 | `wallet_lifecycle` | sum of pending holds ≤ initial balance; expired holds released by `HoldExpiryScheduler` within `hold_ttl_seconds` (Session 9) |
+| 18 | `single_erp_invariant` | second ERP connect on a tenant returns 409 — disabled when `scenario.erp.multi_erp_enabled = true` (Session 9) |
 
-Without backend access, checks 1, 6, 7, 9, 10 still run from local
-artifacts alone — ci-smoke validate exits 0 in pure-CI mode. Checks
-that need infra (2, 3, 4, 5, 8, 11) `SKIP` with a clear reason.
+Without backend access, checks 1, 6, 7, 9, 10, 12, 13, 14, 15, 16, 17 still
+run from local artifacts alone — ci-smoke validate exits 0 in pure-CI
+mode. Checks that need infra (2, 3, 4, 5, 8, 11, 18) `SKIP` with a clear
+reason.
 
 The strongest assertion is the stale-key zero-false-positives check
 (Check 6.e.3 + Check 7.g): a single successful ingestion on a revoked
