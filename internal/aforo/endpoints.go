@@ -47,12 +47,40 @@ const (
 	// (a stale key is rejected with 401/403).
 	// Production: https://usage-ingestor.aforo.space — local: http://localhost:8084.
 	ServiceUsageIngestor Service = "usage-ingestor"
+
+	// ServiceAnalytics owns ClickHouse-backed analytics, event log, system
+	// health, and uptime monitoring. doctor probes /actuator/health.
+	// Production: https://analytics.aforo.space — local: http://localhost:8088.
+	ServiceAnalytics Service = "analytics"
+
+	// ServiceStorefront owns the customer portal BFF, headless API, and
+	// storefront config publishing. doctor probes /actuator/health.
+	// Production: https://storefront.aforo.space — local: http://localhost:8089.
+	ServiceStorefront Service = "storefront"
+
+	// ServiceAIService owns Anthropic-backed content / section / component
+	// generation + storefront AI runtime. doctor probes a lightweight HTTP
+	// endpoint (no actuator on this service today).
+	// Local: http://localhost:8091.
+	ServiceAIService Service = "ai-service"
 )
 
-// AllServices is the canonical iteration order — used by --doctor probes.
+// AllServices is the iteration order used by the seed harness — only
+// services it actively writes to. Doctor uses AllProbeServices instead.
 var AllServices = []Service{
 	ServiceOrganization, ServiceCatalog, ServicePricing,
 	ServiceCustomer, ServiceBilling, ServiceUsageIngestor,
+}
+
+// AllProbeServices is the canonical health-check iteration order used by
+// the doctor subcommand. Strictly a superset of AllServices: doctor
+// verifies reachability of every service the e2e flow touches, including
+// read-only consumers (analytics, storefront, ai-service) that the seed
+// harness never writes to.
+var AllProbeServices = []Service{
+	ServiceOrganization, ServiceCatalog, ServicePricing,
+	ServiceCustomer, ServiceUsageIngestor, ServiceAnalytics,
+	ServiceBilling, ServiceStorefront, ServiceAIService,
 }
 
 // Target identifies a deployment environment plus its per-service URL map.
@@ -87,6 +115,9 @@ var LocalTarget = Target{
 		ServiceCustomer:      "http://localhost:8085",
 		ServiceBilling:       "http://localhost:8090",
 		ServiceUsageIngestor: "http://localhost:8084",
+		ServiceAnalytics:     "http://localhost:8088",
+		ServiceStorefront:    "http://localhost:8089",
+		ServiceAIService:     "http://localhost:8091",
 	},
 }
 
@@ -101,6 +132,11 @@ var StagingTarget = Target{
 		ServiceCustomer:      "https://customer.aforo.space",
 		ServiceBilling:       "https://billing.aforo.space",
 		ServiceUsageIngestor: "https://usage-ingestor.aforo.space",
+		ServiceAnalytics:     "https://analytics.aforo.space",
+		ServiceStorefront:    "https://storefront.aforo.space",
+		// ai-service does not have a public hostname today; staging runs
+		// targeting external URLs skip the ai-service probe.
+		ServiceAIService: "",
 	},
 }
 
@@ -116,6 +152,9 @@ var ProdTarget = Target{
 		ServiceCustomer:      "https://customer.aforo.space",
 		ServiceBilling:       "https://billing.aforo.space",
 		ServiceUsageIngestor: "https://usage-ingestor.aforo.space",
+		ServiceAnalytics:     "https://analytics.aforo.space",
+		ServiceStorefront:    "https://storefront.aforo.space",
+		ServiceAIService:     "",
 	},
 }
 
@@ -140,7 +179,12 @@ func ResolveTarget(name string) (Target, error) {
 		}
 		base := u.Scheme + "://" + u.Host
 		t := Target{Name: name, URLs: map[Service]string{}}
-		for _, svc := range AllServices {
+		// Custom URL targets fan every probe service to the same ingress
+		// (Kong, ALB, review env). Doctor will consequently probe the
+		// same /actuator/health on the gateway 9 times — that's fine for
+		// reachability; per-service health distinctions are only
+		// meaningful in the multi-host predefined targets.
+		for _, svc := range AllProbeServices {
 			t.URLs[svc] = base
 		}
 		return t, nil

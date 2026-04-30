@@ -1,14 +1,27 @@
 # crawl-e2e — end-to-end coverage at low TPS
 #
-# Purpose: exercise every product type and a representative ingest path
-# variety so the wiring is proven before scaling up.
+# Purpose: exercise every product type, every billing mode, the lifecycle
+# state machine, every negative-path category, and the platform's
+# stale-key rejection in one short sustained run. This scenario is the
+# headline `aforo-loadgen e2e` workflow's input on a fresh local stack.
 #
-# Coverage: 4 tenants, 4 archetypes (one per product type), 3 ingest paths,
-# 50 TPS, 5 minutes. No fault injection. Lifecycle off. Payments off.
+# Coverage:
+#   • 4 tenants, 4 archetypes (one per product type)
+#   • 4 pricing models — PER_UNIT, FLAT_RATE, INCLUDED_QUOTA, GRADUATED
+#     (the platform's PERCENTAGE and VOLUME_TIERED models are exercised
+#      by matrix-billing.yaml, which adds 2 more archetypes; this file
+#      sticks to 4 archetypes per Session 7's deliverable spec)
+#   • 3 billing modes — POSTPAID, PREPAID, HYBRID
+#   • 100 customers per archetype → 400 customers total
+#   • 50 TPS, 5 minutes → ~15,000 events
+#   • 2 ingestion paths — rest_direct (primary) and sdk_node
+#   • All 6 negative-path categories injected at low rate (1% each)
+#   • Lifecycle agent enabled at low rate (~1 transition / min total)
+#   • Per-archetype billing-match validation enabled
 
 schema_version: 1
 name: crawl-e2e
-description: One tenant per product type, three ingest paths, 5 minutes at 50 TPS.
+description: One tenant per product type, four pricing models, all 6 negative paths active, lifecycle on, 5 minutes at 50 TPS.
 target_tps: 50
 duration: 5m
 seed: 42
@@ -17,12 +30,14 @@ tenants:
   count: 4
   distribution: uniform
   archetypes:
+    # Archetype 1 — POSTPAID Standard API on PER_UNIT pricing.
+    # The simplest revenue surface: per-event billing, postpaid invoice.
     - name: crawl-api-postpaid-perunit
       weight: 0.25
       pricing_model: PER_UNIT
       billing_mode: POSTPAID
       product_types: [API]
-      customer_count: 5
+      customer_count: 100
       currency_mix:
         USD: 1.0
       subscription_state_mix:
@@ -30,12 +45,14 @@ tenants:
       rate_config:
         per_unit_rate_usd: 0.001
 
+    # Archetype 2 — PREPAID AI Agent on FLAT_RATE pricing.
+    # Wallet escrow path: monthly fee debits a prepaid wallet on bill-run.
     - name: crawl-aiagent-prepaid-flat
       weight: 0.25
       pricing_model: FLAT_RATE
       billing_mode: PREPAID
       product_types: [AI_AGENT]
-      customer_count: 5
+      customer_count: 100
       currency_mix:
         USD: 1.0
       subscription_state_mix:
@@ -44,12 +61,15 @@ tenants:
         flat_fee_usd: 99.00
         wallet_initial_balance_usd: 500.00
 
+    # Archetype 3 — HYBRID MCP Server on INCLUDED_QUOTA pricing.
+    # Wallet covers up to 1,000 free invocations, then per-unit overage
+    # falls through to invoice. Exercises the wallet-then-invoice route.
     - name: crawl-mcp-hybrid-quota
       weight: 0.25
       pricing_model: INCLUDED_QUOTA
       billing_mode: HYBRID
       product_types: [MCP_SERVER]
-      customer_count: 5
+      customer_count: 100
       currency_mix:
         USD: 1.0
       subscription_state_mix:
@@ -59,16 +79,22 @@ tenants:
         per_unit_rate_usd: 0.005
         wallet_initial_balance_usd: 250.00
 
+    # Archetype 4 — POSTPAID Agentic API on GRADUATED tiers.
+    # Mixes ACTIVE + CANCELLED + EXPIRED subs so the stale-key negative
+    # path has a population to draw from. Validator's Check 6 asserts
+    # CANCELLED/EXPIRED keys are rejected with 401/403 by usage-ingestor.
     - name: crawl-agentic-postpaid-graduated
       weight: 0.25
       pricing_model: GRADUATED
       billing_mode: POSTPAID
       product_types: [AGENTIC_API]
-      customer_count: 5
+      customer_count: 100
       currency_mix:
         USD: 1.0
       subscription_state_mix:
-        ACTIVE: 1.0
+        ACTIVE: 0.9
+        CANCELLED: 0.05
+        EXPIRED: 0.05
       rate_config:
         graduated_tiers:
           - up_to_units: 1000
@@ -86,19 +112,52 @@ product_mix:
   MCP_SERVER: 0.25
   AGENTIC_API: 0.25
 
+# Two ingestion paths per Session 7 deliverable: rest_direct primary,
+# sdk_node secondary. Gateway adapters and webhook receivers are
+# exercised by walk-realistic-50t.yaml.
 ingestion_paths:
-  rest_direct: 0.5
+  rest_direct: 0.7
   sdk_node: 0.3
-  gateway_kong: 0.2
 
 payload_variation:
   small_pct: 0.7
   medium_pct: 0.25
   large_pct: 0.05
 
+# All 6 negative-path categories injected at 1% each. With 50 TPS × 300s
+# = 15,000 events, that's ~150 of each category — enough for the
+# validator's Check 6 to find at least one of each kind, well above the
+# zero-noise threshold. Total negative-path traffic is ~6%, so the
+# happy-path billing math (Check 5) is unaffected.
+negative_paths:
+  late_events_pct: 0.01
+  future_events_pct: 0.01
+  malformed_pct: 0.01
+  wrong_auth_pct: 0.01
+  stale_keys_pct: 0.01
+  oversize_pct: 0.01
+
+# Lifecycle on at low rate: with ~400 eligible subs and 0.025/h per kind
+# across 6 kinds, that's roughly 60 transitions/hour (1/min) total —
+# enough to populate transitions.jsonl for Checks 9-11 without
+# overwhelming the run engine. Trial cancel kept off because the
+# scenario's subscription_state_mix has zero TRIALING subs to act on;
+# the lifecycle picker will SKIP that ticker silently.
+lifecycle:
+  enabled: true
+  upgrades_per_hour_pct: 0.025
+  downgrades_per_hour_pct: 0.025
+  pause_resume_per_hour_pct: 0.025
+  trial_conversion_per_hour_pct: 0.025
+  migrate_per_hour_pct: 0.025
+  retry_payment_per_hour_pct: 0.025
+
 tax:
   engine: mock
 
+# Billing matrix validation enabled: Check 5 (per-archetype invoice
+# math) and Check 8 (bill-run concurrency) light up when the operator
+# passes --include-billing to e2e or validate.
 assertions:
   events_lost_max: 0
   invoice_revenue_drift_pct_max: 0.005
@@ -110,3 +169,4 @@ assertions:
 metadata:
   tier: crawl
   expected_total_events: 15000  # 50 TPS * 300s
+  session: 7

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"text/tabwriter"
 
@@ -129,7 +128,10 @@ func runValidate(ctx context.Context, out, errOut io.Writer, f *validateFlags) e
 
 	if report.Summary.Failed > 0 {
 		fmt.Fprintln(errOut, "validate: one or more checks FAILED")
-		os.Exit(1) // CI gates on this
+		// Returning an error lets cobra exit 1 cleanly and lets deferred
+		// cleanups in callers (e.g. tests, e2e orchestrator) run. CI still
+		// gates on the non-zero exit code.
+		return fmt.Errorf("validate: %d check(s) failed", report.Summary.Failed)
 	}
 	return nil
 }

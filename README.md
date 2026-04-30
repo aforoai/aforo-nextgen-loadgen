@@ -16,11 +16,11 @@ architecture, services, and conventions see
 
 ## Status
 
-Session 6 of 12. The command tree is in place; `version`, `scenarios`,
-`seed`, `run`, `replay`, `validate`, `report`, and `lifecycle` are fully
-implemented. Other subcommands are stubs that announce the session in
-which they ship. The scenario YAML schema itself is defined in
-[`docs/scenario-schema.md`](docs/scenario-schema.md).
+Session 7 of 12. The command tree is in place; `version`, `scenarios`,
+`seed`, `run`, `replay`, `validate`, `report`, `lifecycle`, `doctor`,
+and `e2e` are fully implemented. Other subcommands are stubs that
+announce the session in which they ship. The scenario YAML schema
+itself is defined in [`docs/scenario-schema.md`](docs/scenario-schema.md).
 
 | Subcommand  | Ships in      | What it does                                                  |
 | ----------- | ------------- | ------------------------------------------------------------- |
@@ -31,9 +31,9 @@ which they ship. The scenario YAML schema itself is defined in
 | `validate`  | _Session 5_ ✓ | Validate a completed run vs the platform (11 checks).         |
 | `report`    | _Session 5_ ✓ | Render a self-contained HTML run + validation report.         |
 | `lifecycle` | _Session 6_ ✓ | Drive subscription state-machine transitions during a run.    |
-| `payments`  | Session 9     | Drive payment, tax, and ERP integration flows.                |
-| `e2e`       | Session 8     | End-to-end smoke flows against a live target.                 |
-| `doctor`    | Session 11    | Diagnose local environment and target reachability.           |
+| `doctor`    | _Session 7_ ✓ | Diagnose local environment and target reachability.           |
+| `e2e`       | _Session 7_ ✓ | doctor → seed → run + lifecycle → validate → report → clean.  |
+| `payments`  | Session 8     | Drive payment, tax, and ERP integration flows.                |
 | `server`    | Session 12    | Control-plane server (dashboard + multi-node coordinator).    |
 | `version`   | Session 1     | Print semver, commit SHA, and build date.                     |
 
@@ -65,6 +65,27 @@ make build
 
 ## Quickstart
 
+The headline workflow is `aforo-loadgen e2e` — see
+[`docs/getting-started.md`](docs/getting-started.md) for a 5-minute walkthrough.
+
+```bash
+# Bring the platform up (separate repo).
+cd ../aforo-nextgen-docker && docker-compose up -d
+
+# Pre-flight check.
+export AFORO_ADMIN_TOKEN=eyJ...
+aforo-loadgen doctor --target local
+
+# Full end-to-end flow (~6 minutes).
+aforo-loadgen e2e --scenario crawl-e2e --target local \
+                  --include-billing --include-lifecycle
+
+# Open the report.
+open e2e/crawl-e2e-*/report.html
+```
+
+Or piecemeal:
+
 ```bash
 aforo-loadgen --help                                          # see all subcommands
 aforo-loadgen version                                         # print build metadata
@@ -75,15 +96,62 @@ aforo-loadgen scenarios validate ./my-scenario.yaml           # validate a custo
 aforo-loadgen seed --scenario matrix-billing --dry-run        # plan a seed without sending
 aforo-loadgen seed --scenario matrix-billing --target local \
                    --out manifest.json                        # provision against local Aforo
-aforo-loadgen seed --scenario matrix-billing \
-                   --archetypes-only mtx-flat-postpaid-cancelled \
-                   --target local                             # seed a subset for fast iteration
 aforo-loadgen seed --clean --out manifest.json --target local # archive everything in manifest
 aforo-loadgen run --scenario ci-smoke --manifest manifest.json \
                   --target local --out runs/ci-smoke-$(date +%s) # drive a scenario (Session 4)
 aforo-loadgen replay --run-output runs/ci-smoke-... --target local # re-run from recorded output
-aforo-loadgen report --run-id <id>                            # render results (Session 10)
+aforo-loadgen validate --run-output runs/ci-smoke-... \
+                       --manifest manifest.json --target local    # 11-check oracle (Session 5)
+aforo-loadgen report --run-output runs/ci-smoke-...                # render HTML (Session 5)
 ```
+
+## End-to-end orchestrator (Session 7)
+
+`aforo-loadgen e2e` chains every prior session into one subcommand. On
+a healthy local Docker stack the full flow finishes in under 10 minutes
+and produces a self-contained `report.html`.
+
+```
+aforo-loadgen e2e --scenario crawl-e2e --target local \
+                  --include-billing --include-lifecycle
+```
+
+Stages (with per-stage timing in `<out>/e2e.json`):
+
+1. **doctor** — verify every service is reachable + auth works
+2. **seed** — provision tenants per archetype
+3. **run** — drive event traffic at the seeded population
+4. **lifecycle** — fire subscription state transitions in parallel (skipped without `--include-lifecycle`)
+5. **validate** — assert post-run invariants and per-archetype billing
+6. **report** — render `report.html` (offline-safe, no CDN)
+7. **clean** — archive seeded entities (skipped via `--keep-data`)
+
+Even on stage failure, every prior stage's artifacts are preserved on
+disk so you can debug in place. See
+[`docs/troubleshooting.md`](docs/troubleshooting.md) for symptom →
+remedy maps.
+
+`make e2e-local` and `make e2e-staging` wrap the headline invocation;
+`make e2e-test` runs a tag-gated Go test that asserts the flow
+completes inside its budget.
+
+## Doctor (Session 7)
+
+`aforo-loadgen doctor` is the standalone pre-flight check that the e2e
+flow runs first. It probes every microservice's `/actuator/health`,
+verifies your bearer token authenticates against organization-service,
+and summarizes platform infra (PostgreSQL, Kafka, Redis, ClickHouse)
+status reported by the services that expose component health.
+
+```
+aforo-loadgen doctor --target local                          # human view
+aforo-loadgen doctor --target local --json doctor.json       # both
+aforo-loadgen doctor --target local --json-only              # for orchestration
+```
+
+Exit code is 0 when every CRITICAL check passes, 1 otherwise.
+ai-service is WARNING-only because it isn't required for any base e2e
+archetype.
 
 ## Run engine (Session 4)
 

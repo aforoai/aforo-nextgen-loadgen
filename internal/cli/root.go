@@ -31,9 +31,10 @@ platform — covering all 4 product types, 9 gateway adapters, 6 pricing models,
 
 Target: 15K TPS sustained, 500 tenants, Crawl-Walk-Run methodology.
 
-This is Session 1: command tree only. Most subcommands print a "not yet
-implemented" message and exit cleanly. See the README for the session
-roadmap.`,
+The headline workflow is "aforo-loadgen e2e" (Session 7) — chains doctor
+→ seed → run + lifecycle → validate → report → clean against a live
+target in one command. See "aforo-loadgen e2e --help" or the README for
+the full session roadmap.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

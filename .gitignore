@@ -27,3 +27,7 @@ coverage.html
 # Loadgen output (default --out path; per-run manifests should not land in VCS)
 manifest.json
 manifest-*.json
+
+# Run artifacts (Session 4) and e2e workflow artifacts (Session 7).
+/runs/
+/e2e/

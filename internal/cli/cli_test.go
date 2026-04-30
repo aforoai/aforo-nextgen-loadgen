@@ -56,6 +56,9 @@ func TestEverySubcommandExitsZero(t *testing.T) {
 		"validate":  {"validate", "--help"},
 		"report":    {"report", "--help"},
 		"lifecycle": {"lifecycle", "--help"}, // Session 6: real entry point
+		// Session 7 — real entry points; --help is the no-network path.
+		"doctor": {"doctor", "--help"},
+		"e2e":    {"e2e", "--help"},
 	}
 	for _, name := range expectedSubcommands {
 		t.Run(name, func(t *testing.T) {
@@ -89,8 +92,9 @@ func TestStubsAdvertiseSession(t *testing.T) {
 	// Implemented in Session 4: run, replay.
 	// Implemented in Session 5: validate, report.
 	// Implemented in Session 6: lifecycle.
+	// Implemented in Session 7: doctor, e2e.
 	stubs := []string{
-		"doctor", "e2e", "payments",
+		"payments",
 		"server",
 	}
 	for _, name := range stubs {

@@ -26,7 +26,8 @@ LDFLAGS     := -s -w \
 
 GOFLAGS     := -trimpath
 
-.PHONY: all build test lint fmt vet tidy install clean release help
+.PHONY: all build test lint fmt vet tidy install clean release help \
+        doctor-local doctor-staging e2e-local e2e-staging e2e-test
 
 all: build
 
@@ -72,6 +73,40 @@ clean:
 ## release: cross-compile for darwin/linux on amd64+arm64 (Session 1: stub)
 release: build
 	@echo "release: cross-compile matrix lands in Session 9"
+
+## doctor-local: run pre-flight diagnostic against the docker-compose stack on localhost
+doctor-local: build
+	@AFORO_ADMIN_TOKEN=$${AFORO_ADMIN_TOKEN:?AFORO_ADMIN_TOKEN is required for doctor; export it before running} \
+	$(BIN_DIR)/$(BINARY) doctor --target local
+
+## doctor-staging: run pre-flight diagnostic against staging (requires AFORO_STAGING_TOKEN)
+doctor-staging: build
+	@AFORO_STAGING_TOKEN=$${AFORO_STAGING_TOKEN:?AFORO_STAGING_TOKEN is required for doctor-staging} \
+	AFORO_ADMIN_TOKEN=$$AFORO_STAGING_TOKEN \
+	$(BIN_DIR)/$(BINARY) doctor --target staging
+
+## e2e-local: full end-to-end flow against the local docker-compose stack
+e2e-local: build
+	@AFORO_ADMIN_TOKEN=$${AFORO_ADMIN_TOKEN:?AFORO_ADMIN_TOKEN is required for e2e; cd aforo-nextgen-docker && docker-compose up -d, then export the token} \
+	$(BIN_DIR)/$(BINARY) e2e \
+		--scenario scenarios/crawl-e2e.yaml \
+		--target local \
+		--include-billing \
+		--include-lifecycle
+
+## e2e-staging: full end-to-end flow against staging (requires AFORO_STAGING_TOKEN)
+e2e-staging: build
+	@AFORO_STAGING_TOKEN=$${AFORO_STAGING_TOKEN:?AFORO_STAGING_TOKEN is required for e2e-staging} \
+	AFORO_ADMIN_TOKEN=$$AFORO_STAGING_TOKEN \
+	$(BIN_DIR)/$(BINARY) e2e \
+		--scenario scenarios/crawl-e2e.yaml \
+		--target staging \
+		--include-billing \
+		--include-lifecycle
+
+## e2e-test: run the tag-gated end-to-end Go test (requires Docker stack up)
+e2e-test:
+	go test -tags=e2e -count=1 -v ./test/e2e/...
 
 ## help: list documented targets
 help:
