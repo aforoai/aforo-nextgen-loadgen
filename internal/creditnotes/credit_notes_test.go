@@ -1,4 +1,4 @@
-package credit_notes
+package creditnotes
 
 import (
 	"math/rand"
@@ -118,4 +118,3 @@ func TestReconstruct(t *testing.T) {
 		t.Errorf("i3 should record error: %+v", byID["i3"])
 	}
 }
-

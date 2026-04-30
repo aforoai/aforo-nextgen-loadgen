@@ -98,11 +98,11 @@ func (vx *VertexEngine) Calculate(ctx context.Context, req Request) (Response, e
 func (vx *VertexEngine) callAPI(ctx context.Context, req Request) (Response, error) {
 	endpoint := vx.baseURL + "/vertex-restapi/v1/calculation/quote"
 	payload := map[string]any{
-		"trustedId":         vx.trustID,
-		"transactionType":   "SALE",
-		"documentNumber":    req.InvoiceID,
-		"customerCode":      req.CustomerID,
-		"currency":          orDefault(req.Currency, "USD"),
+		"trustedId":       vx.trustID,
+		"transactionType": "SALE",
+		"documentNumber":  req.InvoiceID,
+		"customerCode":    req.CustomerID,
+		"currency":        orDefault(req.Currency, "USD"),
 		"lineItems": []map[string]any{{
 			"lineItemNumber": 1,
 			"productClass":   orDefault(req.ProductType, "DIGITAL_SERVICE"),
@@ -166,8 +166,8 @@ func (vx *VertexEngine) fallback(ctx context.Context, req Request, reason string
 }
 
 type vertexResponse struct {
-	TotalTax  float64       `json:"totalTax"`
-	LineItems []vertexLine  `json:"lineItems"`
+	TotalTax  float64      `json:"totalTax"`
+	LineItems []vertexLine `json:"lineItems"`
 }
 
 type vertexLine struct {

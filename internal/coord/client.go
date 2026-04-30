@@ -16,8 +16,8 @@ import (
 // One client per worker — the *http.Client is reused for the lifetime
 // of the run so HTTP/2 connection pooling works.
 type WorkerClient struct {
-	addr  string
-	http  *http.Client
+	addr string
+	http *http.Client
 }
 
 // NewWorkerClient constructs a client that POSTs/GETs to the worker at

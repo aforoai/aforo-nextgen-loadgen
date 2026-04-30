@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aforoai/aforo-nextgen-loadgen/internal/credit_notes"
+	"github.com/aforoai/aforo-nextgen-loadgen/internal/creditnotes"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/erp"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/payments"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/scenario"
@@ -203,12 +203,12 @@ func TestRunERPSync_BelowThreshold_Fails(t *testing.T) {
 
 func TestRunCreditNotes_FullProgression_Passes(t *testing.T) {
 	dir := t.TempDir()
-	cnLog, err := credit_notes.NewLog(filepath.Join(dir, "credit_notes.jsonl"))
+	cnLog, err := creditnotes.NewLog(filepath.Join(dir, "credit_notes.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, st := range []string{"DRAFT", "ISSUED", "APPLIED"} {
-		_ = cnLog.Append(credit_notes.Record{
+		_ = cnLog.Append(creditnotes.Record{
 			InvoiceID: "i1", CreditNoteID: "cn-1", Status: st, AmountUSD: 50, Kind: "FULL",
 		})
 	}
@@ -228,8 +228,8 @@ func TestRunCreditNotes_FullProgression_Passes(t *testing.T) {
 
 func TestRunCreditNotes_DraftWithoutIssued_Fails(t *testing.T) {
 	dir := t.TempDir()
-	cnLog, _ := credit_notes.NewLog(filepath.Join(dir, "credit_notes.jsonl"))
-	_ = cnLog.Append(credit_notes.Record{
+	cnLog, _ := creditnotes.NewLog(filepath.Join(dir, "credit_notes.jsonl"))
+	_ = cnLog.Append(creditnotes.Record{
 		InvoiceID: "i1", CreditNoteID: "cn-1", Status: "DRAFT", AmountUSD: 50, Kind: "FULL",
 	})
 	cnLog.Close()

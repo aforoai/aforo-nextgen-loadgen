@@ -50,26 +50,26 @@ type CoordinatorConfig struct {
 // coordinator marks the worker's tenant range as "incomplete" in the
 // merged report so post-run analysis sees the gap.
 type Coordinator struct {
-	cfg     CoordinatorConfig
-	now     func() time.Time
-	logger  func(format string, args ...any)
+	cfg    CoordinatorConfig
+	now    func() time.Time
+	logger func(format string, args ...any)
 
 	clientsMu sync.Mutex
 	clients   map[string]*WorkerClient // addr → client
 
-	stateMu  sync.Mutex
-	workers  []*workerState
-	runID    string
+	stateMu sync.Mutex
+	workers []*workerState
+	runID   string
 }
 
 type workerState struct {
-	addr           string
-	id             string
+	addr            string
+	id              string
 	assignedTenants []string
-	lastHeartbeat  time.Time
-	state          string // mirrors Heartbeat.State
-	dropoutLogged  bool
-	report         *Report
+	lastHeartbeat   time.Time
+	state           string // mirrors Heartbeat.State
+	dropoutLogged   bool
+	report          *Report
 }
 
 // NewCoordinator constructs a Coordinator and dials every worker. Returns
@@ -409,14 +409,14 @@ type AggregateResult struct {
 // mergeReports aggregates per-worker reports into one cluster view.
 func mergeReports(runID string, reports []*Report, dropouts []string) AggregateResult {
 	out := AggregateResult{
-		RunID:           runID,
-		Workers:         len(reports) + len(dropouts),
-		WorkersReported: len(reports),
-		WorkersDropped:  dropouts,
-		PerArchetype:    map[string]int64{},
-		PerProductType:  map[string]int64{},
+		RunID:            runID,
+		Workers:          len(reports) + len(dropouts),
+		WorkersReported:  len(reports),
+		WorkersDropped:   dropouts,
+		PerArchetype:     map[string]int64{},
+		PerProductType:   map[string]int64{},
 		PerIngestionPath: map[string]int64{},
-		PerWorker:       map[string]*Report{},
+		PerWorker:        map[string]*Report{},
 	}
 	if len(reports) == 0 {
 		return out

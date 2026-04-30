@@ -107,9 +107,9 @@ func TestMapProvider_BadPairKey(t *testing.T) {
 
 func TestSplitPair(t *testing.T) {
 	tests := []struct {
-		in            string
-		fromW, toW    string
-		ok            bool
+		in         string
+		fromW, toW string
+		ok         bool
 	}{
 		{"USD->EUR", "USD", "EUR", true},
 		{"usd->eur", "USD", "EUR", true},

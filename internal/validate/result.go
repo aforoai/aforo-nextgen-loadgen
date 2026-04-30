@@ -49,17 +49,17 @@ const (
 	CheckInvariants         = "property_based_invariants"
 	CheckBillRunConcurrency = "bill_run_concurrency"
 	// Session 6 — lifecycle checks.
-	CheckLifecycleCorrectness  = "lifecycle_correctness"
+	CheckLifecycleCorrectness   = "lifecycle_correctness"
 	CheckStateMachineInvariants = "state_machine_invariants"
 	CheckLifecycleVsBillRun     = "bill_run_vs_lifecycle"
 	// Session 9 — payment, tax, FX, ERP, credit-note, wallet checks.
-	CheckPaymentProcessing      = "payment_processing"
-	CheckTaxMath                = "tax_math"
-	CheckMultiCurrency          = "multi_currency"
-	CheckERPSync                = "erp_sync"
-	CheckCreditNotes            = "credit_notes"
-	CheckWalletLifecycle        = "wallet_lifecycle"
-	CheckSingleERPInvariant     = "single_erp_invariant"
+	CheckPaymentProcessing  = "payment_processing"
+	CheckTaxMath            = "tax_math"
+	CheckMultiCurrency      = "multi_currency"
+	CheckERPSync            = "erp_sync"
+	CheckCreditNotes        = "credit_notes"
+	CheckWalletLifecycle    = "wallet_lifecycle"
+	CheckSingleERPInvariant = "single_erp_invariant"
 )
 
 // AllChecks is the canonical iteration order. The orchestrator runs them in

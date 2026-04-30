@@ -234,10 +234,10 @@ func TestGetRun_RoundTrip(t *testing.T) {
 
 	// Seed a row directly via the index — bypasses the worker spawn.
 	_ = idx.Insert(context.Background(), server.Run{
-		RunID:   "seeded-1",
+		RunID:    "seeded-1",
 		Scenario: "ci-smoke",
-		Target:  "local",
-		Status:  server.RunStatusCompleted,
+		Target:   "local",
+		Status:   server.RunStatusCompleted,
 	})
 
 	resp := do(t, ts, http.MethodGet, "/api/v1/runs/seeded-1", nil)

@@ -15,13 +15,13 @@ import (
 //
 // Concurrency: safe for many goroutines.
 type OutcomePicker struct {
-	mu        sync.Mutex
-	rng       *rand.Rand
-	successW  float64
-	declineW  float64
-	insufW    float64
-	totalW    float64
-	pinByID   map[string]PaymentOutcome // optional caller-supplied overrides
+	mu       sync.Mutex
+	rng      *rand.Rand
+	successW float64
+	declineW float64
+	insufW   float64
+	totalW   float64
+	pinByID  map[string]PaymentOutcome // optional caller-supplied overrides
 }
 
 // NewOutcomePicker constructs the picker from a scenario.Payments block.
@@ -94,11 +94,11 @@ func CardFor(outcome PaymentOutcome) (string, error) {
 // tests + Check 12 to assert that the actual distribution sits within
 // tolerance of the requested mix.
 type Distribution struct {
-	Success   int
-	Decline   int
-	Insuf     int
-	Other     int
-	Total     int
+	Success int
+	Decline int
+	Insuf   int
+	Other   int
+	Total   int
 }
 
 // SuccessPct returns the realized success rate.

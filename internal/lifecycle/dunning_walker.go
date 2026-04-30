@@ -31,9 +31,9 @@ func DefaultDunningConfig() DunningConfig {
 //
 // Concurrency: safe — the per-sub counter is mutex-guarded.
 type DunningWalker struct {
-	cfg    DunningConfig
-	mu     sync.Mutex
-	count  map[string]int
+	cfg   DunningConfig
+	mu    sync.Mutex
+	count map[string]int
 }
 
 // NewDunningWalker constructs a walker.

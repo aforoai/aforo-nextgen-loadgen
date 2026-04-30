@@ -1,4 +1,4 @@
-package credit_notes
+package creditnotes
 
 import (
 	"encoding/json"

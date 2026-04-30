@@ -89,13 +89,13 @@ type RateCard struct {
 // 2026-04-30. Operators should override these in production by passing a
 // RateCard to NewTracker.
 var DefaultRates = RateCard{
-	WorkerNodeUSDPerHour:           0.68,    // c6i.4xlarge
-	CoordinatorUSDPerHour:          0.085,   // c6i.large
-	ClickHouseStorageUSDPerGBMonth: 0.08,    // gp3 EBS
-	KafkaMSKUSDPerHour:             1.92,    // 3 × kafka.m5.2xlarge + 1TB storage
-	RedisElasticacheUSDPerHour:     0.21,    // 3 × cache.m6g.large
-	NATGatewayUSDPerHour:           0.045,   // single-AZ NAT
-	EgressUSDPerGB:                 0.09,    // cross-AZ
+	WorkerNodeUSDPerHour:           0.68,  // c6i.4xlarge
+	CoordinatorUSDPerHour:          0.085, // c6i.large
+	ClickHouseStorageUSDPerGBMonth: 0.08,  // gp3 EBS
+	KafkaMSKUSDPerHour:             1.92,  // 3 × kafka.m5.2xlarge + 1TB storage
+	RedisElasticacheUSDPerHour:     0.21,  // 3 × cache.m6g.large
+	NATGatewayUSDPerHour:           0.045, // single-AZ NAT
+	EgressUSDPerGB:                 0.09,  // cross-AZ
 	EventBytesAvg:                  500,
 	Region:                         "us-east-1",
 }
@@ -169,13 +169,13 @@ func (t *Tracker) Estimate() Breakdown {
 	}
 
 	bd := Breakdown{
-		Region:           t.rates.Region,
-		Hours:            hours,
-		WorkerCount:      workers,
-		EventsIngested:   t.EventsIngested,
-		EventsAttempted:  t.EventsAttempted,
-		IsEstimate:       true,
-		EstimateNote:     estimateNote(t.rates.Region),
+		Region:          t.rates.Region,
+		Hours:           hours,
+		WorkerCount:     workers,
+		EventsIngested:  t.EventsIngested,
+		EventsAttempted: t.EventsAttempted,
+		IsEstimate:      true,
+		EstimateNote:    estimateNote(t.rates.Region),
 	}
 
 	bd.WorkerComputeUSD = float64(workers) * t.rates.WorkerNodeUSDPerHour * hours
@@ -221,7 +221,7 @@ func (t *Tracker) Estimate() Breakdown {
 // under the "cost_estimate" key. All USD figures are floats — callers that
 // want strict cents-precision should multiply by 100 and round.
 type Breakdown struct {
-	Region          string `json:"region"`
+	Region          string  `json:"region"`
 	Hours           float64 `json:"hours"`
 	WorkerCount     int     `json:"worker_count"`
 	EventsIngested  int64   `json:"events_ingested"`

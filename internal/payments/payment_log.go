@@ -13,19 +13,19 @@ import (
 // PaymentRecord is one row in payments.jsonl. Stable JSON shape — the
 // validator unmarshals these directly. Fields ADD only; never rename.
 type PaymentRecord struct {
-	Timestamp       time.Time `json:"ts"`
-	InvoiceID       string    `json:"invoice_id"`
-	TenantID        string    `json:"tenant_id"`
-	CustomerID      string    `json:"customer_id,omitempty"`
-	SubscriptionID  string    `json:"subscription_id,omitempty"`
-	AmountUSD       float64   `json:"amount_usd"`
-	Currency        string    `json:"currency"`
-	StripeIntentID  string    `json:"stripe_intent_id,omitempty"`
-	StripeChargeID  string    `json:"stripe_charge_id,omitempty"`
-	Outcome         string    `json:"outcome"`
-	IdempotencyKey  string    `json:"idempotency_key,omitempty"`
-	FailureCode     string    `json:"failure_code,omitempty"`
-	Note            string    `json:"note,omitempty"`
+	Timestamp      time.Time `json:"ts"`
+	InvoiceID      string    `json:"invoice_id"`
+	TenantID       string    `json:"tenant_id"`
+	CustomerID     string    `json:"customer_id,omitempty"`
+	SubscriptionID string    `json:"subscription_id,omitempty"`
+	AmountUSD      float64   `json:"amount_usd"`
+	Currency       string    `json:"currency"`
+	StripeIntentID string    `json:"stripe_intent_id,omitempty"`
+	StripeChargeID string    `json:"stripe_charge_id,omitempty"`
+	Outcome        string    `json:"outcome"`
+	IdempotencyKey string    `json:"idempotency_key,omitempty"`
+	FailureCode    string    `json:"failure_code,omitempty"`
+	Note           string    `json:"note,omitempty"`
 }
 
 // PaymentLog is a thread-safe append-only writer. One record per line.

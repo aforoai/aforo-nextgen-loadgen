@@ -205,6 +205,7 @@ func rateConfigFromMap(m map[string]any) scenario.RateConfig {
 	r.FlatFeeUSD = floatField(m, "flat_fee_usd")
 	r.PerUnitRateUSD = floatField(m, "per_unit_rate_usd")
 	r.PercentageRate = floatField(m, "percentage_rate")
+	r.ChargeBasePerEventUSD = floatField(m, "charge_base_per_event_usd")
 	r.MinFeeUSD = floatField(m, "min_fee_usd")
 	r.IncludedFreeUnits = int64Field(m, "included_free_units")
 	r.BlockSizeUnits = int64Field(m, "block_size_units")
@@ -298,11 +299,19 @@ func computeExpected(bucket *archBucket, cust seed.ManifestCustomer, events int6
 		volume = tiers
 	}
 
+	// PERCENTAGE archetypes bill (events × charge_base × rate). Pull the
+	// per-event charge base from the scenario when set, fall back to 1.0
+	// (which reduces PERCENTAGE to events × rate) so older scenarios that
+	// don't author the field continue to behave as before.
+	chargeBasePerEvent := bucket.rate.ChargeBasePerEventUSD
+	if chargeBasePerEvent <= 0 {
+		chargeBasePerEvent = 1.0
+	}
 	in := billing.CalcInputs{
 		Events:        events,
-		ChargeBaseUSD: float64(events) * 1.0, // PERCENTAGE base — TODO from event payload
+		ChargeBaseUSD: float64(events) * chargeBasePerEvent,
 		Model:         billing.PricingModel(bucket.pricingModel),
-		Mode:          billing.BillingMode(bucket.billingMode),
+		Mode:          billing.Mode(bucket.billingMode),
 		Rate: billing.RateConfig{
 			FlatFeeUSD:        bucket.rate.FlatFeeUSD,
 			PerUnitRateUSD:    bucket.rate.PerUnitRateUSD,
@@ -404,4 +413,3 @@ func abs(x float64) float64 {
 	}
 	return x
 }
-

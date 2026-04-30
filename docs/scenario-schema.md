@@ -113,7 +113,7 @@ sum to `1.0 ± 0.001`.
 | :---------------- | :----------------------------------------------- |
 | `PER_UNIT`        | `per_unit_rate_usd > 0`                          |
 | `FLAT_RATE`       | `flat_fee_usd > 0`                               |
-| `PERCENTAGE`      | `percentage_rate > 0` (optional `min_fee_usd`)   |
+| `PERCENTAGE`      | `percentage_rate > 0` (optional `min_fee_usd`, `charge_base_per_event_usd`) |
 | `INCLUDED_QUOTA`  | `included_free_units > 0` and `per_unit_rate_usd > 0` (overage rate) |
 | `GRADUATED`       | `graduated_tiers: [...]` (len >= 1)              |
 | `VOLUME_TIERED`   | `volume_tiers: [...]` (len >= 1)                 |
@@ -121,6 +121,15 @@ sum to `1.0 ± 0.001`.
 A tier band is `{ up_to_units: <int>, unit_price_usd: <float>,
 flat_fee_usd?: <float> }`. The last tier's `up_to_units: 0` means
 "unbounded".
+
+**`PERCENTAGE` charge base.** PERCENTAGE bills `events × charge_base × rate`.
+Set `charge_base_per_event_usd` to the average per-event amount you want
+the oracle to assume — e.g. `100.00` for "$100 average transaction".
+Omitting it makes the oracle fall back to `1.0` per event, which reduces
+the calculation to `events × rate`. That is fine for shape testing but
+unrealistic for revenue assertions on payment-processing workloads.
+`scenarios validate` prints a warning when PERCENTAGE archetypes omit
+this field.
 
 ### Billing modes
 

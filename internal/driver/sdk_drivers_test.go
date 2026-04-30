@@ -58,11 +58,11 @@ func targetForServer(srv *httptest.Server) aforo.Target {
 // on /v1/ingest. This is the main contract test for the SDK family.
 func TestSDKDrivers_AllSendCanonicalEnvelope(t *testing.T) {
 	cases := []struct {
-		name         string
-		newDriver    func(HTTPBaseConfig) (Driver, error)
-		expectUA     string
-		expectLang   string
-		expectVer    string
+		name       string
+		newDriver  func(HTTPBaseConfig) (Driver, error)
+		expectUA   string
+		expectLang string
+		expectVer  string
 	}{
 		{
 			name: "sdk_node",

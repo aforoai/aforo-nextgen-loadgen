@@ -136,6 +136,11 @@ func runScenariosValidate(out, errOut io.Writer, path string) error {
 		}
 		return fmt.Errorf("%s: %d validation error(s)", path, len(errs))
 	}
+	// Non-fatal advisories — print to stderr so they don't pollute stdout
+	// (which other tooling may pipe into).
+	for _, w := range scenario.Warnings(doc) {
+		fmt.Fprintf(errOut, "%s: warning: %s\n", path, w)
+	}
 	_, err = fmt.Fprintf(out, "%s: ok (schema_version=%d, name=%s, archetypes=%d)\n",
 		path, doc.Scenario.SchemaVersion, doc.Scenario.Name, len(doc.Scenario.Tenants.Archetypes))
 	return err

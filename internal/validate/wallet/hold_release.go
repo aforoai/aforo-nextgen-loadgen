@@ -4,9 +4,9 @@ package wallet
 // validator collects one of these per (subscription × hold) and asserts
 // invariants:
 //
-//	1. Created < Released or Created < Settled (terminal state, no orphans)
-//	2. Settled holds have Settled ≥ amountActuallyDebited
-//	3. Released holds returned the full hold amount to balance
+//  1. Created < Released or Created < Settled (terminal state, no orphans)
+//  2. Settled holds have Settled ≥ amountActuallyDebited
+//  3. Released holds returned the full hold amount to balance
 //
 // The platform's HoldExpiryScheduler runs every minute and releases
 // pending-but-unsettled holds that have aged past hold_ttl_seconds. A

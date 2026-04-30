@@ -13,13 +13,13 @@ import (
 
 func sampleRun() *runner.RunResult {
 	return &runner.RunResult{
-		RunID:         "test-run",
-		ScenarioName:  "ci-smoke",
-		Target:        "local",
-		StartedAt:     time.Date(2026, 4, 30, 10, 0, 0, 0, time.UTC),
-		StoppedAt:     time.Date(2026, 4, 30, 10, 1, 0, 0, time.UTC),
-		Duration:      time.Minute,
-		TargetTPS:     50,
+		RunID:           "test-run",
+		ScenarioName:    "ci-smoke",
+		Target:          "local",
+		StartedAt:       time.Date(2026, 4, 30, 10, 0, 0, 0, time.UTC),
+		StoppedAt:       time.Date(2026, 4, 30, 10, 1, 0, 0, time.UTC),
+		Duration:        time.Minute,
+		TargetTPS:       50,
 		EventsGenerated: 100,
 		EventsSucceeded: 100,
 		PerArchetype:    map[string]int64{"ar-A": 80, "ar-B": 20},

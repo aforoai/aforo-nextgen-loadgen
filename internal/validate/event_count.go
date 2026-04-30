@@ -119,4 +119,3 @@ func (v *Validator) expectedStoredByTenant() map[string]int64 {
 	}
 	return out
 }
-

@@ -1,4 +1,4 @@
-// Package credit_notes drives credit-note + refund flows for the load test.
+// Package creditnotes drives credit-note + refund flows for the load test.
 //
 // The platform's CreditNoteService owns the state machine
 // (DRAFT → ISSUED → VOID) and the apply-to-invoice flow. This driver
@@ -9,7 +9,7 @@
 //
 // Determinism is anchored on scenario.seed — a re-run of the same scenario
 // picks the same invoices for refund / partial / no-op.
-package credit_notes
+package creditnotes
 
 import (
 	"context"

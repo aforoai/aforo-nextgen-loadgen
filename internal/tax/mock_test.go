@@ -27,11 +27,11 @@ func TestMockEngine_HappyPath(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		req        Request
-		wantJur    string
-		wantRate   float64
-		wantTax    float64
+		name     string
+		req      Request
+		wantJur  string
+		wantRate float64
+		wantTax  float64
 	}{
 		{
 			name:     "USD invoice → US-CA",

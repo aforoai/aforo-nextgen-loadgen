@@ -21,12 +21,12 @@ func NewGatewayAzure(cfg HTTPBaseConfig) (*GatewayAzure, error) {
 		UserAgent:   "Microsoft-APIM/Cloud (policy=aforo-metering)",
 		ForwardedBy: "azure-apim",
 		VendorHeaders: map[string]string{
-			"X-AzureAPIM-Service":            "aforo-apim-prod",
-			"X-AzureAPIM-Api":                "aforo-ingest",
-			"X-AzureAPIM-Operation":          "ingest-event",
-			"X-AzureAPIM-Region":             "westus2",
-			"X-AzureAPIM-Subscription":       "tier-prod",
-			"X-AzureAPIM-Policy-Fragment":    "aforo-metering",
+			"X-AzureAPIM-Service":         "aforo-apim-prod",
+			"X-AzureAPIM-Api":             "aforo-ingest",
+			"X-AzureAPIM-Operation":       "ingest-event",
+			"X-AzureAPIM-Region":          "westus2",
+			"X-AzureAPIM-Subscription":    "tier-prod",
+			"X-AzureAPIM-Policy-Fragment": "aforo-metering",
 		},
 		HeaderForGen: func(e *generator.Event) map[string]string {
 			return map[string]string{

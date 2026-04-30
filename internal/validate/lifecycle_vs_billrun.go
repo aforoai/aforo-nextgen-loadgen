@@ -70,7 +70,7 @@ func (v *Validator) runLifecycleVsBillRun(ctx context.Context) *CheckResult {
 		Err error
 	}
 	type migrateResult struct {
-		Out lifecycle.TransitionRecord // we mirror the same record shape for HTML
+		Out     lifecycle.TransitionRecord // we mirror the same record shape for HTML
 		Backend MigrateOutcome
 		Err     error
 	}

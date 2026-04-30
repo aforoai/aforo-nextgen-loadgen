@@ -17,9 +17,9 @@ import (
 //
 // The probe runs a controlled connect/disconnect:
 //
-//	1. POST /api/v1/erp-integrations/connect — provider A   → expect 2xx
-//	2. POST /api/v1/erp-integrations/connect — provider B   → expect 409
-//	3. POST /api/v1/erp-integrations/disconnect — provider A → cleanup
+//  1. POST /api/v1/erp-integrations/connect — provider A   → expect 2xx
+//  2. POST /api/v1/erp-integrations/connect — provider B   → expect 409
+//  3. POST /api/v1/erp-integrations/disconnect — provider A → cleanup
 //
 // SKIPs when:
 //   - scenario.erp is disabled

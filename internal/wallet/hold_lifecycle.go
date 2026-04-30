@@ -45,9 +45,9 @@ type Snapshot struct {
 	CustomerID    string    `json:"customer_id"`
 	WalletID      string    `json:"wallet_id"`
 	Currency      string    `json:"currency"`
-	BalanceUSD    float64   `json:"balance_usd"`     // primary balance ledger value
-	HeldUSD       float64   `json:"held_usd"`        // sum of PENDING holds
-	Phase         string    `json:"phase"`           // pre | mid | post | post-expiry
+	BalanceUSD    float64   `json:"balance_usd"` // primary balance ledger value
+	HeldUSD       float64   `json:"held_usd"`    // sum of PENDING holds
+	Phase         string    `json:"phase"`       // pre | mid | post | post-expiry
 	HoldsActive   int       `json:"holds_active"`
 	HoldsReleased int       `json:"holds_released"`
 	HoldsSettled  int       `json:"holds_settled"`
@@ -62,7 +62,7 @@ type HoldEvent struct {
 	WalletID       string    `json:"wallet_id"`
 	HoldID         string    `json:"hold_id"`
 	SubscriptionID string    `json:"subscription_id,omitempty"`
-	State          string    `json:"state"`     // PENDING | SETTLED | RELEASED | EXPIRED
+	State          string    `json:"state"` // PENDING | SETTLED | RELEASED | EXPIRED
 	HoldUSD        float64   `json:"hold_usd"`
 	SettledUSD     float64   `json:"settled_usd,omitempty"`
 	ReleasedUSD    float64   `json:"released_usd,omitempty"`
@@ -161,25 +161,25 @@ func (a *AuditLog) Count() int64 {
 // Collector is the runtime poller — drives Snapshot reads and HoldEvent
 // transitions per customer. Uses lifecycle.Client for HTTP.
 type Collector struct {
-	client      *lifecycle.Client
-	log         *AuditLog
-	customers   []Customer
-	pollEvery   time.Duration
-	holdTTL     time.Duration
-	postWindow  time.Duration
+	client     *lifecycle.Client
+	log        *AuditLog
+	customers  []Customer
+	pollEvery  time.Duration
+	holdTTL    time.Duration
+	postWindow time.Duration
 
-	mu          sync.Mutex
-	priorBal    map[string]Snapshot // by customer id — last snapshot taken
-	priorHolds  map[string]HoldEvent // by hold id — last state
+	mu         sync.Mutex
+	priorBal   map[string]Snapshot  // by customer id — last snapshot taken
+	priorHolds map[string]HoldEvent // by hold id — last state
 }
 
 // CollectorConfig configures Collector. PollEvery defaults to 5s.
 type CollectorConfig struct {
-	Client    *lifecycle.Client
-	Log       *AuditLog
-	Customers []Customer
-	PollEvery time.Duration
-	HoldTTL   time.Duration  // matches scenario.wallet.hold_ttl_seconds
+	Client     *lifecycle.Client
+	Log        *AuditLog
+	Customers  []Customer
+	PollEvery  time.Duration
+	HoldTTL    time.Duration // matches scenario.wallet.hold_ttl_seconds
 	PostWindow time.Duration // additional window after run end before final snapshot
 }
 

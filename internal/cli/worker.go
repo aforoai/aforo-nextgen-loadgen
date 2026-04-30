@@ -15,10 +15,10 @@ import (
 )
 
 type workerFlags struct {
-	listen     string
-	out        string
-	tokenEnv   string
-	workerID   string
+	listen   string
+	out      string
+	tokenEnv string
+	workerID string
 
 	tlsCert string
 	tlsKey  string

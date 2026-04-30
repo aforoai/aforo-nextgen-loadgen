@@ -712,3 +712,42 @@ func TestJoinPath(t *testing.T) {
 		}
 	}
 }
+
+// TestWarnings_PercentageMissingChargeBase ensures the advisory fires when
+// a PERCENTAGE archetype omits charge_base_per_event_usd, and stays quiet
+// when the field is set.
+func TestWarnings_PercentageMissingChargeBase(t *testing.T) {
+	missing := strings.Replace(
+		minimalValid,
+		"pricing_model: PER_UNIT",
+		"pricing_model: PERCENTAGE",
+		1,
+	)
+	missing = strings.Replace(missing,
+		"per_unit_rate_usd: 0.001",
+		"percentage_rate: 0.025",
+		1,
+	)
+	doc, err := LoadFromBytes([]byte(missing))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	w := Warnings(doc)
+	if len(w) != 1 || !strings.Contains(w[0], "PERCENTAGE") || !strings.Contains(w[0], "charge_base_per_event_usd") {
+		t.Fatalf("expected one PERCENTAGE warning; got %v", w)
+	}
+
+	// With the field set, no warning.
+	withBase := strings.Replace(missing,
+		"percentage_rate: 0.025",
+		"percentage_rate: 0.025\n        charge_base_per_event_usd: 100.0",
+		1,
+	)
+	doc2, err := LoadFromBytes([]byte(withBase))
+	if err != nil {
+		t.Fatalf("load 2: %v", err)
+	}
+	if w := Warnings(doc2); len(w) != 0 {
+		t.Fatalf("expected no warnings with charge_base set; got %v", w)
+	}
+}

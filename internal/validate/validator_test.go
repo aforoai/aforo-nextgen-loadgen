@@ -16,23 +16,23 @@ import (
 // fakeBackend is the test-only BackendClient. Each method has a
 // configurable response so tests can inject specific failure modes.
 type fakeBackend struct {
-	caps                Capabilities
-	eventsByTenant      map[string]int64
-	eventsByTenantErr   error
-	crossTenantResults  map[string]int64
-	crossTenantErr      error
-	nullCustomerCount   int64
-	nullCustomerErr     error
-	cacheRatio          float64
-	cacheRatioErr       error
-	eventsByKey         map[string]int64
-	eventsByKeyErr      error
-	billRunErr          error
-	billRunResult       *BillRunResult
-	billRunIDs          []string
-	walletBalance       float64
-	walletBalanceErr    error
-	triggerCalls        int
+	caps               Capabilities
+	eventsByTenant     map[string]int64
+	eventsByTenantErr  error
+	crossTenantResults map[string]int64
+	crossTenantErr     error
+	nullCustomerCount  int64
+	nullCustomerErr    error
+	cacheRatio         float64
+	cacheRatioErr      error
+	eventsByKey        map[string]int64
+	eventsByKeyErr     error
+	billRunErr         error
+	billRunResult      *BillRunResult
+	billRunIDs         []string
+	walletBalance      float64
+	walletBalanceErr   error
+	triggerCalls       int
 }
 
 func (f *fakeBackend) Capabilities() Capabilities { return f.caps }
@@ -103,7 +103,7 @@ func minimalScenario() *scenario.Scenario {
 		Seed:          1,
 		Tenants:       scenario.Tenants{Count: 1},
 		Assertions: scenario.Assertions{
-			EventsLostMax:        0,
+			EventsLostMax:         0,
 			CrossTenantLeakageMax: 0,
 		},
 	}
@@ -159,17 +159,17 @@ func minimalManifest() *seed.Manifest {
 // minimalRunResult builds a typical RunResult with happy-path values.
 func minimalRunResult() *runner.RunResult {
 	return &runner.RunResult{
-		RunID:           "run-1",
-		ScenarioName:    "test",
-		Target:          "local",
-		StartedAt:       time.Now().UTC().Add(-1 * time.Minute),
-		StoppedAt:       time.Now().UTC(),
-		Duration:        time.Minute,
-		EventsGenerated: 100,
-		EventsSubmitted: 100,
-		EventsSucceeded: 100,
-		PerTenant:       map[string]int64{"t-A": 80, "t-B": 20},
-		PerArchetype:    map[string]int64{"ar-A": 80, "ar-B": 20},
+		RunID:              "run-1",
+		ScenarioName:       "test",
+		Target:             "local",
+		StartedAt:          time.Now().UTC().Add(-1 * time.Minute),
+		StoppedAt:          time.Now().UTC(),
+		Duration:           time.Minute,
+		EventsGenerated:    100,
+		EventsSubmitted:    100,
+		EventsSucceeded:    100,
+		PerTenant:          map[string]int64{"t-A": 80, "t-B": 20},
+		PerArchetype:       map[string]int64{"ar-A": 80, "ar-B": 20},
 		NegativePathCounts: map[generator.NegativePathKind]int64{},
 	}
 }

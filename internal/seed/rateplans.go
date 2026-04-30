@@ -248,6 +248,9 @@ func rateConfigSummary(a scenario.TenantArchetype) map[string]any {
 		if rc.MinFeeUSD > 0 {
 			out["min_fee_usd"] = rc.MinFeeUSD
 		}
+		if rc.ChargeBasePerEventUSD > 0 {
+			out["charge_base_per_event_usd"] = rc.ChargeBasePerEventUSD
+		}
 	case scenario.PricingIncludedQuota:
 		out["included_free_units"] = rc.IncludedFreeUnits
 		out["per_unit_rate_usd"] = rc.PerUnitRateUSD

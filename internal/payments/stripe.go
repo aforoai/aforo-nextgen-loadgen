@@ -65,10 +65,9 @@ const (
 // Concurrency: safe for use by many goroutines. The http.Client is shared
 // (idle-conn pool); offline-mode synthesis is stateless.
 type StripeClient struct {
-	apiKey       string
-	httpClient   *http.Client
-	mode         Mode
-	offlineSeed  uint64
+	apiKey     string
+	httpClient *http.Client
+	mode       Mode
 }
 
 // Mode selects live vs offline behavior.
@@ -153,8 +152,8 @@ func (c *StripeClient) Mode() Mode { return c.mode }
 type Charge struct {
 	PaymentIntentID string         `json:"payment_intent_id"`
 	ChargeID        string         `json:"charge_id"`
-	Status          string         `json:"status"`         // raw Stripe status
-	Outcome         PaymentOutcome `json:"outcome"`        // normalized
+	Status          string         `json:"status"`  // raw Stripe status
+	Outcome         PaymentOutcome `json:"outcome"` // normalized
 	AmountUSD       float64        `json:"amount_usd"`
 	Currency        string         `json:"currency"`
 	IdempotencyKey  string         `json:"idempotency_key"`

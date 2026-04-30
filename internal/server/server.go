@@ -54,10 +54,10 @@ type Server struct {
 	cfg Config
 	mux *http.ServeMux
 
-	mu       sync.RWMutex
-	running  map[string]*runState
+	mu        sync.RWMutex
+	running   map[string]*runState
 	observeWG sync.WaitGroup // gates shutdown on observe goroutines
-	logger   *slog.Logger
+	logger    *slog.Logger
 }
 
 // runState tracks an in-flight worker subprocess. Persisted state

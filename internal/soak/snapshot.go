@@ -85,13 +85,13 @@ const (
 // timeline JSON so the post-run report shows the trail of warnings
 // alongside the chaos events.
 type Alert struct {
-	At        time.Time `json:"at"`
-	Severity  Severity  `json:"severity"`
-	Kind      string    `json:"kind"`
-	Message   string    `json:"message"`
-	BaselineP99Ms float64 `json:"baseline_p99_ms,omitempty"`
-	CurrentP99Ms  float64 `json:"current_p99_ms,omitempty"`
-	DriftPct      float64 `json:"drift_pct,omitempty"`
+	At            time.Time `json:"at"`
+	Severity      Severity  `json:"severity"`
+	Kind          string    `json:"kind"`
+	Message       string    `json:"message"`
+	BaselineP99Ms float64   `json:"baseline_p99_ms,omitempty"`
+	CurrentP99Ms  float64   `json:"current_p99_ms,omitempty"`
+	DriftPct      float64   `json:"drift_pct,omitempty"`
 }
 
 // MonitorConfig is the construction-time bag.

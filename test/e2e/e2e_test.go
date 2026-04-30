@@ -8,10 +8,10 @@
 //
 // What this asserts:
 //
-//   1. The binary builds.
-//   2. doctor exits 0 against the local docker stack.
-//   3. e2e --include-billing --include-lifecycle finishes inside its
-//      time budget AND emits an e2e.json with overall=PASS.
+//  1. The binary builds.
+//  2. doctor exits 0 against the local docker stack.
+//  3. e2e --include-billing --include-lifecycle finishes inside its
+//     time budget AND emits an e2e.json with overall=PASS.
 //
 // What this does NOT assert:
 //
@@ -24,10 +24,10 @@
 //
 // Pre-conditions (all environment-driven):
 //
-//   AFORO_ADMIN_TOKEN  — required. Skip with t.Skip() if absent.
-//   AFORO_E2E_TARGET   — optional, default "local". Override to point
-//                        at a non-local target (review env, staging).
-//   AFORO_E2E_TIMEOUT  — optional, default "12m". Hard timeout.
+//	AFORO_ADMIN_TOKEN  — required. Skip with t.Skip() if absent.
+//	AFORO_E2E_TARGET   — optional, default "local". Override to point
+//	                     at a non-local target (review env, staging).
+//	AFORO_E2E_TIMEOUT  — optional, default "12m". Hard timeout.
 package e2e
 
 import (

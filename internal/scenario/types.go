@@ -220,10 +220,19 @@ type TenantArchetype struct {
 // Not every field applies to every pricing model. Validation enforces the
 // minimum requirements per model — e.g. PREPAID/HYBRID requires
 // WalletInitialBalanceUSD > 0.
+//
+// ChargeBasePerEventUSD is the average per-event "charge base" used by the
+// PERCENTAGE pricing oracle. PERCENTAGE bills (events × charge_base × rate)
+// — typical use case is payment processing where the base is the average
+// transaction amount. When zero, the validator falls back to 1.0 per event,
+// which makes the oracle effectively reduce to (events × rate). Set this
+// to a representative number (e.g. 100.0 for "$100 average transaction")
+// for PERCENTAGE archetypes that want realistic billing assertions.
 type RateConfig struct {
 	FlatFeeUSD              float64    `yaml:"flat_fee_usd,omitempty"`
 	PerUnitRateUSD          float64    `yaml:"per_unit_rate_usd,omitempty"`
 	PercentageRate          float64    `yaml:"percentage_rate,omitempty"`
+	ChargeBasePerEventUSD   float64    `yaml:"charge_base_per_event_usd,omitempty"`
 	MinFeeUSD               float64    `yaml:"min_fee_usd,omitempty"`
 	IncludedFreeUnits       int64      `yaml:"included_free_units,omitempty"`
 	BlockSizeUnits          int64      `yaml:"block_size_units,omitempty"`

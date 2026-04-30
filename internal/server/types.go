@@ -45,7 +45,7 @@ type TriggerRequest struct {
 
 // TriggerResponse is the 202 body — operators poll detail endpoint.
 type TriggerResponse struct {
-	RunID  string `json:"run_id"`
+	RunID  string    `json:"run_id"`
 	Status RunStatus `json:"status"`
 }
 
@@ -88,12 +88,12 @@ type ListResponse struct {
 
 // ScenarioInfo is the lightweight catalog row returned by GET /scenarios.
 type ScenarioInfo struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	TargetTPS   int    `json:"target_tps"`
-	DurationSecs int   `json:"duration_secs"`
-	Tenants     int    `json:"tenants"`
-	HighTPS     bool   `json:"high_tps"` // true when target_tps > 1000 — UI shows confirmation modal
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	TargetTPS    int    `json:"target_tps"`
+	DurationSecs int    `json:"duration_secs"`
+	Tenants      int    `json:"tenants"`
+	HighTPS      bool   `json:"high_tps"` // true when target_tps > 1000 — UI shows confirmation modal
 }
 
 // HealthResponse is the GET /health body.

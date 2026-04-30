@@ -3,7 +3,7 @@ package validate
 import (
 	"context"
 
-	"github.com/aforoai/aforo-nextgen-loadgen/internal/credit_notes"
+	"github.com/aforoai/aforo-nextgen-loadgen/internal/creditnotes"
 )
 
 // runCreditNotes is Check 16.
@@ -20,7 +20,7 @@ import (
 // SKIPs when credit_notes.jsonl is absent or scenario.credit_notes is off.
 func (v *Validator) runCreditNotes(_ context.Context) *CheckResult {
 	res := NewCheckResult(CheckCreditNotes)
-	recs, err := credit_notes.Load(v.in.RunOutputDir)
+	recs, err := creditnotes.Load(v.in.RunOutputDir)
 	if err != nil {
 		return res.Fail("load credit_notes.jsonl: %v", err)
 	}
@@ -30,7 +30,7 @@ func (v *Validator) runCreditNotes(_ context.Context) *CheckResult {
 		}
 		return res.Skip("no credit_notes.jsonl — driver didn't run")
 	}
-	progressions := credit_notes.Reconstruct(recs)
+	progressions := creditnotes.Reconstruct(recs)
 	total := len(progressions)
 	missingDraft := 0
 	missingIssued := 0

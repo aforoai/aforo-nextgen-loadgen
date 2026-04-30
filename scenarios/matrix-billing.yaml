@@ -107,6 +107,7 @@ tenants:
       rate_config:
         percentage_rate: 0.025
         min_fee_usd: 5.00
+        charge_base_per_event_usd: 100.00
 
     - name: mtx-percentage-prepaid
       weight: 0.033
@@ -119,6 +120,7 @@ tenants:
       rate_config:
         percentage_rate: 0.025
         min_fee_usd: 5.00
+        charge_base_per_event_usd: 100.00
         wallet_initial_balance_usd: 400.00
 
     - name: mtx-percentage-hybrid
@@ -132,6 +134,7 @@ tenants:
       rate_config:
         percentage_rate: 0.030
         min_fee_usd: 10.00
+        charge_base_per_event_usd: 250.00
         wallet_initial_balance_usd: 300.00
 
     - name: mtx-quota-postpaid
@@ -336,6 +339,7 @@ tenants:
       rate_config:
         percentage_rate: 0.030
         min_fee_usd: 10.00
+        charge_base_per_event_usd: 250.00
         wallet_initial_balance_usd: 300.00
 
     - name: mtx-quota-postpaid-eur

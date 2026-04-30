@@ -123,9 +123,9 @@ type Assignment struct {
 // Acceptance is the worker's response to /v1/assign. Workers either
 // accept and start the run, or reject with a structured reason.
 type Acceptance struct {
-	Accepted   bool   `json:"accepted"`
-	WorkerID   string `json:"worker_id"`
-	Reason     string `json:"reason,omitempty"`
+	Accepted   bool          `json:"accepted"`
+	WorkerID   string        `json:"worker_id"`
+	Reason     string        `json:"reason,omitempty"`
 	WorkerSkew time.Duration `json:"worker_skew,omitempty"`
 }
 
@@ -133,41 +133,41 @@ type Acceptance struct {
 // Sent every HeartbeatInterval (default 5s) after the run starts and
 // until the worker reports completion (or drops out).
 type Heartbeat struct {
-	WorkerID   string `json:"worker_id"`
-	RunID      string `json:"run_id"`
-	State      string `json:"state"` // "running" | "ramp" | "draining" | "done" | "aborted" | "failed"
-	UptimeSec  int64  `json:"uptime_sec"`
-	EventsSent int64  `json:"events_sent"`
-	EventsFail int64  `json:"events_fail"`
-	CurrentTPS float64 `json:"current_tps"`
+	WorkerID     string  `json:"worker_id"`
+	RunID        string  `json:"run_id"`
+	State        string  `json:"state"` // "running" | "ramp" | "draining" | "done" | "aborted" | "failed"
+	UptimeSec    int64   `json:"uptime_sec"`
+	EventsSent   int64   `json:"events_sent"`
+	EventsFail   int64   `json:"events_fail"`
+	CurrentTPS   float64 `json:"current_tps"`
 	LatencyP99Ms float64 `json:"latency_p99_ms"`
-	LastError  string `json:"last_error,omitempty"`
+	LastError    string  `json:"last_error,omitempty"`
 }
 
 // Report is the worker's final summary at run end. POSTed once when the
 // scenario completes (or the abort path is taken).
 type Report struct {
-	WorkerID         string  `json:"worker_id"`
-	RunID            string  `json:"run_id"`
-	StartedAt        time.Time `json:"started_at"`
-	StoppedAt        time.Time `json:"stopped_at"`
-	EventsGenerated  int64   `json:"events_generated"`
-	EventsSubmitted  int64   `json:"events_submitted"`
-	EventsSucceeded  int64   `json:"events_succeeded"`
-	EventsFailed     int64   `json:"events_failed"`
-	ClientErrors     int64   `json:"client_errors"`
-	ServerErrors     int64   `json:"server_errors"`
-	TransportErrors  int64   `json:"transport_errors"`
-	LatencyP50Ms     float64 `json:"latency_p50_ms"`
-	LatencyP90Ms     float64 `json:"latency_p90_ms"`
-	LatencyP99Ms     float64 `json:"latency_p99_ms"`
-	LatencyMaxMs     float64 `json:"latency_max_ms"`
+	WorkerID         string           `json:"worker_id"`
+	RunID            string           `json:"run_id"`
+	StartedAt        time.Time        `json:"started_at"`
+	StoppedAt        time.Time        `json:"stopped_at"`
+	EventsGenerated  int64            `json:"events_generated"`
+	EventsSubmitted  int64            `json:"events_submitted"`
+	EventsSucceeded  int64            `json:"events_succeeded"`
+	EventsFailed     int64            `json:"events_failed"`
+	ClientErrors     int64            `json:"client_errors"`
+	ServerErrors     int64            `json:"server_errors"`
+	TransportErrors  int64            `json:"transport_errors"`
+	LatencyP50Ms     float64          `json:"latency_p50_ms"`
+	LatencyP90Ms     float64          `json:"latency_p90_ms"`
+	LatencyP99Ms     float64          `json:"latency_p99_ms"`
+	LatencyMaxMs     float64          `json:"latency_max_ms"`
 	PerArchetype     map[string]int64 `json:"per_archetype,omitempty"`
 	PerProductType   map[string]int64 `json:"per_product_type,omitempty"`
 	PerIngestionPath map[string]int64 `json:"per_ingestion_path,omitempty"`
-	Aborted          bool    `json:"aborted,omitempty"`
-	AbortReason      string  `json:"abort_reason,omitempty"`
-	Errors           []string `json:"errors,omitempty"`
+	Aborted          bool             `json:"aborted,omitempty"`
+	AbortReason      string           `json:"abort_reason,omitempty"`
+	Errors           []string         `json:"errors,omitempty"`
 }
 
 // AbortRequest is sent on /v1/abort to halt a worker's run. The worker
@@ -192,8 +192,8 @@ const (
 	PathReport    = "/v1/report"
 	PathAbort     = "/v1/abort"
 
-	HeaderRunID   = "X-Aforo-RunID"
-	HeaderWorker  = "X-Aforo-Worker"
+	HeaderRunID  = "X-Aforo-RunID"
+	HeaderWorker = "X-Aforo-Worker"
 
 	// DefaultHeartbeatInterval is the coordinator's poll cadence. Tuned
 	// for the 7-day soak — 5s is frequent enough to detect a stuck

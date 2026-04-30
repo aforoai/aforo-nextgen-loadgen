@@ -357,4 +357,3 @@ func sqrt64(x float64) float64 {
 	}
 	return z
 }
-

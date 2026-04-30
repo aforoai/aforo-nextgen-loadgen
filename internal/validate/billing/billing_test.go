@@ -131,9 +131,9 @@ func TestVolumeTiered_Golden(t *testing.T) {
 		events int64
 		want   float64
 	}{
-		{"lands-in-first-tier", 500, 0.50},                  // 500 × 0.001
-		{"lands-in-second-tier", 5_000, 5_000 * 0.0008},     // entire volume at 0.0008
-		{"lands-in-third-tier", 15_000, 15_000 * 0.0005},    // entire volume at 0.0005
+		{"lands-in-first-tier", 500, 0.50},               // 500 × 0.001
+		{"lands-in-second-tier", 5_000, 5_000 * 0.0008},  // entire volume at 0.0008
+		{"lands-in-third-tier", 15_000, 15_000 * 0.0005}, // entire volume at 0.0005
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

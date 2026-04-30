@@ -225,4 +225,3 @@ func genSyntheticSecret() string {
 	}
 	return hex.EncodeToString(buf)
 }
-

@@ -187,6 +187,103 @@ func TestBillingMatch_PrepaidWalletRouting(t *testing.T) {
 	}
 }
 
+// manifestPercentage builds a PERCENTAGE POSTPAID manifest with the
+// given charge_base_per_event_usd round-tripped through the rate-plan
+// config map (mirrors how the seed harness shapes manifests).
+func manifestPercentage(chargeBasePerEvent float64) (*seed.Manifest, *runner.RunResult) {
+	cfg := map[string]any{
+		"percentage_rate": 0.025,
+	}
+	if chargeBasePerEvent > 0 {
+		cfg["charge_base_per_event_usd"] = chargeBasePerEvent
+	}
+	mf := &seed.Manifest{
+		ManifestVersion: seed.ManifestVersion,
+		RunID:           "rb-pct",
+		Target:          "local",
+		Scenario:        "test",
+		Tenants: []seed.ManifestTenant{
+			{
+				TenantID:     "t-pct",
+				Archetype:    "percentage-postpaid",
+				PricingModel: scenario.PricingPercentage,
+				BillingMode:  scenario.BillingPostpaid,
+				RatePlans: []seed.ManifestRatePlan{
+					{Config: cfg},
+				},
+				Customers: []seed.ManifestCustomer{
+					{CustomerID: "c-pct", Currency: "USD"},
+				},
+			},
+		},
+	}
+	rr := minimalRunResult()
+	// 1_000 events; oracle is events × charge_base × rate.
+	rr.PerTenant = map[string]int64{"t-pct": 1_000}
+	rr.PerArchetype = map[string]int64{"percentage-postpaid": 1_000}
+	return mf, rr
+}
+
+// TestBillingMatch_PercentageWithChargeBase asserts the PERCENTAGE oracle
+// uses scenario.RateConfig.ChargeBasePerEventUSD when set:
+//
+//	1_000 events × $100 base × 2.5% = $2_500.00
+//
+// Backend returns exactly $2500; validator must PASS.
+func TestBillingMatch_PercentageWithChargeBase(t *testing.T) {
+	mf, rr := manifestPercentage(100.0)
+	fb := &billingTestBackend{
+		caps:        Capabilities{BillRuns: true},
+		invoiceUSD:  2500.00,
+		walletDebit: 0,
+	}
+	in := &Inputs{
+		Run:            rr,
+		Manifest:       mf,
+		Scenario:       minimalScenario(),
+		Backend:        fb,
+		IncludeBilling: true,
+		OnlyChecks:     []string{CheckBillingMatch},
+		TolerancePct:   0.001,
+	}
+	v, _ := New(in)
+	r, _ := v.Run(context.Background())
+	for _, c := range r.Checks {
+		if c.Name == CheckBillingMatch && c.Status != StatusPass {
+			t.Fatalf("PERCENTAGE with charge_base $100 expected PASS at $2500; got %s — %s", c.Status, c.Reason)
+		}
+	}
+}
+
+// TestBillingMatch_PercentageFallbackBaseOne asserts the legacy fallback
+// when charge_base_per_event_usd is absent: oracle assumes $1 per event,
+// so 1_000 events × $1 × 2.5% = $25.00. Backwards-compat with scenarios
+// authored before the field existed.
+func TestBillingMatch_PercentageFallbackBaseOne(t *testing.T) {
+	mf, rr := manifestPercentage(0) // zero → fallback path
+	fb := &billingTestBackend{
+		caps:        Capabilities{BillRuns: true},
+		invoiceUSD:  25.00,
+		walletDebit: 0,
+	}
+	in := &Inputs{
+		Run:            rr,
+		Manifest:       mf,
+		Scenario:       minimalScenario(),
+		Backend:        fb,
+		IncludeBilling: true,
+		OnlyChecks:     []string{CheckBillingMatch},
+		TolerancePct:   0.001,
+	}
+	v, _ := New(in)
+	r, _ := v.Run(context.Background())
+	for _, c := range r.Checks {
+		if c.Name == CheckBillingMatch && c.Status != StatusPass {
+			t.Fatalf("PERCENTAGE fallback base=$1 expected PASS at $25; got %s — %s", c.Status, c.Reason)
+		}
+	}
+}
+
 // TestBillingMatch_SkipsWithoutFlag verifies the opt-in gate.
 func TestBillingMatch_SkipsWithoutFlag(t *testing.T) {
 	mf, rr := manifestPerUnitPostpaid()

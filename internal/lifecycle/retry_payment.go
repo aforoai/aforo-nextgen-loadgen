@@ -12,9 +12,9 @@ import (
 // retryPaymentResponse decodes /retry-payment. Status reflects success
 // (ACTIVE) or persistent failure (still PAST_DUE / SUSPENDED).
 type retryPaymentResponse struct {
-	ID            string `json:"id"`
-	Status        string `json:"status"`
-	DunningAttempt int   `json:"dunningAttempt"`
+	ID             string `json:"id"`
+	Status         string `json:"status"`
+	DunningAttempt int    `json:"dunningAttempt"`
 }
 
 // FireRetryPayment retries the failed payment on a PAST_DUE/SUSPENDED sub.

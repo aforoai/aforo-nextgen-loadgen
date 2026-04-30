@@ -99,6 +99,30 @@ func Validate(doc *Document) ValidationErrors {
 	return v.errs
 }
 
+// Warnings returns non-fatal advisories about a scenario. Distinct from
+// Validate, which returns hard errors. Callers (e.g. `scenarios validate`)
+// surface these to the operator without failing.
+//
+// Current advisories:
+//   - PERCENTAGE archetype with zero charge_base_per_event_usd reduces the
+//     billing oracle to (events × rate), which is fine for shape testing
+//     but unrealistic for revenue assertions on real payment-processing
+//     workloads.
+func Warnings(doc *Document) []string {
+	if doc == nil || doc.Scenario == nil {
+		return nil
+	}
+	var out []string
+	for i, a := range doc.Scenario.Tenants.Archetypes {
+		if a.PricingModel == PricingPercentage && a.RateConfig.ChargeBasePerEventUSD <= 0 {
+			out = append(out, fmt.Sprintf(
+				"tenants.archetypes[%d] (%q): pricing_model=PERCENTAGE without rate_config.charge_base_per_event_usd; oracle will assume $1 per event (set to a representative average transaction amount for realistic billing assertions)",
+				i, a.Name))
+		}
+	}
+	return out
+}
+
 type validator struct {
 	doc  *Document
 	errs ValidationErrors

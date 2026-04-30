@@ -138,8 +138,8 @@ func TestParseContentRangeTotal(t *testing.T) {
 	cases := map[string]int{
 		"0-24/123":  123,
 		"0-9/10":    10,
-		"":          7,  // fallback
-		"0-9/*":     7,  // PostgREST emits */ when count not requested
+		"":          7, // fallback
+		"0-9/*":     7, // PostgREST emits */ when count not requested
 		"malformed": 7,
 	}
 	for in, want := range cases {

@@ -16,7 +16,7 @@ import "math"
 // suspend logic is upstream of the calculator.
 type RouteCheck struct {
 	Total           float64
-	Mode            BillingMode
+	Mode            Mode
 	WalletAvailable float64
 
 	WalletDebit float64

@@ -41,13 +41,13 @@ func (v *Validator) runLifecycleCorrectness(ctx context.Context) *CheckResult {
 		Reason            string `json:"reason,omitempty"`
 	}
 	type kindOutcome struct {
-		Kind        string       `json:"kind"`
-		Total       int          `json:"total"`
-		OK          int          `json:"ok"`
-		Failures    int          `json:"failures"`
-		StateMatch  int          `json:"state_match"`
-		StateMismatch int        `json:"state_mismatch"`
-		Sample      []rowOutcome `json:"sample,omitempty"`
+		Kind          string       `json:"kind"`
+		Total         int          `json:"total"`
+		OK            int          `json:"ok"`
+		Failures      int          `json:"failures"`
+		StateMatch    int          `json:"state_match"`
+		StateMismatch int          `json:"state_mismatch"`
+		Sample        []rowOutcome `json:"sample,omitempty"`
 	}
 
 	byKind := map[lifecycle.TransitionKind]*kindOutcome{}
@@ -180,4 +180,3 @@ func (v *Validator) runLifecycleCorrectness(ctx context.Context) *CheckResult {
 	}
 	return res.Pass()
 }
-

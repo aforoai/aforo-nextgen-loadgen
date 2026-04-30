@@ -31,31 +31,31 @@ var assets embed.FS
 // on the Go side; the template just renders. This keeps the report
 // reproducible across runs (same data → byte-identical HTML).
 type View struct {
-	Title          string
-	GeneratedAt    string
-	Scenario       string
-	Target         string
-	RunID          string
-	Duration       string
-	TargetTPS      int
-	StartedAt      string
-	EndedAt        string
-	Summary        validate.Summary
-	OverallClass   string
-	OverallText    string
-	RunStats       []KV
-	Latency        []KV
-	NegativeRows   []NegativeRow
-	ArchetypeRows  []ArchetypeRow
-	TenantRows     []TenantRow
-	BillingRows    []BillingRow
-	Violations     []ViolationRow
-	StalePositives int64
-	HasStaleProbe  bool
-	Checks         []*validate.CheckResult
-	LifecycleRows  []LifecycleRow
+	Title            string
+	GeneratedAt      string
+	Scenario         string
+	Target           string
+	RunID            string
+	Duration         string
+	TargetTPS        int
+	StartedAt        string
+	EndedAt          string
+	Summary          validate.Summary
+	OverallClass     string
+	OverallText      string
+	RunStats         []KV
+	Latency          []KV
+	NegativeRows     []NegativeRow
+	ArchetypeRows    []ArchetypeRow
+	TenantRows       []TenantRow
+	BillingRows      []BillingRow
+	Violations       []ViolationRow
+	StalePositives   int64
+	HasStaleProbe    bool
+	Checks           []*validate.CheckResult
+	LifecycleRows    []LifecycleRow
 	StateMachineRows []StateMachineRow
-	CSS            template.CSS
+	CSS              template.CSS
 }
 
 // LifecycleRow is one (transition kind × outcome) row in the HTML report.

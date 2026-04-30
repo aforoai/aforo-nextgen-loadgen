@@ -153,12 +153,12 @@ func TestVersionSubcommandPrintsBuildMetadata(t *testing.T) {
 
 func TestFormatVersion_PrependsVAndIsIdempotent(t *testing.T) {
 	tests := map[string]string{
-		"0.1.0":          "v0.1.0",
-		"v0.1.0":         "v0.1.0",   // already prefixed → unchanged
-		"0.0.0-dev":      "v0.0.0-dev",
-		"v0.0.0-dev":     "v0.0.0-dev",
-		"1.2.3-rc.1":     "v1.2.3-rc.1",
-		"":               "v",        // degenerate input — should not panic
+		"0.1.0":      "v0.1.0",
+		"v0.1.0":     "v0.1.0", // already prefixed → unchanged
+		"0.0.0-dev":  "v0.0.0-dev",
+		"v0.0.0-dev": "v0.0.0-dev",
+		"1.2.3-rc.1": "v1.2.3-rc.1",
+		"":           "v", // degenerate input — should not panic
 	}
 	for in, want := range tests {
 		if got := formatVersion(in); got != want {

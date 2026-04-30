@@ -101,15 +101,15 @@ type Event struct {
 // Embedded into the run.json under "chaos_timeline" so post-run analysis
 // can see which faults landed and which did not.
 type Outcome struct {
-	Type           string        `json:"type"`
-	StartedAt      time.Time     `json:"started_at"`
-	RecoveredAt    time.Time     `json:"recovered_at,omitempty"`
-	Duration       time.Duration `json:"duration"`
-	InjectError    string        `json:"inject_error,omitempty"`
-	RecoveryError  string        `json:"recovery_error,omitempty"`
-	Skipped        bool          `json:"skipped,omitempty"`
-	SkipReason     string        `json:"skip_reason,omitempty"`
-	Notes          string        `json:"notes,omitempty"`
+	Type          string        `json:"type"`
+	StartedAt     time.Time     `json:"started_at"`
+	RecoveredAt   time.Time     `json:"recovered_at,omitempty"`
+	Duration      time.Duration `json:"duration"`
+	InjectError   string        `json:"inject_error,omitempty"`
+	RecoveryError string        `json:"recovery_error,omitempty"`
+	Skipped       bool          `json:"skipped,omitempty"`
+	SkipReason    string        `json:"skip_reason,omitempty"`
+	Notes         string        `json:"notes,omitempty"`
 }
 
 // SchedulerConfig is the construction-time bag.

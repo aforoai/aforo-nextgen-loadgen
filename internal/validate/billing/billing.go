@@ -30,22 +30,23 @@ const (
 	VolumeTiered  PricingModel = "VOLUME_TIERED"
 )
 
-// BillingMode mirrors scenario.BillingMode.
-type BillingMode string
+// Mode mirrors scenario.BillingMode (renamed locally to avoid the
+// "billing.BillingMode" stutter).
+type Mode string
 
 const (
-	Postpaid BillingMode = "POSTPAID"
-	Prepaid  BillingMode = "PREPAID"
-	Hybrid   BillingMode = "HYBRID"
+	Postpaid Mode = "POSTPAID"
+	Prepaid  Mode = "PREPAID"
+	Hybrid   Mode = "HYBRID"
 )
 
 // Tier is one band in a GRADUATED or VOLUME_TIERED rate. UpToUnits is the
 // upper bound of the band (inclusive). Use math.MaxInt64 for an open-ended
 // final tier.
 type Tier struct {
-	UpToUnits  int64
-	UnitPrice  float64
-	FlatFee    float64
+	UpToUnits int64
+	UnitPrice float64
+	FlatFee   float64
 }
 
 // RateConfig is the per-archetype config that drives the math. Mirrors
@@ -79,7 +80,7 @@ type CalcInputs struct {
 	Rate          RateConfig
 	Discount      *Discount
 	TaxPct        float64 // 0.0 = no tax (mock or not configured)
-	Mode          BillingMode
+	Mode          Mode
 }
 
 // CalcResult is the staged output: (Subtotal, Discount, Taxable, Tax, Total)
@@ -211,7 +212,7 @@ func applyDiscount(subtotal float64, d *Discount) float64 {
 // The validator returns the planned split. The platform may differ if the
 // wallet is over-drawn; the validator's billing check compares the platform's
 // reported split, not its derivation.
-func route(total float64, mode BillingMode, walletAvailable float64) (wallet, invoice float64) {
+func route(total float64, mode Mode, walletAvailable float64) (wallet, invoice float64) {
 	if total <= 0 {
 		return 0, 0
 	}

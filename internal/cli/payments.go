@@ -4,7 +4,7 @@
 // across a seeded population.
 //
 // The subcommand is a thin orchestrator over internal/payments,
-// internal/erp, internal/credit_notes, internal/wallet, and internal/tax.
+// internal/erp, internal/creditnotes, internal/wallet, and internal/tax.
 // Each driver writes its own jsonl artifact under <out>/, which the
 // validate subcommand consumes via Checks 12-18.
 package cli
@@ -25,7 +25,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/aforo"
-	"github.com/aforoai/aforo-nextgen-loadgen/internal/credit_notes"
+	"github.com/aforoai/aforo-nextgen-loadgen/internal/creditnotes"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/erp"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/lifecycle"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/payments"
@@ -219,14 +219,14 @@ func runPayments(ctx context.Context, out, errOut io.Writer, f *paymentsFlags) e
 	}
 
 	payDriver, err := payments.NewDriver(payments.DriverConfig{
-		Stripe:       stripe,
-		Picker:       picker,
-		Dunning:      dunDriver,
-		Client:       client,
-		Transitions:  tlog,
-		OutputDir:    outDir,
-		Workers:      f.workers,
-		IdemPrefix:   scen.Payments.IdempotencyPrefix,
+		Stripe:      stripe,
+		Picker:      picker,
+		Dunning:     dunDriver,
+		Client:      client,
+		Transitions: tlog,
+		OutputDir:   outDir,
+		Workers:     f.workers,
+		IdemPrefix:  scen.Payments.IdempotencyPrefix,
 	})
 	if err != nil {
 		return fmt.Errorf("payment driver: %w", err)
@@ -253,7 +253,7 @@ func runPayments(ctx context.Context, out, errOut io.Writer, f *paymentsFlags) e
 	defer syncValidator.Close()
 
 	// Credit-note driver.
-	cnDriver, err := credit_notes.NewDriver(credit_notes.DriverConfig{
+	cnDriver, err := creditnotes.NewDriver(creditnotes.DriverConfig{
 		Client:      client,
 		Transitions: tlog,
 		OutputDir:   outDir,
@@ -461,10 +461,10 @@ func invoiceShapes(in []invoiceLite) []payments.Invoice {
 	return out
 }
 
-func creditNoteShapes(in []invoiceLite) []credit_notes.Invoice {
-	out := make([]credit_notes.Invoice, len(in))
+func creditNoteShapes(in []invoiceLite) []creditnotes.Invoice {
+	out := make([]creditnotes.Invoice, len(in))
 	for i, x := range in {
-		out[i] = credit_notes.Invoice{
+		out[i] = creditnotes.Invoice{
 			InvoiceID: x.InvoiceID, TenantID: x.TenantID, CustomerID: x.CustomerID,
 			AmountUSD: x.AmountUSD, Currency: x.Currency,
 		}
@@ -619,7 +619,7 @@ func printERPSummary(out io.Writer, recs []erp.SyncRecord) {
 	fmt.Fprintln(tw, "PROVIDER\tSYNCED\tMISSING\tFAILED\tVERIFIED\tP95_LATENCY_S")
 	type bucket struct {
 		synced, missing, failed, verified int
-		latencies                          []float64
+		latencies                         []float64
 	}
 	buckets := map[string]*bucket{}
 	for _, r := range recs {
@@ -669,7 +669,7 @@ func p95(latencies []float64) float64 {
 	return cp[idx]
 }
 
-func printPaymentsSummary(out io.Writer, payStats payments.Stats, cnStats credit_notes.Stats, outDir string) {
+func printPaymentsSummary(out io.Writer, payStats payments.Stats, cnStats creditnotes.Stats, outDir string) {
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "payments complete")
 	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)

@@ -2,9 +2,6 @@
 package cli
 
 import (
-	"fmt"
-	"io"
-
 	"github.com/spf13/cobra"
 )
 
@@ -66,11 +63,4 @@ the full session roadmap.`,
 	)
 
 	return root
-}
-
-// notImplemented prints a uniform "not yet implemented" notice and returns
-// nil so the process exits 0 — Session 1 acceptance criterion.
-func notImplemented(out io.Writer, name string, session int) error {
-	_, err := fmt.Fprintf(out, "aforo-loadgen %s: not yet implemented — Session %d\n", name, session)
-	return err
 }

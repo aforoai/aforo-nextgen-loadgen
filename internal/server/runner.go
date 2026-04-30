@@ -23,8 +23,8 @@ import (
 // guarantees scenario catalogs and run engine versions match exactly,
 // which is critical for reproducibility.
 type LocalRunner struct {
-	BinaryPath  string
-	WorkDir     string
+	BinaryPath       string
+	WorkDir          string
 	ScenariosBuiltIn []string // names accepted directly without --scenario path
 }
 
@@ -202,12 +202,12 @@ func (p *ProcHandle) CopyRunJSON(dst io.Writer) error {
 // struct intentionally takes only what the operator UI reads, so
 // new run-engine fields don't require a server release.
 type RunArtifact struct {
-	EventsGenerated int64                  `json:"events_generated"`
-	EventsSubmitted int64                  `json:"events_submitted"`
-	EventsSucceeded int64                  `json:"events_succeeded"`
-	LatencyP99ms    float64                `json:"latency_p99_ms"`
-	LatencyP90ms    float64                `json:"latency_p90_ms"`
-	LatencyP50ms    float64                `json:"latency_p50_ms"`
+	EventsGenerated    int64               `json:"events_generated"`
+	EventsSubmitted    int64               `json:"events_submitted"`
+	EventsSucceeded    int64               `json:"events_succeeded"`
+	LatencyP99ms       float64             `json:"latency_p99_ms"`
+	LatencyP90ms       float64             `json:"latency_p90_ms"`
+	LatencyP50ms       float64             `json:"latency_p50_ms"`
 	NegativePathCounts map[string]int64    `json:"negative_path_counts"`
 	PerArchetype       map[string]any      `json:"per_archetype_stats"`
 	Assertions         []ArtifactAssertion `json:"assertions"`

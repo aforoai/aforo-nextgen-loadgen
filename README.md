@@ -16,32 +16,33 @@ architecture, services, and conventions see
 
 ## Status
 
-Session 10 of 12. The command tree is in place; `version`, `scenarios`,
-`seed`, `run`, `replay`, `validate`, `report`, `lifecycle`, `doctor`,
-`e2e`, and `payments` are fully implemented. `server` is a stub that
-announces the session in which it ships. Session 10 ships the release
-toolchain — Homebrew tap, GoReleaser, GitHub Release tarballs, and a
-`loadgen-smoke` GitHub Actions gate that drops into Aforo microservice
-repos. See [`docs/release-process.md`](docs/release-process.md) and
-[`docs/ci-integration.md`](docs/ci-integration.md) for the operator-side
-docs, and [`CHANGELOG.md`](CHANGELOG.md) for the version history. The
-scenario YAML schema itself is defined in
+**v0.1.0 — all 12 sessions complete.** The full command tree is built,
+tested, and ready to release. `version`, `scenarios`, `seed`, `run`,
+`replay`, `validate`, `report`, `lifecycle`, `doctor`, `e2e`,
+`payments`, `coordinator`, and `server` are all production paths. The
+release toolchain — Homebrew tap, GoReleaser, GitHub Release tarballs —
+is in place and triggered by tagging `v0.1.0`. See
+[`docs/release-process.md`](docs/release-process.md) and
+[`docs/ci-integration.md`](docs/ci-integration.md) for operator docs,
+and [`CHANGELOG.md`](CHANGELOG.md) for the version history. The
+scenario YAML schema is defined in
 [`docs/scenario-schema.md`](docs/scenario-schema.md).
 
-| Subcommand  | Ships in      | What it does                                                  |
-| ----------- | ------------- | ------------------------------------------------------------- |
-| `seed`      | _Session 3_ ✓ | Provision tenants per archetype via Aforo's REST APIs.        |
-| `scenarios` | _Session 2_ ✓ | List, describe, validate, and show built-in scenarios.        |
-| `run`       | _Session 4_ ✓ | Drive a load-test scenario against a target.                  |
-| `replay`    | _Session 4_ ✓ | Replay a recorded run-output against a target.                |
-| `validate`  | _Session 5_ ✓ | Validate a completed run vs the platform (18 checks).         |
-| `report`    | _Session 5_ ✓ | Render a self-contained HTML run + validation report.         |
-| `lifecycle` | _Session 6_ ✓ | Drive subscription state-machine transitions during a run.    |
-| `doctor`    | _Session 7_ ✓ | Diagnose local environment and target reachability.           |
-| `e2e`       | _Session 7_ ✓ | doctor → seed → run + lifecycle → validate → report → clean.  |
-| `payments`  | _Session 9_ ✓ | Drive payment, tax, FX, ERP, credit-note, and wallet flows.   |
-| `server`    | Session 12    | Control-plane server (dashboard + multi-node coordinator).    |
-| `version`   | Session 1     | Print semver, commit SHA, and build date.                     |
+| Subcommand    | Ships in      | What it does                                                  |
+| ------------- | ------------- | ------------------------------------------------------------- |
+| `seed`        | _Session 3_ ✓ | Provision tenants per archetype via Aforo's REST APIs.        |
+| `scenarios`   | _Session 2_ ✓ | List, describe, validate, and show built-in scenarios.        |
+| `run`         | _Session 4_ ✓ | Drive a load-test scenario against a target.                  |
+| `replay`      | _Session 4_ ✓ | Replay a recorded run-output against a target.                |
+| `validate`    | _Session 5_ ✓ | Validate a completed run vs the platform (18 checks).         |
+| `report`      | _Session 5_ ✓ | Render a self-contained HTML run + validation report.         |
+| `lifecycle`   | _Session 6_ ✓ | Drive subscription state-machine transitions during a run.    |
+| `doctor`      | _Session 7_ ✓ | Diagnose local environment and target reachability.           |
+| `e2e`         | _Session 7_ ✓ | doctor → seed → run + lifecycle → validate → report → clean.  |
+| `payments`    | _Session 9_ ✓ | Drive payment, tax, FX, ERP, credit-note, and wallet flows.   |
+| `coordinator` | Session 11 ✓  | Multi-machine workload coordination + chaos + cost + soak.    |
+| `server`      | Session 12 ✓  | Control-plane HTTP server (dashboard + multi-node ops).       |
+| `version`     | Session 1 ✓   | Print semver, commit SHA, and build date.                     |
 
 ## Install
 

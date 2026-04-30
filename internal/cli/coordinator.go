@@ -366,4 +366,3 @@ func printAggregateSummary(out io.Writer, agg coord.AggregateResult, bd cost.Bre
 	fmt.Fprintf(out, "\nartifacts written to: %s/run.json\n", outDir)
 	fmt.Fprintf(out, "for ground truth billing data, see: %s\n", bd.AWSCostExplorerURL)
 }
-

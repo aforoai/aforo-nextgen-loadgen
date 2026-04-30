@@ -115,11 +115,11 @@ func (r *Result) Save(out string) (string, error) {
 // used by unit tests to assert sequencing without spinning up real
 // services.
 type Config struct {
-	Scenario         *scenario.Scenario
-	ScenarioYAML     []byte // canonical bytes for run/seed to embed/reuse
-	Target           aforo.Target
-	OutputDir        string
-	BearerToken      string
+	Scenario     *scenario.Scenario
+	ScenarioYAML []byte // canonical bytes for run/seed to embed/reuse
+	Target       aforo.Target
+	OutputDir    string
+	BearerToken  string
 
 	IncludeBilling   bool
 	IncludeLifecycle bool

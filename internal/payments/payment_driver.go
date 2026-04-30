@@ -19,28 +19,28 @@ import (
 // Inputs: a list of issued invoices (id, sub, customer, amount, currency)
 // from the bill-run output. For each invoice it:
 //
-//   1. Picks an outcome from the OutcomePicker (success / decline / insuf).
-//   2. Picks the matching Stripe test card.
-//   3. Mints an Idempotency-Key.
-//   4. POSTs /api/v1/invoices/{id}/payment-link OR /api/v1/payment-methods/{...}/charge
-//      depending on platform readiness — the loadgen prefers a single
-//      "drive payment" endpoint exposed as /api/v1/internal/payments/drive
-//      when available; falls back to recording a synthetic payment intent
-//      in the report otherwise (CI offline).
-//   5. Records the result in PaymentLog.
-//   6. On decline → DunningDriver.Walk runs in a separate goroutine.
+//  1. Picks an outcome from the OutcomePicker (success / decline / insuf).
+//  2. Picks the matching Stripe test card.
+//  3. Mints an Idempotency-Key.
+//  4. POSTs /api/v1/invoices/{id}/payment-link OR /api/v1/payment-methods/{...}/charge
+//     depending on platform readiness — the loadgen prefers a single
+//     "drive payment" endpoint exposed as /api/v1/internal/payments/drive
+//     when available; falls back to recording a synthetic payment intent
+//     in the report otherwise (CI offline).
+//  5. Records the result in PaymentLog.
+//  6. On decline → DunningDriver.Walk runs in a separate goroutine.
 //
 // Concurrency: safe for concurrent invocation. Driver.ProcessInvoices fans
 // out one goroutine per invoice up to the configured worker pool.
 type Driver struct {
-	stripe       *StripeClient
-	picker       *OutcomePicker
-	dunning      *DunningDriver
-	client       *lifecycle.Client
-	transitions  *lifecycle.TransitionLog
-	logFile      *PaymentLog
-	workers      int
-	idemPrefix   string
+	stripe      *StripeClient
+	picker      *OutcomePicker
+	dunning     *DunningDriver
+	client      *lifecycle.Client
+	transitions *lifecycle.TransitionLog
+	logFile     *PaymentLog
+	workers     int
+	idemPrefix  string
 
 	// dunningWG tracks fire-and-forget goroutines spawned per decline so
 	// the orchestrator can WaitDunning() before closing the transition
@@ -57,14 +57,14 @@ type Driver struct {
 
 // DriverConfig configures Driver. Workers default to 16.
 type DriverConfig struct {
-	Stripe       *StripeClient
-	Picker       *OutcomePicker
-	Dunning      *DunningDriver
-	Client       *lifecycle.Client
-	Transitions  *lifecycle.TransitionLog
-	OutputDir    string  // where payments.jsonl is written
-	Workers      int
-	IdemPrefix   string
+	Stripe      *StripeClient
+	Picker      *OutcomePicker
+	Dunning     *DunningDriver
+	Client      *lifecycle.Client
+	Transitions *lifecycle.TransitionLog
+	OutputDir   string // where payments.jsonl is written
+	Workers     int
+	IdemPrefix  string
 }
 
 // NewDriver constructs a Driver. Validates required fields. Opens the
@@ -188,18 +188,18 @@ func (d *Driver) processOne(ctx context.Context, inv Invoice) {
 
 	d.tally(chg.Outcome)
 	_ = d.logFile.Append(PaymentRecord{
-		Timestamp:       time.Now().UTC(),
-		InvoiceID:       inv.InvoiceID,
-		TenantID:        inv.TenantID,
-		CustomerID:      inv.CustomerID,
-		SubscriptionID:  inv.SubscriptionID,
-		AmountUSD:       inv.AmountUSD,
-		Currency:        inv.Currency,
-		StripeIntentID:  chg.PaymentIntentID,
-		StripeChargeID:  chg.ChargeID,
-		Outcome:         string(chg.Outcome),
-		IdempotencyKey:  idem,
-		FailureCode:     chg.FailureCode,
+		Timestamp:      time.Now().UTC(),
+		InvoiceID:      inv.InvoiceID,
+		TenantID:       inv.TenantID,
+		CustomerID:     inv.CustomerID,
+		SubscriptionID: inv.SubscriptionID,
+		AmountUSD:      inv.AmountUSD,
+		Currency:       inv.Currency,
+		StripeIntentID: chg.PaymentIntentID,
+		StripeChargeID: chg.ChargeID,
+		Outcome:        string(chg.Outcome),
+		IdempotencyKey: idem,
+		FailureCode:    chg.FailureCode,
 	})
 
 	// Decline → drive dunning to its terminal state. The dunning sequence
@@ -234,15 +234,15 @@ func (d *Driver) WaitDunning() {
 // when the platform's own payment flow isn't deployed.
 func (d *Driver) driverPlatformPayment(ctx context.Context, inv Invoice, chg *Charge) error {
 	body := map[string]any{
-		"invoice_id":         inv.InvoiceID,
-		"customer_id":        inv.CustomerID,
-		"subscription_id":    inv.SubscriptionID,
-		"amount_usd":         inv.AmountUSD,
-		"currency":           inv.Currency,
-		"stripe_intent_id":   chg.PaymentIntentID,
-		"stripe_charge_id":   chg.ChargeID,
-		"outcome":            chg.Outcome,
-		"idempotency_key":    chg.IdempotencyKey,
+		"invoice_id":       inv.InvoiceID,
+		"customer_id":      inv.CustomerID,
+		"subscription_id":  inv.SubscriptionID,
+		"amount_usd":       inv.AmountUSD,
+		"currency":         inv.Currency,
+		"stripe_intent_id": chg.PaymentIntentID,
+		"stripe_charge_id": chg.ChargeID,
+		"outcome":          chg.Outcome,
+		"idempotency_key":  chg.IdempotencyKey,
 	}
 	idem := chg.IdempotencyKey
 	candidates := []string{

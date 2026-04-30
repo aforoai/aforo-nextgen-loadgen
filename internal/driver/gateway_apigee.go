@@ -21,11 +21,11 @@ func NewGatewayApigee(cfg HTTPBaseConfig) (*GatewayApigee, error) {
 		UserAgent:   "Apigee-Edge/Cloud (sharedflow=aforo-metering)",
 		ForwardedBy: "apigee",
 		VendorHeaders: map[string]string{
-			"X-ApigeeProxy-Name":     "aforo-ingest-proxy",
-			"X-Apigee-Org":           "aforo",
-			"X-Apigee-Env":           "prod",
-			"X-Apigee-Sharedflow":    "aforo-metering",
-			"X-Apigee-Plugin-Phase":  "PostFlow",
+			"X-ApigeeProxy-Name":    "aforo-ingest-proxy",
+			"X-Apigee-Org":          "aforo",
+			"X-Apigee-Env":          "prod",
+			"X-Apigee-Sharedflow":   "aforo-metering",
+			"X-Apigee-Plugin-Phase": "PostFlow",
 		},
 		HeaderForGen: func(e *generator.Event) map[string]string {
 			return map[string]string{

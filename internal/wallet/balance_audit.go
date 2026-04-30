@@ -51,17 +51,17 @@ func LoadAudit(dir string) ([]AuditRow, error) {
 	defer f.Close()
 	dec := json.NewDecoder(f)
 	type wireRow struct {
-		Type           string  `json:"type"`
-		TenantID       string  `json:"tenant_id"`
-		CustomerID     string  `json:"customer_id"`
-		WalletID       string  `json:"wallet_id"`
-		Currency       string  `json:"currency"`
-		BalanceUSD     float64 `json:"balance_usd"`
-		HeldUSD        float64 `json:"held_usd"`
-		HoldUSD        float64 `json:"hold_usd"`
-		Phase          string  `json:"phase"`
-		State          string  `json:"state"`
-		HoldsActive    int     `json:"holds_active"`
+		Type        string  `json:"type"`
+		TenantID    string  `json:"tenant_id"`
+		CustomerID  string  `json:"customer_id"`
+		WalletID    string  `json:"wallet_id"`
+		Currency    string  `json:"currency"`
+		BalanceUSD  float64 `json:"balance_usd"`
+		HeldUSD     float64 `json:"held_usd"`
+		HoldUSD     float64 `json:"hold_usd"`
+		Phase       string  `json:"phase"`
+		State       string  `json:"state"`
+		HoldsActive int     `json:"holds_active"`
 	}
 	type bucket struct {
 		row              AuditRow
@@ -144,8 +144,8 @@ func LoadAudit(dir string) ([]AuditRow, error) {
 // Reconcile asserts the balance arithmetic for one row, given the run's
 // committed charges (sum of invoices the wallet covered).
 //
-//   expected_final = initial - committedCharges + refunds
-//   |actual_final - expected_final| ≤ tolerance ?
+//	expected_final = initial - committedCharges + refunds
+//	|actual_final - expected_final| ≤ tolerance ?
 //
 // Returns true with empty reason on PASS; false with an actionable reason
 // on FAIL.

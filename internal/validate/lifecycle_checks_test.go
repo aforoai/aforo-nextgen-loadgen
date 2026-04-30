@@ -15,16 +15,16 @@ import (
 // lifecycleBackend stubs every BackendClient method, returning configured
 // values per call. Concurrency-safe.
 type lifecycleBackend struct {
-	caps              Capabilities
-	subState          map[string]SubscriptionSnapshot // sub_id → snapshot
-	migrateOut        MigrateOutcome
-	migrateErr        error
-	billRunErr        []error
-	mu                sync.Mutex
-	billRunCallIdx    int
-	migrateCallCount  int
-	getSubCallCount   int
-	billRunStarted    chan struct{}
+	caps             Capabilities
+	subState         map[string]SubscriptionSnapshot // sub_id → snapshot
+	migrateOut       MigrateOutcome
+	migrateErr       error
+	billRunErr       []error
+	mu               sync.Mutex
+	billRunCallIdx   int
+	migrateCallCount int
+	getSubCallCount  int
+	billRunStarted   chan struct{}
 }
 
 func (b *lifecycleBackend) Capabilities() Capabilities { return b.caps }

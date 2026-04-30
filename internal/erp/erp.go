@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -49,17 +48,17 @@ type Provider interface {
 // SyncRecord is one row of erp_sync.jsonl — emitted by sync_validator after
 // it observes the platform's erp_sync_log entry for one invoice.
 type SyncRecord struct {
-	Timestamp     time.Time     `json:"ts"`
-	InvoiceID     string        `json:"invoice_id"`
-	TenantID      string        `json:"tenant_id"`
-	Provider      string        `json:"provider"`
-	ExternalID    string        `json:"external_id"`
-	Status        string        `json:"status"` // "synced" | "failed" | "pending" | "missing"
-	LatencySeconds float64      `json:"latency_seconds"`
-	Attempts      int           `json:"attempts,omitempty"`
-	Verified      bool          `json:"verified"` // ok from Provider.Verify
-	VerifyReason  string        `json:"verify_reason,omitempty"`
-	Note          string        `json:"note,omitempty"`
+	Timestamp      time.Time `json:"ts"`
+	InvoiceID      string    `json:"invoice_id"`
+	TenantID       string    `json:"tenant_id"`
+	Provider       string    `json:"provider"`
+	ExternalID     string    `json:"external_id"`
+	Status         string    `json:"status"` // "synced" | "failed" | "pending" | "missing"
+	LatencySeconds float64   `json:"latency_seconds"`
+	Attempts       int       `json:"attempts,omitempty"`
+	Verified       bool      `json:"verified"` // ok from Provider.Verify
+	VerifyReason   string    `json:"verify_reason,omitempty"`
+	Note           string    `json:"note,omitempty"`
 }
 
 // httpDoer is the minimal http.Client surface — extracted so tests can stub.
@@ -103,11 +102,6 @@ func statusOK(resp *http.Response) bool {
 		return false
 	}
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
-}
-
-// joinEndpoint trims and joins a base URL + path. Always exactly one /.
-func joinEndpoint(base, path string) string {
-	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path, "/")
 }
 
 // AllProviders lists the canonical set used by scenarios + validators.

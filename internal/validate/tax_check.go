@@ -40,14 +40,14 @@ func (v *Validator) runTaxMath(ctx context.Context) *CheckResult {
 	res.Set("tolerance_usd", tol)
 
 	type pair struct {
-		Currency       string  `json:"currency"`
-		Jurisdiction   string  `json:"jurisdiction"`
-		Subtotal       float64 `json:"subtotal"`
-		ExpectedRate   float64 `json:"expected_rate"`
-		ComputedTax    float64 `json:"computed_tax"`
-		ExpectedTax    float64 `json:"expected_tax"`
-		Drift          float64 `json:"drift"`
-		Match          bool    `json:"match"`
+		Currency     string  `json:"currency"`
+		Jurisdiction string  `json:"jurisdiction"`
+		Subtotal     float64 `json:"subtotal"`
+		ExpectedRate float64 `json:"expected_rate"`
+		ComputedTax  float64 `json:"computed_tax"`
+		ExpectedTax  float64 `json:"expected_tax"`
+		Drift        float64 `json:"drift"`
+		Match        bool    `json:"match"`
 	}
 	rows := []pair{}
 	for currency, jur := range t.JurisdictionByCurrency {

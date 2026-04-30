@@ -9,23 +9,6 @@ import (
 	hdrhistogram "github.com/HdrHistogram/hdrhistogram-go"
 )
 
-// perTenantHistKey indexes the per-tenant slice (and optional per-path /
-// per-product breakdown) of HDR histograms.
-//
-// Memory footprint at the spec's "50 tenants × 4 paths × 4 product types":
-//   - 50 × 4 × 4 = 800 histograms
-//   - Each HDR histogram (1us..30s, 3 sig figs) ≈ 150 KiB
-//   - Total ≈ 120 MiB resident
-//
-// The spec's documented ceiling is "~400MB"; the actual cost is well below
-// that. The runner exposes Stats() that surfaces this so a sanity check on
-// 24h runs can flag unexpected growth.
-type perTenantHistKey struct {
-	TenantID    string
-	Path        string // "" = all paths rolled up
-	ProductType string // "" = all product types rolled up
-}
-
 // perTenantStore holds the per-tenant HDR histograms + lazy per-path and
 // per-product breakdowns. Updates funnel through Record().
 type perTenantStore struct {

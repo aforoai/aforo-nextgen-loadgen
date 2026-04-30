@@ -22,10 +22,8 @@ import (
 // fail with "worker is busy" — the design assumes one assignment per
 // worker per coordinator run.
 type RunnerWorkerHandler struct {
-	mu        sync.Mutex
-	current   *runState
-	startedAt time.Time
-	workerID  string
+	mu      sync.Mutex
+	current *runState
 
 	// AdminToken is the Aforo admin bearer token, used as the fallback
 	// when a generated event has no per-key token. Loaded from the
@@ -124,7 +122,6 @@ func (h *RunnerWorkerHandler) Accept(ctx context.Context, a *Assignment) Accepta
 		startedAt:   time.Now(),
 	}
 	h.current = rs
-	h.workerID = a.WorkerID
 
 	cfg := runner.Config{
 		Scenario:         &scn,

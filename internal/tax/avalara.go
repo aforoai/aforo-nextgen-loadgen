@@ -114,9 +114,9 @@ func (a *AvalaraEngine) Calculate(ctx context.Context, req Request) (Response, e
 func (a *AvalaraEngine) callAPI(ctx context.Context, req Request) (Response, error) {
 	endpoint := a.baseURL + "/api/v2/transactions/create"
 	payload := map[string]any{
-		"type":        "SalesInvoice",
-		"companyCode": a.companyCode,
-		"date":        time.Now().UTC().Format("2006-01-02"),
+		"type":         "SalesInvoice",
+		"companyCode":  a.companyCode,
+		"date":         time.Now().UTC().Format("2006-01-02"),
 		"customerCode": req.CustomerID,
 		"currencyCode": orDefault(req.Currency, "USD"),
 		"lines": []map[string]any{{
@@ -191,8 +191,8 @@ func (a *AvalaraEngine) fallback(ctx context.Context, req Request, reason string
 // care about. Per AvaTax docs: each line's Details array carries the
 // jurisdiction codes that contributed to the tax.
 type avataxTransaction struct {
-	TotalTax float64        `json:"totalTax"`
-	Lines    []avataxLine   `json:"lines"`
+	TotalTax float64      `json:"totalTax"`
+	Lines    []avataxLine `json:"lines"`
 }
 
 type avataxLine struct {

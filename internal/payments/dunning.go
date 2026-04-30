@@ -30,11 +30,11 @@ import (
 // per-invoice and avoids "did this retry belong to which sub" confusion in
 // transitions.jsonl.
 type DunningDriver struct {
-	client       *lifecycle.Client
-	transitions  *lifecycle.TransitionLog
-	maxAttempts  int
-	interval     time.Duration
-	idemPrefix   string
+	client      *lifecycle.Client
+	transitions *lifecycle.TransitionLog
+	maxAttempts int
+	interval    time.Duration
+	idemPrefix  string
 
 	mu     sync.Mutex
 	cycles map[string]*DunningHistory // by subscription id
@@ -42,10 +42,10 @@ type DunningDriver struct {
 
 // DunningConfig configures the driver.
 type DunningConfig struct {
-	Client          *lifecycle.Client
-	TransitionLog   *lifecycle.TransitionLog
-	MaxAttempts     int
-	Interval        time.Duration
+	Client            *lifecycle.Client
+	TransitionLog     *lifecycle.TransitionLog
+	MaxAttempts       int
+	Interval          time.Duration
 	IdempotencyPrefix string
 }
 
@@ -80,12 +80,12 @@ func NewDunningDriver(cfg DunningConfig) (*DunningDriver, error) {
 
 // DunningHistory is the per-invoice trail the driver records.
 type DunningHistory struct {
-	TenantID         string
-	SubscriptionID   string
-	InvoiceID        string
-	Attempts         []DunningAttempt
-	FinalState       string // platform's final sub state
-	EscalatedAt      time.Time
+	TenantID       string
+	SubscriptionID string
+	InvoiceID      string
+	Attempts       []DunningAttempt
+	FinalState     string // platform's final sub state
+	EscalatedAt    time.Time
 }
 
 // DunningAttempt is one retry attempt + its outcome.
@@ -102,12 +102,12 @@ type DunningAttempt struct {
 //
 // The sequence:
 //
-//	  for attempt = 1..maxAttempts:
-//	      sleep interval
-//	      POST /subscriptions/{sub}/retry-payment
-//	      examine response — success / still_failing / error
-//	  if still failing:
-//	      assert platform has flipped sub to SUSPENDED or CANCELLED
+//	for attempt = 1..maxAttempts:
+//	    sleep interval
+//	    POST /subscriptions/{sub}/retry-payment
+//	    examine response — success / still_failing / error
+//	if still failing:
+//	    assert platform has flipped sub to SUSPENDED or CANCELLED
 //
 // Concurrency: safe; the driver guards its history map.
 func (d *DunningDriver) Walk(ctx context.Context, tenantID, subID, invoiceID string) (*DunningHistory, error) {
@@ -166,13 +166,13 @@ func (d *DunningDriver) Walk(ctx context.Context, tenantID, subID, invoiceID str
 	expected := finalState == "SUSPENDED" || finalState == "CANCELLED"
 	note := fmt.Sprintf("post-max final_state=%s expected_terminal=%t", finalState, expected)
 	_ = d.transitions.Append(lifecycle.TransitionRecord{
-		Timestamp:        time.Now().UTC(),
-		SubscriptionID:   subID,
-		TenantID:         tenantID,
-		Transition:       lifecycle.TransitionDunningEscalate,
+		Timestamp:         time.Now().UTC(),
+		SubscriptionID:    subID,
+		TenantID:          tenantID,
+		Transition:        lifecycle.TransitionDunningEscalate,
 		ExpectedPostState: "SUSPENDED",
-		TransitionStatus: terminalStatus(expected, err),
-		Error:            note,
+		TransitionStatus:  terminalStatus(expected, err),
+		Error:             note,
 	})
 	return hist, nil
 }

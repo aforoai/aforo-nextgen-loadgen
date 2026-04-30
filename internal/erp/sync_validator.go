@@ -28,24 +28,24 @@ import (
 //
 // Concurrency: safe; the validator's state is per-invoice channels.
 type SyncValidator struct {
-	client          *lifecycle.Client
-	providers       map[string]Provider
-	slaSeconds      int
-	verifyExternal  bool
-	pollInitial     time.Duration
-	pollMax         time.Duration
-	logFile         *SyncLog
+	client         *lifecycle.Client
+	providers      map[string]Provider
+	slaSeconds     int
+	verifyExternal bool
+	pollInitial    time.Duration
+	pollMax        time.Duration
+	logFile        *SyncLog
 }
 
 // SyncValidatorConfig configures the validator.
 type SyncValidatorConfig struct {
-	Client          *lifecycle.Client
-	Providers       map[string]Provider
-	SLASeconds      int
-	VerifyExternal  bool
-	OutputDir       string
-	PollInitial     time.Duration
-	PollMax         time.Duration
+	Client         *lifecycle.Client
+	Providers      map[string]Provider
+	SLASeconds     int
+	VerifyExternal bool
+	OutputDir      string
+	PollInitial    time.Duration
+	PollMax        time.Duration
 }
 
 // NewSyncValidator constructs and validates the config.
@@ -188,10 +188,10 @@ func (v *SyncValidator) fetchSyncLog(ctx context.Context, tenantID, invoiceID st
 	path := "/api/v1/erp-integrations/sync-log?invoice_id=" + invoiceID
 	var resp struct {
 		Data []struct {
-			InvoiceID         string `json:"invoice_id"`
-			ExternalDocID     string `json:"external_document_id"`
-			Status            string `json:"status"`
-			Attempts          int    `json:"attempts"`
+			InvoiceID     string `json:"invoice_id"`
+			ExternalDocID string `json:"external_document_id"`
+			Status        string `json:"status"`
+			Attempts      int    `json:"attempts"`
 		} `json:"data"`
 	}
 	_, err = v.client.GetJSON(ctx, aforo.ServiceBilling, path, tenantID, &resp)

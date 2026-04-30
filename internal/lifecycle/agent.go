@@ -161,11 +161,10 @@ func (a *Agent) Run(ctx context.Context) error {
 
 // kindTicker drives one TransitionKind's firing schedule.
 type kindTicker struct {
-	kind         TransitionKind
-	hourlyPct    float64
-	fire         func(context.Context, Deps, Subject) error
-	postFire     func(*kindTicker, error)
-	usesScheduler bool
+	kind      TransitionKind
+	hourlyPct float64
+	fire      func(context.Context, Deps, Subject) error
+	postFire  func(*kindTicker, error)
 }
 
 func (t *kindTicker) run(ctx context.Context, a *Agent) {

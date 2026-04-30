@@ -30,13 +30,13 @@ import (
 // invoice subtotal in a currency, plus context (customer's jurisdiction,
 // product type, line items if available).
 type Request struct {
-	InvoiceID     string
-	TenantID      string
-	CustomerID    string
-	SubtotalUSD   float64 // ALWAYS in USD — caller converts via fx package first
-	Currency      string  // billing currency (USD, EUR, GBP) — for jurisdiction lookup
-	Jurisdiction  string  // explicit jurisdiction (e.g. "US-CA"); empty → derive from currency
-	ProductType   string  // optional — some tax engines need this
+	InvoiceID    string
+	TenantID     string
+	CustomerID   string
+	SubtotalUSD  float64 // ALWAYS in USD — caller converts via fx package first
+	Currency     string  // billing currency (USD, EUR, GBP) — for jurisdiction lookup
+	Jurisdiction string  // explicit jurisdiction (e.g. "US-CA"); empty → derive from currency
+	ProductType  string  // optional — some tax engines need this
 }
 
 // Response is the engine's verdict for one invoice.
@@ -59,9 +59,9 @@ type Engine interface {
 //
 // Order of precedence:
 //
-//	1. req.Jurisdiction if non-empty
-//	2. byCurrency[req.Currency]
-//	3. defaultJurisdiction
+//  1. req.Jurisdiction if non-empty
+//  2. byCurrency[req.Currency]
+//  3. defaultJurisdiction
 func Resolve(req Request, byCurrency map[string]string, defaultJurisdiction string) string {
 	if strings.TrimSpace(req.Jurisdiction) != "" {
 		return req.Jurisdiction

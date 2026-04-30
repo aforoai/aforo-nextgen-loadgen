@@ -23,7 +23,7 @@ import (
 type Sample struct {
 	Index           int
 	Model           billing.PricingModel
-	Mode            billing.BillingMode
+	Mode            billing.Mode
 	Events          int64
 	BaseUSD         float64
 	Rate            billing.RateConfig
@@ -229,7 +229,7 @@ func genSample(r *rand.Rand, idx int) Sample {
 		billing.PerUnit, billing.FlatRate, billing.Percentage,
 		billing.IncludedQuota, billing.Graduated, billing.VolumeTiered,
 	}
-	modes := []billing.BillingMode{billing.Postpaid, billing.Prepaid, billing.Hybrid}
+	modes := []billing.Mode{billing.Postpaid, billing.Prepaid, billing.Hybrid}
 
 	s := Sample{
 		Index:           idx,
