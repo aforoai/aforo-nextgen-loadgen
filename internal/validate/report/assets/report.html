@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{.Title}} — {{.Scenario}}</title>
+  <style>{{.CSS}}</style>
+</head>
+<body>
+  <h1>{{.Title}}</h1>
+  <div class="subtitle">scenario <strong>{{.Scenario}}</strong> · target <strong>{{.Target}}</strong> · run <strong>{{.RunID}}</strong></div>
+
+  <div class="card">
+    <h2>Summary</h2>
+    <div class="summary">
+      <div>
+        <div class="kv"><span class="k">overall</span>
+          <span class="v"><span class="badge {{.OverallClass}}">{{.OverallText}}</span></span>
+        </div>
+        <div class="kv"><span class="k">checks total</span><span class="v">{{.Summary.Total}}</span></div>
+        <div class="kv"><span class="k">passed</span><span class="v">{{.Summary.Passed}}</span></div>
+        <div class="kv"><span class="k">failed</span><span class="v">{{.Summary.Failed}}</span></div>
+        <div class="kv"><span class="k">skipped</span><span class="v">{{.Summary.Skipped}}</span></div>
+      </div>
+      <div>
+        <div class="kv"><span class="k">duration</span><span class="v">{{.Duration}}</span></div>
+        <div class="kv"><span class="k">target tps</span><span class="v">{{.TargetTPS}}</span></div>
+        <div class="kv"><span class="k">started</span><span class="v">{{.StartedAt}}</span></div>
+        <div class="kv"><span class="k">ended</span><span class="v">{{.EndedAt}}</span></div>
+        <div class="kv"><span class="k">generated</span><span class="v">{{.GeneratedAt}}</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Run statistics</h2>
+    <div class="summary">
+      <div>
+        {{range .RunStats}}
+        <div class="kv"><span class="k">{{.K}}</span><span class="v">{{.V}}</span></div>
+        {{end}}
+      </div>
+      <div>
+        {{range .Latency}}
+        <div class="kv"><span class="k">{{.K}}</span><span class="v">{{.V}}</span></div>
+        {{end}}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Validation checks</h2>
+    <div class="checks">
+      {{range .Checks}}
+      <div class="check">
+        <div class="label">{{.Name}}</div>
+        <div>
+          <span class="reason">{{.Reason}}</span>
+          <span class="badge {{.Status}}">{{.Status}}</span>
+        </div>
+      </div>
+      {{end}}
+    </div>
+  </div>
+
+  {{if .NegativeRows}}
+  <div class="card">
+    <h2>Negative-path correctness</h2>
+    <table>
+      <thead><tr><th>category</th><th>expected</th><th>actual</th><th>match</th><th>reason</th></tr></thead>
+      <tbody>
+      {{range .NegativeRows}}
+        <tr class="{{if .Match}}pass{{else}}fail{{end}}">
+          <td>{{.Category}}</td>
+          <td>{{.Expected}}</td>
+          <td>{{.Actual}}</td>
+          <td>{{if .Match}}✓{{else}}✗{{end}}</td>
+          <td>{{.Reason}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{if .HasStaleProbe}}
+      <div style="margin-top:12px;font-size:12px;color:#6A83A3;">stale-key false positives observed: <strong>{{.StalePositives}}</strong> (zero is required)</div>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if .BillingRows}}
+  <div class="card">
+    <h2>Per-archetype billing match</h2>
+    <table>
+      <thead><tr><th>archetype</th><th>pricing</th><th>billing</th><th>customers</th><th>all match</th><th>max drift %</th></tr></thead>
+      <tbody>
+      {{range .BillingRows}}
+        <tr class="{{if .AllMatch}}pass{{else}}fail{{end}}">
+          <td>{{.Archetype}}</td>
+          <td>{{.PricingModel}}</td>
+          <td>{{.BillingMode}}</td>
+          <td>{{.CustomersTested}}</td>
+          <td>{{if .AllMatch}}✓{{else}}✗{{end}}</td>
+          <td>{{printf "%.4f" .MaxDriftPct}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  {{if .ArchetypeRows}}
+  <div class="card">
+    <h2>Per-archetype event share</h2>
+    <table>
+      <thead><tr><th>archetype</th><th>events</th><th>share</th></tr></thead>
+      <tbody>
+      {{range .ArchetypeRows}}
+        <tr><td>{{.Name}}</td><td>{{.EventCount}}</td><td>{{.Pct}}</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  {{if .TenantRows}}
+  <div class="card">
+    <h2>Top tenants by traffic</h2>
+    <table>
+      <thead><tr><th>tenant</th><th>events</th><th>share</th></tr></thead>
+      <tbody>
+      {{range .TenantRows}}
+        <tr><td>{{.TenantID}}</td><td>{{.Events}}</td><td>{{.Pct}}</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  {{if .Violations}}
+  <div class="card">
+    <h2>Property-based invariant violations</h2>
+    <table>
+      <thead><tr><th>invariant</th><th>sample</th><th>model/mode</th><th>events</th><th>message</th></tr></thead>
+      <tbody>
+      {{range .Violations}}
+        <tr class="fail">
+          <td>{{.Invariant}}</td>
+          <td>#{{.Index}}</td>
+          <td>{{.Model}} / {{.Mode}}</td>
+          <td>{{.Events}}</td>
+          <td><span class="violation">{{.Message}}</span></td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  <div class="footer">
+    aforo-loadgen · {{.GeneratedAt}}
+  </div>
+</body>
+</html>

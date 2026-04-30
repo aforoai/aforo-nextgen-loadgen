@@ -50,9 +50,11 @@ func TestEverySubcommandExitsZero(t *testing.T) {
 	// run + replay are wired in Session 4. Calling them with --help is the
 	// safest no-network path: cobra prints usage and exits 0.
 	specialArgs := map[string][]string{
-		"seed":   {"seed", "--scenario", "ci-smoke", "--dry-run"},
-		"run":    {"run", "--help"},
-		"replay": {"replay", "--help"},
+		"seed":     {"seed", "--scenario", "ci-smoke", "--dry-run"},
+		"run":      {"run", "--help"},
+		"replay":   {"replay", "--help"},
+		"validate": {"validate", "--help"},
+		"report":   {"report", "--help"},
 	}
 	for _, name := range expectedSubcommands {
 		t.Run(name, func(t *testing.T) {
@@ -84,9 +86,10 @@ func TestStubsAdvertiseSession(t *testing.T) {
 	// Implemented in Session 2: scenarios (parent + 4 sub-leaves).
 	// Implemented in Session 3: seed.
 	// Implemented in Session 4: run, replay.
+	// Implemented in Session 5: validate, report.
 	stubs := []string{
-		"doctor", "e2e", "lifecycle", "payments", "report",
-		"server", "validate",
+		"doctor", "e2e", "lifecycle", "payments",
+		"server",
 	}
 	for _, name := range stubs {
 		t.Run(name, func(t *testing.T) {

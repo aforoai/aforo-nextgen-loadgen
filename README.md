@@ -16,10 +16,10 @@ architecture, services, and conventions see
 
 ## Status
 
-Session 4 of 12. The command tree is in place; `version`, `scenarios`,
-`seed`, `run`, and `replay` are fully implemented. Other subcommands are
-stubs that announce the session in which they ship. The scenario YAML
-schema itself is defined in
+Session 5 of 12. The command tree is in place; `version`, `scenarios`,
+`seed`, `run`, `replay`, `validate`, and `report` are fully implemented.
+Other subcommands are stubs that announce the session in which they ship.
+The scenario YAML schema itself is defined in
 [`docs/scenario-schema.md`](docs/scenario-schema.md).
 
 | Subcommand  | Ships in   | What it does                                                      |
@@ -28,11 +28,11 @@ schema itself is defined in
 | `scenarios` | _Session 2_ ✓ | List, describe, validate, and show built-in scenarios.          |
 | `run`       | _Session 4_ ✓ | Drive a load-test scenario against a target.                    |
 | `replay`    | _Session 4_ ✓ | Replay a recorded run-output against a target.                  |
-| `validate`  | Session 5  | Static-validate run output against scenario assertions.           |
+| `validate`  | _Session 5_ ✓ | Validate a completed run vs the platform (8 checks).            |
+| `report`    | _Session 5_ ✓ | Render a self-contained HTML run + validation report.           |
 | `lifecycle` | Session 6  | Drive subscription lifecycle transitions.                         |
 | `payments`  | Session 9  | Drive payment, tax, and ERP integration flows.                    |
 | `e2e`       | Session 8  | End-to-end smoke flows against a live target.                     |
-| `report`    | Session 10 | Render results from a completed run.                              |
 | `doctor`    | Session 11 | Diagnose local environment and target reachability.               |
 | `server`    | Session 12 | Control-plane server (dashboard + multi-node coordinator).        |
 | `version`   | Session 1  | Print semver, commit SHA, and build date.                         |
@@ -121,6 +121,59 @@ end-to-end:
 Stale-key safety: a scenario with `negative_paths.stale_keys_pct > 0`
 fails at startup if the manifest has zero stale subscriptions — the
 load test won't silently skip the fault injection.
+
+## Validation oracle (Session 5)
+
+`aforo-loadgen validate` is the post-run oracle. It reads a completed
+run's output (`run.json` + `scenario.yaml`) plus the seed manifest and
+runs eight independent checks:
+
+| # | Check | What it verifies |
+| - | ----- | ---------------- |
+| 1 | `event_count_per_tenant` | events_sent ≈ events stored in ClickHouse usage_records (per tenant, within tolerance) |
+| 2 | `cross_tenant_leakage` | 10 IDOR probes: query with the wrong `X-Tenant-Id` returns zero rows |
+| 3 | `billing_hierarchy_resolution` | every ingested event resolved a `customer_id` (no NULLs from BillingHierarchyEnricher) |
+| 4 | `cache_hit_ratio` | BillingHierarchyEnricher Redis cache hit ratio ≥ scenario threshold |
+| 5 | `per_archetype_billing_match` | invoice math matches expected per archetype × customer (`--include-billing`) |
+| 6 | `negative_path_correctness` | every negative-path category was rejected as expected, incl. **zero stale-key false positives** |
+| 7 | `property_based_invariants` | seven seeded fuzz invariants over the billing pipeline |
+| 8 | `bill_run_concurrency` | two simultaneous bill runs collide with 409 (`--include-billing`) |
+
+Without backend access, checks 1, 6, 7 still run from `run.json` alone —
+ci-smoke validate exits 0 in pure-CI mode. Checks that need infra (2, 3,
+4, 5, 8) `SKIP` with a clear reason.
+
+The strongest assertion is the stale-key zero-false-positives check
+(Check 6.e.3 + Check 7.g): a single successful ingestion on a revoked
+api_key in the run window fails the validator loudly. This catches
+cache-invalidation regressions in `BillingHierarchyEnricher`.
+
+```bash
+# Pure offline (CI smoke):
+aforo-loadgen validate --run-output runs/ci-smoke-... --manifest manifest.json --target local
+
+# Full backend coverage:
+aforo-loadgen validate --run-output runs/matrix-billing-... \
+    --manifest manifest.json --target staging --include-billing \
+    --tolerance-pct 0.001
+```
+
+Output: `<run-output>/validation.json` (machine-readable, schema v2) +
+stdout summary table. Exits 1 on any FAIL — CI gates on this.
+
+## HTML report (Session 5)
+
+`aforo-loadgen report --run-output <dir>` renders a self-contained
+`report.html` with run summary, per-tenant table, per-archetype billing
+accuracy, per-negative-path table, and any property-based test
+violations. **No CDN, no Google Fonts, no external assets** — system
+fonts only so the file renders identically when forwarded to Slack
+channels or attached to PR comments, including offline.
+
+```bash
+aforo-loadgen report --run-output runs/ci-smoke-1714438800
+# → runs/ci-smoke-1714438800/report.html
+```
 
 ## Seed harness (Session 3)
 
