@@ -107,9 +107,57 @@ func TestE2E_HelpAdvertisesAllFlags(t *testing.T) {
 	for _, want := range []string{
 		"--scenario", "--target", "--include-billing",
 		"--include-lifecycle", "--keep-data", "--out",
+		// Session 10 — added for CI integration.
+		"--duration", "--strict",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("e2e --help should advertise %s; got %q", want, out)
 		}
+	}
+}
+
+// TestE2E_DurationParsing asserts an invalid duration string for
+// --duration is reported with a useful error before any stage fires.
+func TestE2E_DurationParsing(t *testing.T) {
+	t.Setenv("AFORO_ADMIN_TOKEN", "tok")
+	cmd := NewRootCommand()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{
+		"e2e",
+		"--scenario", "ci-smoke",
+		"--target", "local",
+		"--duration", "not-a-duration",
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for malformed --duration")
+	}
+	if !strings.Contains(err.Error(), "duration") {
+		t.Errorf("error should name the offending flag; got: %v", err)
+	}
+}
+
+// TestE2E_DurationRejectsNonPositive asserts --duration=0s is treated as
+// an error rather than silently running for zero seconds.
+func TestE2E_DurationRejectsNonPositive(t *testing.T) {
+	t.Setenv("AFORO_ADMIN_TOKEN", "tok")
+	cmd := NewRootCommand()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{
+		"e2e",
+		"--scenario", "ci-smoke",
+		"--target", "local",
+		"--duration", "0s",
+	})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for --duration 0s")
+	}
+	if !strings.Contains(err.Error(), "duration") {
+		t.Errorf("error should name the offending flag; got: %v", err)
 	}
 }

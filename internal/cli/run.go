@@ -63,7 +63,7 @@ Examples:
 		},
 	}
 	cmd.Flags().StringVar(&f.scenarioFlag, "scenario", "", "path to scenario YAML (built-in name also accepted, e.g. ci-smoke)")
-	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, or full URL")
+	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, ci, or full URL")
 	cmd.Flags().StringVar(&f.manifest, "manifest", "manifest.json", "path to manifest from `aforo-loadgen seed`")
 	cmd.Flags().StringVar(&f.out, "out", "", "run output directory (default: runs/<run-id>)")
 	cmd.Flags().StringVar(&f.duration, "duration", "", "override scenario.duration (e.g. 30s, 5m)")

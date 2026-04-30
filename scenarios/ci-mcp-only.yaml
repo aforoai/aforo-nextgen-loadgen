@@ -1,0 +1,62 @@
+# ci-mcp-only — MCP_SERVER coverage gate
+#
+# Purpose: prove the MCP_SERVER ingestion path stays intact. Specifically
+# guards against regressions in: usage-ingestor's McpEventValidator (must
+# require tool_name + agent_id), McpSessionManager (sessions are created
+# on first tool call and time out at 1h idle), and AgenticEventRouter's
+# triple-track to billing + COGS + mcp-sessions Kafka topics.
+#
+# Used as the loadgen-smoke gate on aforo-nextgen-usage-ingestor-service
+# pull requests. A failing run blocks the merge.
+#
+# Coverage: 1 tenant, 1 archetype (PER_UNIT POSTPAID MCP_SERVER), REST
+# direct only, 50 TPS, 60s. No fault injection. No lifecycle. No payments.
+
+schema_version: 1
+name: ci-mcp-only
+description: 60-second MCP_SERVER smoke test for CI. One tenant, REST direct, no faults.
+target_tps: 50
+duration: 60s
+seed: 2
+
+tenants:
+  count: 1
+  distribution: uniform
+  archetypes:
+    - name: ci-mcp-baseline
+      weight: 1.0
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [MCP_SERVER]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+time_pattern: constant
+
+product_mix:
+  MCP_SERVER: 1.0
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.001
+  p99_latency_ms_max: 500
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: ci
+  notes: Tied to usage-ingestor PR pipeline. A red run here means an MCP ingestion contract changed.

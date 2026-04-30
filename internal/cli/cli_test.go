@@ -136,6 +136,30 @@ func TestVersionSubcommandPrintsBuildMetadata(t *testing.T) {
 			t.Errorf("version output missing %q; got: %s", want, out)
 		}
 	}
+	// Session 10 — version output MUST include exactly one leading "v"
+	// so the Homebrew formula's `assert_match "aforo-loadgen v#{version}"`
+	// test passes regardless of whether the build was driven by the
+	// Makefile (git describe keeps the "v") or by goreleaser
+	// ({{.Version}} strips it).
+	if !strings.Contains(out, "aforo-loadgen v") {
+		t.Errorf("version output should contain 'aforo-loadgen v...'; got: %s", out)
+	}
+}
+
+func TestFormatVersion_PrependsVAndIsIdempotent(t *testing.T) {
+	tests := map[string]string{
+		"0.1.0":          "v0.1.0",
+		"v0.1.0":         "v0.1.0",   // already prefixed → unchanged
+		"0.0.0-dev":      "v0.0.0-dev",
+		"v0.0.0-dev":     "v0.0.0-dev",
+		"1.2.3-rc.1":     "v1.2.3-rc.1",
+		"":               "v",        // degenerate input — should not panic
+	}
+	for in, want := range tests {
+		if got := formatVersion(in); got != want {
+			t.Errorf("formatVersion(%q) = %q; want %q", in, got, want)
+		}
+	}
 }
 
 func TestGlobalFlagsAreRegistered(t *testing.T) {

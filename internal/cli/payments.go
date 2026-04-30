@@ -89,7 +89,7 @@ runs. Run 'aforo-loadgen validate' against the same --out directory.`,
 		},
 	}
 	cmd.Flags().StringVar(&f.scenarioFlag, "scenario", "", "path to scenario YAML or built-in name")
-	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, or full URL")
+	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, ci, or full URL")
 	cmd.Flags().StringVar(&f.manifest, "manifest", "manifest.json", "path to manifest from `aforo-loadgen seed`")
 	cmd.Flags().StringVar(&f.out, "out", "", "output directory (default: runs/<scenario>-payments-<unix>)")
 	cmd.Flags().StringVar(&f.tokenEnv, "token-env", "AFORO_ADMIN_TOKEN", "env var holding the admin bearer token")

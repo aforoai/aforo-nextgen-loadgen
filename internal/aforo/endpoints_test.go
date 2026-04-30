@@ -50,6 +50,100 @@ func TestResolveTarget_Unknown(t *testing.T) {
 	}
 }
 
+func TestResolveTarget_CI_NoEnv_FallsBackToStagingURLs(t *testing.T) {
+	// Clear all CI env vars to ensure we measure the staging-fallback path.
+	t.Setenv("AFORO_CI_BASE_URL", "")
+	for _, svc := range AllProbeServices {
+		t.Setenv("AFORO_CI_"+ciEnvSafeServiceName(svc)+"_URL", "")
+	}
+
+	got, err := ResolveTarget("ci")
+	if err != nil {
+		t.Fatalf("ResolveTarget(ci): %v", err)
+	}
+	if got.Name != "ci" {
+		t.Errorf("Name = %q, want %q", got.Name, "ci")
+	}
+	// Staging URLs are inherited verbatim.
+	for svc, want := range StagingTarget.URLs {
+		got, err := got.URL(svc)
+		if want == "" {
+			// ai-service has no public hostname; URL("") would error and
+			// that's expected — see StagingTarget commentary.
+			continue
+		}
+		if err != nil {
+			t.Errorf("URL(%s): %v", svc, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("svc %s URL = %s, want %s", svc, got, want)
+		}
+	}
+}
+
+func TestResolveTarget_CI_BaseURL_FansAllServices(t *testing.T) {
+	t.Setenv("AFORO_CI_BASE_URL", "https://pr-42.aforo.dev/")
+
+	got, err := ResolveTarget("ci")
+	if err != nil {
+		t.Fatalf("ResolveTarget(ci): %v", err)
+	}
+	for _, svc := range AllProbeServices {
+		u, err := got.URL(svc)
+		if err != nil {
+			t.Errorf("URL(%s): %v", svc, err)
+			continue
+		}
+		// Trailing slash should be trimmed for clean joins.
+		if u != "https://pr-42.aforo.dev" {
+			t.Errorf("svc %s URL = %s, want trimmed base", svc, u)
+		}
+	}
+}
+
+func TestResolveTarget_CI_PerServiceOverride(t *testing.T) {
+	t.Setenv("AFORO_CI_BASE_URL", "")
+	t.Setenv("AFORO_CI_USAGE_INGESTOR_URL", "https://usage-pr-99.aforo.dev")
+	defer t.Setenv("AFORO_CI_USAGE_INGESTOR_URL", "")
+
+	got, err := ResolveTarget("ci")
+	if err != nil {
+		t.Fatalf("ResolveTarget(ci): %v", err)
+	}
+	u, err := got.URL(ServiceUsageIngestor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u != "https://usage-pr-99.aforo.dev" {
+		t.Errorf("usage-ingestor URL = %s, want override", u)
+	}
+	// Other services keep their staging defaults.
+	u2, err := got.URL(ServicePricing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u2 != "https://pricing.aforo.space" {
+		t.Errorf("pricing URL = %s, want staging default", u2)
+	}
+}
+
+func TestCIEnvSafeServiceName(t *testing.T) {
+	tests := []struct {
+		in   Service
+		want string
+	}{
+		{ServiceUsageIngestor, "USAGE_INGESTOR"},
+		{ServiceAIService, "AI_SERVICE"},
+		{ServicePricing, "PRICING"},
+	}
+	for _, tc := range tests {
+		if got := ciEnvSafeServiceName(tc.in); got != tc.want {
+			t.Errorf("ciEnvSafeServiceName(%s) = %s, want %s", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestTargetPath(t *testing.T) {
 	tgt := LocalTarget
 	got, err := tgt.Path(ServiceOrganization, PathInternalTenants)

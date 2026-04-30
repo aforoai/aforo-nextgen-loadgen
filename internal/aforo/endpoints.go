@@ -14,6 +14,7 @@ package aforo
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -159,16 +160,77 @@ var ProdTarget = Target{
 }
 
 // PredefinedTargets is the lookup table used by ResolveTarget.
+//
+// Note: "ci" is intentionally absent here because its URL map is computed at
+// resolve time from environment variables. ResolveTarget short-circuits on
+// the literal string "ci" before consulting this map.
 var PredefinedTargets = map[string]Target{
 	LocalTarget.Name:   LocalTarget,
 	StagingTarget.Name: StagingTarget,
 	ProdTarget.Name:    ProdTarget,
 }
 
-// ResolveTarget returns the predefined target by name. If name parses as a
-// URL, every service is pointed at that URL — useful for review environments
+// CITargetName is the literal flag value `--target ci`. Kept as a const so
+// callers (run, e2e, doctor, etc.) can compare without typing the string.
+const CITargetName = "ci"
+
+// CITarget builds the ci target by reading environment variables. URL
+// resolution order, highest priority first:
+//
+//  1. AFORO_CI_BASE_URL — single ingress, fans every service to one URL.
+//     This is the common case for per-PR review environments behind Kong
+//     or an ALB.
+//  2. AFORO_CI_<SERVICE>_URL — per-service override (e.g.
+//     AFORO_CI_USAGE_INGESTOR_URL=https://my-pr-123.aforo.dev). Lets a CI
+//     run pin a single service while leaving the rest at staging.
+//  3. The staging URL — falls through unchanged for any service the env
+//     does not override.
+//
+// The function never returns an error; if the env is empty the result
+// is functionally identical to StagingTarget but renamed "ci" so logs,
+// run manifests, and the doctor output reflect the actual flag the
+// operator supplied.
+//
+// Why this is a builder, not a package-level var: env vars must be read
+// at call time (CI workflows export them just before invoking loadgen),
+// not at process start when the var would be initialized.
+func CITarget() Target {
+	t := Target{Name: CITargetName, URLs: map[Service]string{}}
+
+	if base := strings.TrimSpace(os.Getenv("AFORO_CI_BASE_URL")); base != "" {
+		base = strings.TrimRight(base, "/")
+		for _, svc := range AllProbeServices {
+			t.URLs[svc] = base
+		}
+		return t
+	}
+
+	for svc, url := range StagingTarget.URLs {
+		envKey := "AFORO_CI_" + ciEnvSafeServiceName(svc) + "_URL"
+		if override := strings.TrimSpace(os.Getenv(envKey)); override != "" {
+			t.URLs[svc] = strings.TrimRight(override, "/")
+			continue
+		}
+		t.URLs[svc] = url
+	}
+	return t
+}
+
+// ciEnvSafeServiceName converts a Service ("usage-ingestor", "ai-service") to
+// the env-var-safe form ("USAGE_INGESTOR", "AI_SERVICE") used by the ci
+// target's per-service overrides.
+func ciEnvSafeServiceName(s Service) string {
+	return strings.ToUpper(strings.ReplaceAll(string(s), "-", "_"))
+}
+
+// ResolveTarget returns the predefined target by name, or constructs a
+// CI target from env vars when name == "ci". If name parses as a URL,
+// every service is pointed at that URL — useful for review environments
 // where all services live behind one ingress (Kong, ALB).
 func ResolveTarget(name string) (Target, error) {
+	if name == CITargetName {
+		return CITarget(), nil
+	}
 	if t, ok := PredefinedTargets[name]; ok {
 		return t, nil
 	}
@@ -189,7 +251,7 @@ func ResolveTarget(name string) (Target, error) {
 		}
 		return t, nil
 	}
-	return Target{}, fmt.Errorf("unknown target %q (try local, staging, prod, or a full URL)", name)
+	return Target{}, fmt.Errorf("unknown target %q (try local, staging, prod, ci, or a full URL)", name)
 }
 
 // Path joins a service base URL with a request path. Returns an absolute URL.

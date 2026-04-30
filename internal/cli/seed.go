@@ -62,7 +62,7 @@ Examples:
 		},
 	}
 	cmd.Flags().StringVar(&f.scenarioFlag, "scenario", "", "path to scenario YAML (built-in name also accepted, e.g. matrix-billing)")
-	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, or a full URL")
+	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, ci, or a full URL")
 	cmd.Flags().StringVar(&f.out, "out", "manifest.json", "manifest.json output path")
 	cmd.Flags().BoolVar(&f.dryRun, "dry-run", false, "print per-archetype counts and intended API calls without sending them")
 	cmd.Flags().BoolVar(&f.clean, "clean", false, "archive entities recorded in --out manifest, then exit")

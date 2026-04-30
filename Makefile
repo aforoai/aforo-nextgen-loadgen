@@ -26,7 +26,7 @@ LDFLAGS     := -s -w \
 
 GOFLAGS     := -trimpath
 
-.PHONY: all build test lint fmt vet tidy install clean release help \
+.PHONY: all build test lint fmt vet tidy install clean release release-check help \
         doctor-local doctor-staging e2e-local e2e-staging e2e-test
 
 all: build
@@ -70,9 +70,22 @@ install:
 clean:
 	rm -rf $(BIN_DIR)
 
-## release: cross-compile for darwin/linux on amd64+arm64 (Session 1: stub)
-release: build
-	@echo "release: cross-compile matrix lands in Session 9"
+## release: cross-compile for darwin/linux on amd64+arm64 via goreleaser (snapshot, no publish)
+##
+## Local dry-run only — does NOT push a tag, does NOT publish a release,
+## does NOT update the Homebrew tap. Use this to verify .goreleaser.yaml
+## and the cross-compile matrix before tagging. The real release fires
+## from .github/workflows/release.yml when a v*.*.* tag is pushed.
+release:
+	@command -v goreleaser >/dev/null 2>&1 || { \
+		echo "goreleaser not found. Install via: brew install goreleaser/tap/goreleaser"; exit 1; }
+	HOMEBREW_TAP_GITHUB_TOKEN=dry-run-placeholder goreleaser release --snapshot --clean --skip=publish
+
+## release-check: validate .goreleaser.yaml without building (fast)
+release-check:
+	@command -v goreleaser >/dev/null 2>&1 || { \
+		echo "goreleaser not found. Install via: brew install goreleaser/tap/goreleaser"; exit 1; }
+	goreleaser check
 
 ## doctor-local: run pre-flight diagnostic against the docker-compose stack on localhost
 doctor-local: build

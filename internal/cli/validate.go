@@ -62,7 +62,7 @@ Exits 0 on PASS (or no FAILs), 1 on any FAIL.
 		},
 	}
 	cmd.Flags().StringVar(&f.runOutput, "run-output", "", "directory containing run.json + scenario.yaml from `aforo-loadgen run`")
-	cmd.Flags().StringVar(&f.target, "target", "local", "target environment (local, staging, prod) or full URL")
+	cmd.Flags().StringVar(&f.target, "target", "local", "target environment (local, staging, prod, ci) or full URL")
 	cmd.Flags().StringVar(&f.manifest, "manifest", "", "path to seed manifest")
 	cmd.Flags().BoolVar(&f.includeBilling, "include-billing", false, "run Check 5 (billing match) + Check 8 (bill run concurrency); requires backend")
 	cmd.Flags().Float64Var(&f.tolerancePct, "tolerance-pct", 0.001, "billing-amount drift tolerance (0.001 = 0.1%)")

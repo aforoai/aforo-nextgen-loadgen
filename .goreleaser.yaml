@@ -1,0 +1,124 @@
+# GoReleaser configuration for aforo-loadgen.
+#
+# Triggered by .github/workflows/release.yml on tag push (v*.*.*). On a
+# successful run this config:
+#   - cross-compiles a stripped, trimpath'd binary for the four supported
+#     platforms (darwin amd64, darwin arm64, linux amd64, linux arm64),
+#   - tars each binary together with the scenarios/ directory and the
+#     standard repo metadata (LICENSE, README, CHANGELOG),
+#   - generates a SHA-256 checksums.txt over every artifact,
+#   - publishes the resulting GitHub Release using the tag's annotated
+#     message + the matching CHANGELOG.md section as the release body,
+#   - regenerates the Homebrew formula in the public
+#     aforoai/aforo-nextgen-homebrew-tap repo.
+#
+# Local dry runs:
+#     goreleaser release --snapshot --clean
+#
+# Required secrets at release time (set in the workflow):
+#   GITHUB_TOKEN              — the action's default token; publishes the
+#                               release in the loadgen repo.
+#   HOMEBREW_TAP_GITHUB_TOKEN — a PAT with `repo` scope on the public tap
+#                               repo. Allows pushing the regenerated
+#                               formula across repository boundaries —
+#                               GITHUB_TOKEN cannot do this.
+
+version: 2
+
+project_name: aforo-loadgen
+
+before:
+  # No `go mod tidy` here — that hook would normalize go.mod to whatever
+  # Go version the runner has installed (e.g. a local goreleaser invoked
+  # on Go 1.23 silently bumps go.mod, breaking subsequent CI runs pinned
+  # to Go 1.22). Dependencies are already validated by ci.yml + the
+  # release pipeline's `test` job before goreleaser fires.
+  hooks: []
+
+builds:
+  - id: aforo-loadgen
+    binary: aforo-loadgen
+    main: ./cmd/aforo-loadgen
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/aforoai/aforo-nextgen-loadgen/internal/version.Version={{.Version}}
+      - -X github.com/aforoai/aforo-nextgen-loadgen/internal/version.Commit={{.ShortCommit}}
+      - -X github.com/aforoai/aforo-nextgen-loadgen/internal/version.BuildDate={{.Date}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  # The default-format archive is *.tar.gz on every platform. Windows is not
+  # supported (the tool talks to docker-compose stacks; native PowerShell
+  # docker-in-WSL setups vary widely). The Homebrew formula assumes
+  # tar.gz on darwin/linux.
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      # Bundle the source-of-truth scenario YAMLs alongside the binary so
+      # operators have a copy on disk (the binary embeds them too via
+      # //go:embed; this is for inspection / customization).
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+      - scenarios/*.yaml
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot-{{ .ShortCommit }}"
+
+changelog:
+  # We maintain CHANGELOG.md by hand (Keep-a-Changelog format), so disable
+  # the auto-generated commit log on the release page. Release body comes
+  # from the annotated tag message + the matching CHANGELOG section.
+  disable: true
+
+release:
+  github:
+    owner: aforoai
+    name: aforo-nextgen-loadgen
+  draft: false
+  prerelease: auto
+  name_template: "v{{ .Version }}"
+
+brews:
+  - name: loadgen
+    # Cross-repo formula push. The tap is a separate (public) repo; the
+    # main loadgen repo can stay private and the formula will still
+    # update on every release.
+    repository:
+      owner: aforoai
+      name: aforo-nextgen-homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/aforoai/aforo-nextgen-loadgen"
+    description: "Load generator for Aforo NextGen — multi-tenant SaaS billing & metering platform."
+    license: "Apache-2.0"
+    commit_author:
+      name: aforo-release-bot
+      email: release-bot@aforo.dev
+    commit_msg_template: "loadgen: bump formula to {{ .Tag }}"
+    install: |
+      bin.install "aforo-loadgen"
+      pkgshare.install "scenarios"
+    test: |
+      assert_match "aforo-loadgen v#{version}", shell_output("#{bin}/aforo-loadgen version")

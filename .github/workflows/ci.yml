@@ -50,3 +50,39 @@ jobs:
         with:
           version: v1.64.5
           args: --timeout=5m
+
+  # Goreleaser dry-run — validates .goreleaser.yaml + the cross-compile
+  # matrix on every PR. Catches a malformed config or a broken ldflags
+  # pattern before tag-time, when fixing it requires re-tagging. Does not
+  # publish (that is `release: true` only on the release.yml workflow).
+  goreleaser-check:
+    name: goreleaser check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # goreleaser snapshots want full history
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: goreleaser check (config validation)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: check
+
+      - name: goreleaser snapshot (cross-compile dry run, no publish)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --snapshot --clean --skip=publish
+        env:
+          # Snapshots never push the formula, but goreleaser still
+          # template-renders {{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }} unless
+          # the brews block is skipped. We pass an empty placeholder.
+          HOMEBREW_TAP_GITHUB_TOKEN: dry-run-placeholder

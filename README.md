@@ -16,11 +16,17 @@ architecture, services, and conventions see
 
 ## Status
 
-Session 9 of 12. The command tree is in place; `version`, `scenarios`,
+Session 10 of 12. The command tree is in place; `version`, `scenarios`,
 `seed`, `run`, `replay`, `validate`, `report`, `lifecycle`, `doctor`,
 `e2e`, and `payments` are fully implemented. `server` is a stub that
-announces the session in which it ships. The scenario YAML schema
-itself is defined in [`docs/scenario-schema.md`](docs/scenario-schema.md).
+announces the session in which it ships. Session 10 ships the release
+toolchain — Homebrew tap, GoReleaser, GitHub Release tarballs, and a
+`loadgen-smoke` GitHub Actions gate that drops into Aforo microservice
+repos. See [`docs/release-process.md`](docs/release-process.md) and
+[`docs/ci-integration.md`](docs/ci-integration.md) for the operator-side
+docs, and [`CHANGELOG.md`](CHANGELOG.md) for the version history. The
+scenario YAML schema itself is defined in
+[`docs/scenario-schema.md`](docs/scenario-schema.md).
 
 | Subcommand  | Ships in      | What it does                                                  |
 | ----------- | ------------- | ------------------------------------------------------------- |
@@ -39,18 +45,50 @@ itself is defined in [`docs/scenario-schema.md`](docs/scenario-schema.md).
 
 ## Install
 
-### Homebrew (Session 9+)
+The loadgen tool ships as a single Go binary on macOS (Apple Silicon +
+Intel) and Linux (amd64 + arm64). Pick whichever install path matches
+your workflow.
+
+### Homebrew (recommended)
 
 ```bash
+brew tap aforoai/tap https://github.com/aforoai/aforo-nextgen-homebrew-tap
 brew install aforoai/tap/loadgen
 ```
 
-The tap is wired in Session 9 once the first signed release ships. Until
-then, install via `go install`.
+The tap is regenerated on every release by GoReleaser, so
+`brew upgrade aforoai/tap/loadgen` always pulls the latest tagged version.
+
+### GitHub Release tarball
+
+For environments that cannot reach Homebrew, download the per-platform
+archive directly from the [Releases page][releases]. Each archive
+contains the binary, the `scenarios/` directory, and `LICENSE` /
+`README.md` / `CHANGELOG.md`. SHA-256 checksums for every archive are
+in `checksums.txt` on the same release page.
+
+```bash
+# Replace VERSION + ARCH for your platform.
+VERSION=v0.1.0
+ARCH=Darwin_arm64    # or Darwin_x86_64, Linux_x86_64, Linux_arm64
+
+curl -L -o loadgen.tar.gz \
+  https://github.com/aforoai/aforo-nextgen-loadgen/releases/download/${VERSION}/aforo-loadgen_${ARCH}.tar.gz
+tar -xzf loadgen.tar.gz
+sudo mv aforo-loadgen /usr/local/bin/
+aforo-loadgen version
+```
+
+[releases]: https://github.com/aforoai/aforo-nextgen-loadgen/releases
 
 ### `go install`
 
+For developers with a Go toolchain who prefer to build from source. The
+loadgen repo is private; configure `GOPRIVATE` and a PAT in your
+`.netrc` first.
+
 ```bash
+export GOPRIVATE=github.com/aforoai/*
 go install github.com/aforoai/aforo-nextgen-loadgen/cmd/aforo-loadgen@latest
 ```
 
@@ -62,6 +100,24 @@ cd aforo-nextgen-loadgen
 make build
 ./bin/aforo-loadgen --help
 ```
+
+### Verifying the install
+
+```bash
+aforo-loadgen version
+# aforo-loadgen v0.1.0 (commit abcdef0, built 2026-04-30T09:35:46Z)
+```
+
+The version line records the SemVer tag, the short commit SHA, and the
+ISO-8601 build date. A binary built locally from `make build` shows
+`0.0.0-dev` until you tag a release.
+
+### CI integration in your service repo
+
+Adding the `loadgen-smoke` GitHub Actions gate to a microservice repo
+takes about ten minutes. See
+[`docs/ci-integration.md`](docs/ci-integration.md) for the drop-in
+workflow template.
 
 ## Quickstart
 

@@ -55,7 +55,7 @@ Examples:
 			return runDoctor(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), &f)
 		},
 	}
-	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, or full URL")
+	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, ci, or full URL")
 	cmd.Flags().StringVar(&f.tokenEnv, "token-env", "AFORO_ADMIN_TOKEN", "env var holding the bearer token")
 	cmd.Flags().IntVar(&f.timeoutSec, "timeout-sec", 5, "per-probe HTTP timeout in seconds")
 	cmd.Flags().StringVar(&f.jsonOut, "json", "", "if set, also write the report as JSON to this path")

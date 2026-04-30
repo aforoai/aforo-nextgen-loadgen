@@ -27,6 +27,8 @@ type e2eFlags struct {
 	target           string
 	out              string
 	tokenEnv         string
+	duration         string
+	strict           bool
 	includeBilling   bool
 	includeLifecycle bool
 	keepData         bool
@@ -71,9 +73,11 @@ Exit codes:
 		},
 	}
 	cmd.Flags().StringVar(&f.scenarioFlag, "scenario", "", "path to scenario YAML or built-in name (e.g. crawl-e2e)")
-	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, or full URL")
+	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, ci, or full URL")
 	cmd.Flags().StringVar(&f.out, "out", "", "output dir (default: e2e/<scenario>-<unix>)")
 	cmd.Flags().StringVar(&f.tokenEnv, "token-env", "AFORO_ADMIN_TOKEN", "env var holding the bearer token")
+	cmd.Flags().StringVar(&f.duration, "duration", "", "override scenario.duration for the run + lifecycle stages (e.g. 60s, 5m)")
+	cmd.Flags().BoolVar(&f.strict, "strict", false, "strict CI mode — forces full validation (--include-billing). Use on PR smoke gates.")
 	cmd.Flags().BoolVar(&f.includeBilling, "include-billing", false, "enable per-archetype billing-match validation (requires backend)")
 	cmd.Flags().BoolVar(&f.includeLifecycle, "include-lifecycle", false, "fire subscription transitions during the run")
 	cmd.Flags().BoolVar(&f.keepData, "keep-data", false, "skip the clean stage; preserve seeded entities and run artifacts")
@@ -120,6 +124,29 @@ func runE2E(ctx context.Context, out, errOut io.Writer, f *e2eFlags) error {
 		pauseResumeDelay = d
 	}
 
+	// --duration overrides the scenario's run-stage window. Same pattern
+	// as `aforo-loadgen run --duration`: useful for CI gates that want
+	// to compress an existing scenario without forking a CI-only YAML.
+	if f.duration != "" {
+		d, err := time.ParseDuration(f.duration)
+		if err != nil {
+			return fmt.Errorf("--duration: %w", err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("--duration must be > 0; got %s", f.duration)
+		}
+		doc.Scenario.Duration = scenario.Duration(d)
+	}
+
+	// --strict is the CI-gate convenience flag. It forces full validation
+	// (per-archetype billing-match) so a PR cannot accidentally bypass
+	// the merge gate by forgetting --include-billing. Pair with the
+	// existing exit-1-on-fail semantics for fail-fast CI.
+	includeBilling := f.includeBilling
+	if f.strict {
+		includeBilling = true
+	}
+
 	outDir := f.out
 	if outDir == "" {
 		outDir = filepath.Join("e2e", fmt.Sprintf("%s-%d", doc.Scenario.Name, time.Now().Unix()))
@@ -130,7 +157,7 @@ func runE2E(ctx context.Context, out, errOut io.Writer, f *e2eFlags) error {
 		Target:                    target,
 		OutputDir:                 outDir,
 		BearerToken:               token,
-		IncludeBilling:            f.includeBilling,
+		IncludeBilling:            includeBilling,
 		IncludeLifecycle:          f.includeLifecycle,
 		KeepData:                  f.keepData,
 		SkipDoctor:                f.skipDoctor,

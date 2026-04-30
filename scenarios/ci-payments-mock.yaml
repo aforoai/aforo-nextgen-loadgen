@@ -1,0 +1,126 @@
+# ci-payments-mock — payments + tax + ERP gate (deterministic / mock)
+#
+# Purpose: prove the billing-service payments pipeline still composes
+# end-to-end with a tax engine and at least one ERP target. The Stripe
+# driver runs in `test` mode with success_pct=1.0 so no decline /
+# dunning paths fire — that is the responsibility of the longer
+# payments-stripe-test scenario, not a 90-second CI gate. The tax
+# engine is `mock` (the adapter resolves a flat 10% locally — no
+# external Avalara / Vertex call). The ERP block uses the Custom
+# Webhook adapter (HMAC-SHA256, in-process, no third-party credentials).
+#
+# Used as the loadgen-smoke gate on aforo-nextgen-billing-service pull
+# requests. A failing run blocks the merge — most likely cause is a
+# regression in the bill-run pipeline, the tax cache, or the ERP sync
+# adapter contract.
+#
+# Coverage: 1 tenant, 2 archetypes (PREPAID + POSTPAID, both PER_UNIT)
+# so wallet + invoice paths both fire. REST direct only. 50 TPS, 90s.
+
+schema_version: 1
+name: ci-payments-mock
+description: 90-second payments+tax+ERP smoke. PREPAID + POSTPAID, all mock providers.
+target_tps: 50
+duration: 90s
+seed: 4
+
+tenants:
+  count: 1
+  distribution: uniform
+  archetypes:
+    - name: ci-payments-postpaid
+      weight: 0.5
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+    - name: ci-payments-prepaid
+      weight: 0.5
+      pricing_model: PER_UNIT
+      billing_mode: PREPAID
+      product_types: [API]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+        wallet_initial_balance_usd: 100.00
+
+time_pattern: constant
+
+product_mix:
+  API: 1.0
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0
+
+# Stripe in test mode; deterministic 100% success so the assertion math
+# is exact — no dunning, no decline retries, no escalation noise.
+payments:
+  enabled: true
+  stripe_mode: test
+  success_pct: 1.0
+  decline_pct: 0.0
+  insufficient_funds_pct: 0.0
+  dunning_max_attempts: 1
+  dunning_retry_interval_seconds: 30
+  idempotency_prefix: aforo-loadgen-ci-pay
+
+# Mock tax engine — flat 10% in US-CA. Deterministic so revenue drift
+# stays inside invoice_revenue_drift_pct_max.
+tax:
+  engine: mock
+  jurisdictions:
+    US-CA: 0.10
+  jurisdiction_by_currency:
+    USD: US-CA
+  default_jurisdiction: US-CA
+  tolerance_usd: 0.01
+
+# ERP — Custom Webhook adapter (HMAC-SHA256, no external creds).
+# multi_erp_enabled stays false so the single-ERP invariant is asserted.
+erp:
+  enabled: true
+  providers_per_tenant_mix:
+    custom_webhook: 1.0
+  sync_sla_seconds: 60
+  multi_erp_enabled: false
+  max_retries: 2
+  verify_external_ids: true
+
+credit_notes:
+  enabled: false
+
+wallet:
+  hold_expiry_audit: true
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.005
+  p99_latency_ms_max: 1000
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: ci
+  notes: |
+    Tied to billing-service PR pipeline. All providers are mock /
+    deterministic. CI runs MUST NOT need STRIPE_TEST_SECRET_KEY,
+    AVALARA_KEY, or any ERP credential. Set success_pct=1.0 so
+    decline + dunning paths never fire (the longer payments-stripe-test
+    scenario covers those).

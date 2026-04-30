@@ -1,0 +1,96 @@
+# ci-stale-keys — focused stale-key revocation cascade test
+#
+# Purpose: prove that BillingHierarchyEnricher's Redis cache invalidates
+# correctly when an API key is revoked or its parent subscription is
+# cancelled / expired. A bug in the enricher (e.g. cache key not including
+# tenantId, or TTL set without invalidate-on-revoke) lets revoked keys
+# continue authenticating events for up to ten minutes — silently
+# accepting events that should have been rejected.
+#
+# Test mechanic:
+#   1. Seed an archetype with a CANCELLED + EXPIRED subscription mix.
+#      Sessions 7-8 of loadgen wired stale-key injection into the
+#      generator: events for cancelled/expired subscriptions are signed
+#      with the revoked key associated with that subscription, so they
+#      *will* hit the BillingHierarchyEnricher with a stale cache.
+#   2. The validate oracle's stale_key_zero_false_positives assertion
+#      confirms every such event was rejected by usage-ingestor with
+#      401/403. Any event that returned 2xx is a positive — the cache
+#      did not invalidate. The assertion fails, the PR fails.
+#
+# Used as a focused regression gate. Runnable on its own
+# (`aforo-loadgen e2e --scenario ci-stale-keys ...`) or composed into
+# any existing CI pipeline (e.g. usage-ingestor-service if a future
+# PR touches BillingHierarchyEnricher).
+#
+# Coverage: 1 tenant, 1 archetype with 50/30/20 ACTIVE/CANCELLED/EXPIRED
+# split, REST direct only. 50 TPS, 60s. negative_paths.stale_keys_pct
+# is *deliberately high* so a broken cache leaks within the 60s window.
+
+schema_version: 1
+name: ci-stale-keys
+description: 60-second stale-key cascade. Asserts BillingHierarchyEnricher invalidates on revoke.
+target_tps: 50
+duration: 60s
+seed: 5
+
+tenants:
+  count: 1
+  distribution: uniform
+  archetypes:
+    - name: ci-stale-mix
+      weight: 1.0
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 10
+      currency_mix:
+        USD: 1.0
+      # ACTIVE is the majority so positive-path traffic dominates;
+      # CANCELLED + EXPIRED supplies the stale-key population for the
+      # generator's stale_keys injection.
+      subscription_state_mix:
+        ACTIVE: 0.50
+        CANCELLED: 0.30
+        EXPIRED: 0.20
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+time_pattern: constant
+
+product_mix:
+  API: 1.0
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0
+
+# Deliberately high stale-key injection rate — 5% of events are signed
+# with a revoked key. Within 60s at 50 TPS that is ~150 stale-key
+# attempts. A single 2xx out of those 150 trips the assertion.
+negative_paths:
+  late_events_pct: 0.0
+  malformed_pct: 0.0
+  stale_keys_pct: 0.05
+
+assertions:
+  events_lost_max: 0
+  # Revenue drift not the primary signal here; loosen so a flaky network
+  # blip does not mask the stale-key signal. The merge gate is
+  # stale_key_zero_false_positives.
+  invoice_revenue_drift_pct_max: 0.020
+  p99_latency_ms_max: 800
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: ci
+  notes: |
+    Focused regression gate. To verify the test: temporarily comment out
+    the `cache.invalidate(key)` call in BillingHierarchyEnricher's revoke
+    path and re-run. The assertion must turn red within one minute.

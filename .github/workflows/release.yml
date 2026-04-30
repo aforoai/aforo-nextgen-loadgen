@@ -1,0 +1,94 @@
+name: release
+
+# Tag-triggered release pipeline. Tag must be SemVer with a leading `v`
+# (e.g. `v0.1.0`). Tagging schedules:
+#   1. tests run against go 1.22 + race detector (same suite as ci.yml)
+#   2. golangci-lint (matches ci.yml gates)
+#   3. goreleaser publishes the GitHub Release + binaries + checksums
+#   4. goreleaser pushes an updated Formula/loadgen.rb to the public tap
+#
+# A failed test in step 1 aborts the release without publishing anything.
+# That is intentional — `git tag -d v0.X.Y && git push origin :v0.X.Y` is
+# trivial; pulling a bad release back from Homebrew is not.
+#
+# Required secrets:
+#   HOMEBREW_TAP_GITHUB_TOKEN — PAT with `repo` scope on
+#     aforoai/aforo-nextgen-homebrew-tap. Used only by goreleaser to push
+#     the regenerated formula. The default GITHUB_TOKEN cannot push to
+#     a different repo.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write   # goreleaser publishes the GitHub Release
+
+jobs:
+  test:
+    name: build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # goreleaser needs the full history for changelog + version templating
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: go mod download
+        run: go mod download
+
+      - name: build
+        run: make build
+
+      - name: smoke check binary
+        run: |
+          ./bin/aforo-loadgen --help
+          ./bin/aforo-loadgen version
+
+      - name: test (race)
+        run: make test
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.64.5
+          args: --timeout=5m
+
+  goreleaser:
+    name: goreleaser
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: run goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

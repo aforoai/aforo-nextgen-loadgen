@@ -1,0 +1,141 @@
+# ci-billing — pricing × billing matrix subset
+#
+# Purpose: prove that every supported pricing model still computes correct
+# charges under POSTPAID. Six archetypes, one per pricing model. Compresses
+# matrix-billing's 18 base archetypes down to one cell per pricing model
+# (POSTPAID only) so the run finishes inside the < 5 min CI budget.
+#
+# Used as the loadgen-smoke gate on aforo-billing-platform pull requests.
+# A failing run blocks the merge — most likely cause is a regression in
+# the v3 RateStage pipeline or in PricingCalculatorService.
+#
+# Coverage: 6 tenants (one per archetype), 6 archetypes covering PER_UNIT,
+# FLAT_RATE, PERCENTAGE, INCLUDED_QUOTA (per-unit overage), GRADUATED,
+# VOLUME_TIERED — all under POSTPAID. REST direct only. 100 TPS, 90s.
+# Per-archetype billing match assertion is the merge gate.
+
+schema_version: 1
+name: ci-billing
+description: 90-second billing-math smoke test. One archetype per pricing model under POSTPAID.
+target_tps: 100
+duration: 90s
+seed: 3
+
+tenants:
+  count: 6
+  distribution: uniform
+  archetypes:
+    - name: ci-billing-perunit
+      weight: 0.167
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+    - name: ci-billing-flat
+      weight: 0.167
+      pricing_model: FLAT_RATE
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        flat_fee_usd: 99.00
+
+    - name: ci-billing-percentage
+      weight: 0.167
+      pricing_model: PERCENTAGE
+      billing_mode: POSTPAID
+      product_types: [AGENTIC_API]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        percentage_rate: 0.025
+        min_fee_usd: 5.00
+
+    - name: ci-billing-quota
+      weight: 0.167
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: POSTPAID
+      product_types: [MCP_SERVER]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        included_free_units: 5000
+        per_unit_rate_usd: 0.002
+
+    - name: ci-billing-graduated
+      weight: 0.166
+      pricing_model: GRADUATED
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        graduated_tiers:
+          - up_to_units: 1000
+            unit_price_usd: 0.010
+          - up_to_units: 0
+            unit_price_usd: 0.005
+
+    - name: ci-billing-volume
+      weight: 0.166
+      pricing_model: VOLUME_TIERED
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        volume_tiers:
+          - up_to_units: 10000
+            unit_price_usd: 0.005
+          - up_to_units: 0
+            unit_price_usd: 0.002
+
+time_pattern: constant
+
+product_mix:
+  API: 0.6
+  AGENTIC_API: 0.2
+  MCP_SERVER: 0.2
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.005
+  p99_latency_ms_max: 800
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: ci
+  notes: Tied to billing-platform PR pipeline. A red run here means a pricing-model regression.

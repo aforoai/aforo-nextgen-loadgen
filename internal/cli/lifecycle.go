@@ -76,7 +76,7 @@ process to manage state transitions.
 		},
 	}
 	cmd.Flags().StringVar(&f.scenarioFlag, "scenario", "", "path to scenario YAML or built-in name (lifecycle-stress)")
-	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, or full URL")
+	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, ci, or full URL")
 	cmd.Flags().StringVar(&f.manifest, "manifest", "manifest.json", "path to manifest from `aforo-loadgen seed`")
 	cmd.Flags().StringVar(&f.out, "out", "", "run output directory (default: runs/<scenario>-<unix>)")
 	cmd.Flags().StringVar(&f.duration, "duration", "", "override scenario.duration (e.g. 30s, 5m)")
