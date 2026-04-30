@@ -4,7 +4,6 @@ import (
 	"context"
 	"math"
 
-	"github.com/aforoai/aforo-nextgen-loadgen/internal/scenario"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/tax"
 )
 
@@ -22,9 +21,7 @@ import (
 func (v *Validator) runTaxMath(ctx context.Context) *CheckResult {
 	res := NewCheckResult(CheckTaxMath)
 	t := v.in.Scenario.Tax
-	if t.Engine == "" || t.Engine == scenario.TaxMock {
-		// always-runnable path
-	}
+	// Engine "" or TaxMock is the always-runnable path; the build below handles it.
 	if len(t.Jurisdictions) == 0 && len(t.JurisdictionByCurrency) == 0 && t.DefaultJurisdiction == "" {
 		return res.Skip("no jurisdictions configured in scenario.tax")
 	}

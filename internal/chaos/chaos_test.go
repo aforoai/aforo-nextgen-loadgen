@@ -187,9 +187,6 @@ func TestSchedulerCloseRecoversActiveFaults(t *testing.T) {
 	s.Start(clk.Now())
 	clk.Advance(2 * time.Second) // past offset, but well within duration
 	s.Tick(context.Background())
-	if !sc.wasRecovered() == false {
-		// flipped to "wasRecovered must be false"
-	}
 	if sc.wasRecovered() {
 		t.Fatal("recovered prematurely")
 	}

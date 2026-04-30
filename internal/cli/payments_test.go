@@ -10,12 +10,7 @@ func TestAssignProviders_RespectsMixDistribution(t *testing.T) {
 		"quickbooks": 0.6,
 		"xero":       0.4,
 	}
-	tenants := []string{}
-	for i := 0; i < 100; i++ {
-		tenants = append(tenants, "t-")
-	}
-	// Pad with stable distinct ids.
-	tenants = []string{}
+	tenants := make([]string, 0, 100)
 	for i := 0; i < 100; i++ {
 		tenants = append(tenants, fmtID(i))
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -100,10 +101,10 @@ func (h *RunnerWorkerHandler) Accept(ctx context.Context, a *Assignment) Accepta
 
 	// Skew check — informational. Coordinator passes its Now; we
 	// compare to ours. >5min is a config bug; we accept anyway and
-	// surface the skew so the operator can see it in the run.json.
+	// log the skew so the operator can see it in worker logs.
 	skew := time.Since(a.Now)
 	if skew < -5*time.Minute || skew > 5*time.Minute {
-		// Continue, but include the skew in the response.
+		log.Printf("coord: worker %s clock skew vs coordinator: %v (config bug; accepting anyway)", h.WorkerID, skew)
 	}
 
 	// Per-worker TPS clone of the scenario.

@@ -62,10 +62,8 @@ func NewDriver(cfg DriverConfig) (*Driver, error) {
 	if cfg.Transitions == nil {
 		return nil, errors.New("credit_notes: transition log required")
 	}
-	if !cfg.Mix.Enabled {
-		// Driver still constructs (caller may toggle at runtime); becomes a
-		// no-op if Process is called.
-	}
+	// Driver still constructs even when cfg.Mix.Enabled is false (caller
+	// may toggle at runtime); Process becomes a no-op in that case.
 	if cfg.Mix.PartialAmountPct <= 0 {
 		cfg.Mix.PartialAmountPct = 0.5
 	}

@@ -249,6 +249,4 @@ func tlsListen(addr string, tlsCfg *tls.Config) (net.Listener, error) {
 
 // netListen is a thin indirection so tests can substitute. Production
 // uses net.Listen("tcp", addr).
-var netListen = func(addr string) (net.Listener, error) {
-	return defaultListenTCP(addr)
-}
+var netListen = defaultListenTCP

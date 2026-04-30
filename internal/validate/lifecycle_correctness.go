@@ -55,7 +55,7 @@ func (v *Validator) runLifecycleCorrectness(ctx context.Context) *CheckResult {
 	overallPass := true
 
 	canQueryLive := v.in.Backend != nil && v.in.Backend.Capabilities().Subscriptions
-	stableIdViolations := 0
+	stableIDViolations := 0
 	dunningEscalations := 0
 	totalAttempted := 0
 	totalOK := 0
@@ -88,7 +88,7 @@ func (v *Validator) runLifecycleCorrectness(ctx context.Context) *CheckResult {
 		if t.Transition == lifecycle.TransitionMigrate &&
 			t.TransitionStatus == lifecycle.StatusFail &&
 			strings.Contains(t.Error, "stable-id violation") {
-			stableIdViolations++
+			stableIDViolations++
 			overallPass = false
 		}
 		if t.Transition == lifecycle.TransitionDunningEscalate && t.TransitionStatus == lifecycle.StatusOK {
@@ -164,7 +164,7 @@ func (v *Validator) runLifecycleCorrectness(ctx context.Context) *CheckResult {
 		Set("transitions_total", totalAttempted).
 		Set("transitions_ok", totalOK).
 		Set("by_kind", out).
-		Set("stable_id_violations", stableIdViolations).
+		Set("stable_id_violations", stableIDViolations).
 		Set("dunning_escalations", dunningEscalations).
 		Set("live_state_checked", canQueryLive)
 
