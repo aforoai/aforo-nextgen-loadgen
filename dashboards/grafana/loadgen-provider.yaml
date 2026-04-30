@@ -1,0 +1,26 @@
+# Grafana dashboard provider for Aforo Loadgen.
+#
+# Drop into the Grafana provisioning directory at startup:
+#   /etc/grafana/provisioning/dashboards/loadgen-provider.yaml
+#
+# Grafana scans the path on the configured interval and auto-imports
+# any dashboard JSON found there. The provider re-imports on every
+# tick, so editing dashboards/loadgen-run.json and committing is
+# sufficient — operators never need to manually re-upload.
+apiVersion: 1
+
+providers:
+  - name: 'aforo-loadgen'
+    orgId: 1
+    folder: 'Aforo / Loadgen'
+    folderUid: 'aforo-loadgen'
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      # Path inside the Grafana container — the docker-compose mount
+      # below maps the repo's dashboards/ directory here.
+      path: /var/lib/grafana/dashboards/aforo-loadgen
+      foldersFromFilesStructure: false

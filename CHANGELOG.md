@@ -11,6 +11,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Session 12 (operator layer)
+
+- **`aforo-loadgen server`** subcommand: real implementation replacing
+  the Session 1 stub. HTTP control plane on `--listen :8095` (default)
+  with six endpoints under `/api/v1`:
+    - `GET  /health` — liveness, no auth
+    - `GET  /scenarios` — built-in catalog
+    - `GET  /runs` — paginated list (status, scenario, page, per_page filters)
+    - `POST /runs` — async trigger; returns 202 with `run_id`
+    - `GET  /runs/{id}` — detail (assertions, per-archetype + per-negative-path)
+    - `GET  /runs/{id}/manifest` — streams run.json
+    - `POST /runs/{id}/cancel` — graceful SIGINT to worker
+- **Auth**: Supabase JWT validated by round-trip to
+  `/auth/v1/user` (handles HS256 + RS256 transparently). Internal
+  role resolved from `internal_roles` PostgREST table — same source
+  Control Tower uses. `--allow-anonymous` flag for dev (refuses to
+  ship in prod by default — explicit static role required).
+- **RBAC**: read endpoints accept any internal role; trigger and
+  cancel require `platform_admin`.
+- **Worker spawn**: server re-execs the same binary as
+  `aforo-loadgen run` so scenario catalog and run engine versions
+  are bit-identical with the CLI. Output written to a per-run
+  subdir under `--work-dir`; SIGINT-based cancellation drains
+  in-flight events and writes a partial manifest.
+- **Storage**: pluggable `ManifestStore` interface with two impls:
+  `LocalStore` (default; manifest_s3_path = `file:///abs/path`) and
+  `S3Store` (shells out to `aws s3 cp` when `--s3-bucket` is set;
+  manifest_s3_path = `s3://bucket/key`). Path-traversal hardening
+  rejects locators outside the configured root.
+- **Index**: pluggable `RunsIndex` with `MemoryIndex` (default; lost
+  on restart) and `SupabaseIndex` (PostgREST against `loadgen_runs`
+  via service-role key). 24-byte test row written immediately on
+  trigger so the polling UI sees `queued` before the worker starts.
+- **High-TPS guardrail**: scenarios with `target_tps > 1000` reject
+  trigger requests without `acknowledge_high_tps=true` (matches the
+  CLI's `--i-know-what-im-doing` semantic).
+- **Grafana deep-link**: `--grafana-base-url` populates each run's
+  `grafana_url` field with `?var-runId=<id>` so Control Tower's
+  detail page renders a one-click "View live metrics" button.
+- **Manifest path is server-side only**: `--manifest-path` flag
+  configures it at deploy time; the HTTP API does not accept a
+  per-request override (defense against arbitrary file reads even
+  by platform_admin).
+- **`internal/server/`** package: 4 files (~900 LOC) — auth,
+  index (Memory + Supabase), storage (Local + S3), runner (subprocess
+  spawn + ProcHandle), server (handlers + lifecycle).
+- **23 unit + integration tests** across `internal/server/`:
+  storage path-traversal, run id validation, content-range parsing,
+  pagination, all 5 endpoint contracts, RBAC matrix.
+- **Grafana dashboard** at `dashboards/loadgen-run.json` — 11 panels
+  using only existing CLI metrics: TPS sent vs failed, latency
+  p50/p95/p99, per-archetype TPS, per-product-type TPS, error rate
+  by class, negative-path injections, active tenants, backpressure,
+  circuit breaker state, per-ingestion-path topk-10. Provisioning
+  YAML at `dashboards/grafana/loadgen-provider.yaml`.
+- **Local-dev `docker-compose.yaml`**: spins up server + Prometheus +
+  Grafana in one command; mounts the dashboards directory so edits
+  hot-reload via Grafana's 30s file provisioning interval.
+- **Docs**: `docs/dashboard.md` (operator surface overview),
+  `docs/grafana-setup.md` (Prometheus + Grafana wiring playbook),
+  `docs/smoke-test-manual.md` (10-step end-to-end acceptance test).
+
 ### Added — Session 11 (run tier)
 
 - **Multi-machine distributed mode**: `aforo-loadgen coordinator` and

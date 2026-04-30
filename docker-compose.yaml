@@ -1,0 +1,78 @@
+# Local-dev compose for the aforo-loadgen control-plane server.
+#
+# This is the operator-layer addition from Session 12 — the CLI is
+# still the primary way to run scenarios; the server is what backs
+# Control Tower's /admin/loadgen pages.
+#
+# Usage:
+#   docker compose -f docker-compose.yaml up loadgen-server
+#
+# The CLI itself does not require Docker — `make build` produces a
+# single static binary. This compose file exists so an operator can
+# stand up the server + Prometheus + Grafana stack with one command
+# while developing the Control Tower UI changes.
+#
+# IMPORTANT: --allow-anonymous is set ONLY in this dev profile. Real
+# deployments must remove it and provide --supabase-url + the two
+# Supabase keys via secrets.
+
+services:
+  loadgen-server:
+    image: golang:1.22-alpine
+    working_dir: /workspace
+    volumes:
+      - .:/workspace:ro
+      - loadgen-server-state:/var/lib/aforo-loadgen
+    ports:
+      - "8095:8095"
+    environment:
+      # Substitute when wiring the real Supabase project; leave empty
+      # to use the in-memory index for local-dev only.
+      LOADGEN_SUPABASE_URL: ""
+      LOADGEN_SUPABASE_ANON_KEY: ""
+      LOADGEN_SUPABASE_SERVICE_ROLE_KEY: ""
+    command: |
+      sh -c "
+        go build -o /usr/local/bin/aforo-loadgen ./cmd/aforo-loadgen &&
+        aforo-loadgen server \
+          --listen :8095 \
+          --work-dir /var/lib/aforo-loadgen/server \
+          --manifests-dir /var/lib/aforo-loadgen/manifests \
+          --grafana-base-url http://localhost:3000 \
+          --allow-anonymous \
+          --static-role platform_admin
+      "
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8095/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./scripts/dev/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+    volumes:
+      - ./dashboards:/var/lib/grafana/dashboards/aforo-loadgen:ro
+      - ./dashboards/grafana/loadgen-provider.yaml:/etc/grafana/provisioning/dashboards/loadgen-provider.yaml:ro
+      - ./scripts/dev/grafana-datasource.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+volumes:
+  loadgen-server-state:

@@ -60,6 +60,7 @@ func TestEverySubcommandExitsZero(t *testing.T) {
 		"doctor":   {"doctor", "--help"},
 		"e2e":      {"e2e", "--help"},
 		"payments": {"payments", "--help"}, // Session 9: real entry point
+		"server":   {"server", "--help"},   // Session 12: real entry point
 	}
 	for _, name := range expectedSubcommands {
 		t.Run(name, func(t *testing.T) {
@@ -95,9 +96,13 @@ func TestStubsAdvertiseSession(t *testing.T) {
 	// Implemented in Session 6: lifecycle.
 	// Implemented in Session 7: doctor, e2e.
 	// Implemented in Session 9: payments.
-	stubs := []string{
-		"server",
-	}
+	// Implemented in Session 12: server.
+	//
+	// All subcommands have shipped their real implementation now.
+	// Keeping the slice empty is intentional — the test still runs
+	// (zero iterations) so a future session adding a new stub gets
+	// a one-line check by appending here.
+	stubs := []string{}
 	for _, name := range stubs {
 		t.Run(name, func(t *testing.T) {
 			cmd := NewRootCommand()

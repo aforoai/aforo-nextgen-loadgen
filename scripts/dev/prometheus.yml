@@ -1,0 +1,14 @@
+# Local-dev Prometheus config — scrapes aforo-loadgen runs spawned by
+# the server on the same docker network. The server-spawned workers
+# bind --metrics-addr=:9095 by default; we point Prometheus at that
+# port on the loadgen-server container.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'aforo-loadgen-runs'
+    static_configs:
+      - targets: ['loadgen-server:9095']
+        labels:
+          env: 'local-dev'

@@ -1,0 +1,261 @@
+{
+  "uid": "loadgen-run",
+  "title": "Aforo Loadgen — Run",
+  "tags": ["aforo", "loadgen"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "editable": true,
+  "graphTooltip": 1,
+  "fiscalYearStartMonth": 0,
+  "liveNow": false,
+  "weekStart": "",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" },
+        "hide": 0,
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false
+      },
+      {
+        "name": "runId",
+        "label": "Run ID",
+        "type": "textbox",
+        "query": "",
+        "current": { "text": "", "value": "" },
+        "options": [],
+        "skipUrlSync": false,
+        "description": "Set via the deep-link from Control Tower's run detail page. Free text — used only for the title strip."
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Backpressure",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "enable": true,
+        "expr": "max_over_time(backpressure_active[1m]) >= 1",
+        "iconColor": "orange",
+        "step": "30s",
+        "tagKeys": "instance",
+        "titleFormat": "Backpressure active",
+        "textFormat": "Generator was throttled"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "type": "text",
+      "id": 1,
+      "title": "",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 3 },
+      "options": {
+        "mode": "markdown",
+        "content": "# Aforo Loadgen — Run\n\n**Run ID:** `${runId}`\n\nLive metrics from `aforo-loadgen run` Prometheus exporter. Time range is operator-controlled; CLI metrics are not tagged by run id, so panels reflect every active run scraping the same Prometheus instance — set the time range to the run's start/end window for an isolated view.",
+        "transparent": true
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 2,
+      "title": "TPS sent vs failed",
+      "description": "Per-second event rate split by outcome — the gap between sent and failed is the platform's effective ingestion rate.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(events_sent_total[1m]))",
+          "legendFormat": "sent",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(events_failed_total[1m]))",
+          "legendFormat": "failed",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "lineInterpolation": "linear", "fillOpacity": 12 }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 3,
+      "title": "Ingest latency (p50 / p95 / p99)",
+      "description": "Histogram quantiles over a 1-minute rolling window.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 12, "y": 3, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingest_latency_seconds_bucket[1m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ingest_latency_seconds_bucket[1m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(ingest_latency_seconds_bucket[1m])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineInterpolation": "linear", "fillOpacity": 0 }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 4,
+      "title": "Per-archetype TPS",
+      "description": "Sent rate split by tenant archetype — useful for confirming the configured weight distribution is honored.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 0, "y": 11, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (archetype) (rate(events_sent_total[1m]))",
+          "legendFormat": "{{archetype}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 5,
+      "title": "Per-product-type TPS",
+      "description": "Sent rate split by product type (api, ai_agent, mcp_server, agentic_api).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 12, "y": 11, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (product_type) (rate(events_sent_total[1m]))",
+          "legendFormat": "{{product_type}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 6,
+      "title": "Error rate by class",
+      "description": "events_failed_total split by error_class — client (4xx), server (5xx), transport, circuit_open, expected.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 0, "y": 19, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (error_class) (rate(events_failed_total[1m]))",
+          "legendFormat": "{{error_class}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "timeseries",
+      "id": 7,
+      "title": "Negative-path injections",
+      "description": "Cumulative count by negative_path label (late, future, malformed, wrong_auth, stale_key, oversize).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 12, "y": 19, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (negative_path) (rate(events_negative_path_total[1m]))",
+          "legendFormat": "{{negative_path}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    },
+    {
+      "type": "stat",
+      "id": 8,
+      "title": "Active tenants",
+      "description": "Distinct tenants the generator is currently driving.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 0, "y": 27, "w": 6, "h": 5 },
+      "targets": [
+        { "expr": "tenants_active", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "type": "stat",
+      "id": 9,
+      "title": "Backpressure",
+      "description": "1 when the generator is throttled by the run engine; 0 otherwise.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 6, "y": 27, "w": 6, "h": 5 },
+      "targets": [
+        { "expr": "max(backpressure_active)", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.5 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "id": 10,
+      "title": "Circuit breaker state by driver",
+      "description": "0 = closed (healthy), 1 = half_open, 2 = open (driver is failing fast).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 12, "y": 27, "w": 12, "h": 5 },
+      "targets": [
+        {
+          "expr": "circuit_breaker_state",
+          "legendFormat": "{{driver}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "max": 2 } }
+    },
+    {
+      "type": "timeseries",
+      "id": 11,
+      "title": "Per-ingestion-path TPS (top 10)",
+      "description": "Sent rate split by ingestion_path — gateway, sdk, rest, webhook variants.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "x": 0, "y": 32, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (ingestion_path) (rate(events_sent_total[1m])))",
+          "legendFormat": "{{ingestion_path}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" } }
+    }
+  ]
+}
