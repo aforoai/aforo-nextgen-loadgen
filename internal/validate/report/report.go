@@ -53,7 +53,29 @@ type View struct {
 	StalePositives int64
 	HasStaleProbe  bool
 	Checks         []*validate.CheckResult
+	LifecycleRows  []LifecycleRow
+	StateMachineRows []StateMachineRow
 	CSS            template.CSS
+}
+
+// LifecycleRow is one (transition kind × outcome) row in the HTML report.
+type LifecycleRow struct {
+	Kind          string
+	Total         int
+	OK            int
+	Failures      int
+	StateMatch    int
+	StateMismatch int
+}
+
+// StateMachineRow is one violation row from Check 10.
+type StateMachineRow struct {
+	Index          int
+	SubscriptionID string
+	Transition     string
+	FromState      string
+	ExpectedTo     string
+	Reason         string
 }
 
 // KV is a label / value pair used in summary tables.
@@ -204,6 +226,12 @@ func buildView(run *runner.RunResult, valReport *validate.ValidationReport, css 
 			if c.Name == validate.CheckInvariants {
 				v.Violations = violationRowsFromCheck(c)
 			}
+			if c.Name == validate.CheckLifecycleCorrectness {
+				v.LifecycleRows = lifecycleRowsFromCheck(c)
+			}
+			if c.Name == validate.CheckStateMachineInvariants {
+				v.StateMachineRows = stateMachineRowsFromCheck(c)
+			}
 		}
 	}
 
@@ -294,6 +322,85 @@ func billingRowsFromCheck(c *validate.CheckResult) []BillingRow {
 		out = append(out, row)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Archetype < out[j].Archetype })
+	return out
+}
+
+func lifecycleRowsFromCheck(c *validate.CheckResult) []LifecycleRow {
+	out := []LifecycleRow{}
+	raw, ok := c.Details["by_kind"]
+	if !ok {
+		return out
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return out
+	}
+	var arr []map[string]any
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return out
+	}
+	for _, m := range arr {
+		row := LifecycleRow{}
+		if v, ok := m["kind"].(string); ok {
+			row.Kind = v
+		}
+		if v, ok := m["total"].(float64); ok {
+			row.Total = int(v)
+		}
+		if v, ok := m["ok"].(float64); ok {
+			row.OK = int(v)
+		}
+		if v, ok := m["failures"].(float64); ok {
+			row.Failures = int(v)
+		}
+		if v, ok := m["state_match"].(float64); ok {
+			row.StateMatch = int(v)
+		}
+		if v, ok := m["state_mismatch"].(float64); ok {
+			row.StateMismatch = int(v)
+		}
+		out = append(out, row)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Kind < out[j].Kind })
+	return out
+}
+
+func stateMachineRowsFromCheck(c *validate.CheckResult) []StateMachineRow {
+	out := []StateMachineRow{}
+	raw, ok := c.Details["violations"]
+	if !ok {
+		return out
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return out
+	}
+	var arr []map[string]any
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return out
+	}
+	for _, m := range arr {
+		row := StateMachineRow{}
+		if v, ok := m["index"].(float64); ok {
+			row.Index = int(v)
+		}
+		if v, ok := m["subscription_id"].(string); ok {
+			row.SubscriptionID = v
+		}
+		if v, ok := m["transition"].(string); ok {
+			row.Transition = v
+		}
+		if v, ok := m["from_state"].(string); ok {
+			row.FromState = v
+		}
+		if v, ok := m["expected_to"].(string); ok {
+			row.ExpectedTo = v
+		}
+		if v, ok := m["reason"].(string); ok {
+			row.Reason = v
+		}
+		out = append(out, row)
+	}
 	return out
 }
 

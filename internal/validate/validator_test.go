@@ -85,6 +85,12 @@ func (f *fakeBackend) WaitForBillRun(_ context.Context, _ string, _ string, _ ti
 func (f *fakeBackend) GetWalletBalance(_ context.Context, _, _, _ string) (float64, error) {
 	return f.walletBalance, f.walletBalanceErr
 }
+func (f *fakeBackend) GetSubscriptionState(_ context.Context, _, _ string) (SubscriptionSnapshot, error) {
+	return SubscriptionSnapshot{}, ErrUnsupported{Op: "subscription_state"}
+}
+func (f *fakeBackend) MigrateSubscription(_ context.Context, _, _, _ string) (MigrateOutcome, error) {
+	return MigrateOutcome{}, ErrUnsupported{Op: "migrate_subscription"}
+}
 
 // minimalScenario builds a valid scenario object for tests without YAML
 // round-trip overhead.
@@ -421,6 +427,12 @@ func (s *concurrencyShim) WaitForBillRun(_ context.Context, _, _ string, _ time.
 }
 func (s *concurrencyShim) GetWalletBalance(_ context.Context, _, _, _ string) (float64, error) {
 	return 0, ErrUnsupported{Op: "wallet"}
+}
+func (s *concurrencyShim) GetSubscriptionState(_ context.Context, _, _ string) (SubscriptionSnapshot, error) {
+	return SubscriptionSnapshot{}, ErrUnsupported{Op: "subscription_state"}
+}
+func (s *concurrencyShim) MigrateSubscription(_ context.Context, _, _, _ string) (MigrateOutcome, error) {
+	return MigrateOutcome{}, ErrUnsupported{Op: "migrate_subscription"}
 }
 
 func TestReport_FinalizeSetsOverall(t *testing.T) {

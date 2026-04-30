@@ -194,15 +194,28 @@ const (
 	PathSubscriptionCancel = "/api/v1/subscriptions/%s/cancel"
 	PathSubscriptionPause  = "/api/v1/subscriptions/%s/pause"
 	PathSubscriptionExpire = "/api/v1/internal/subscriptions/%s/expire" // internal-only test hook
-	PathAPIKeys            = "/api/v1/api-keys"
-	PathAPIKeyByID         = "/api/v1/api-keys/%s"
-	PathAPIKeyRevoke       = "/api/v1/api-keys/%s/revoke"
-	PathDiscounts          = "/api/v1/discounts"
+	// Session 6 — lifecycle transitions (pricing-service v3 endpoints).
+	PathSubscriptionUpgrade           = "/api/v1/subscriptions/%s/upgrade"
+	PathSubscriptionDowngrade         = "/api/v1/subscriptions/%s/downgrade"
+	PathSubscriptionResume            = "/api/v1/subscriptions/%s/resume"
+	PathSubscriptionConvertTrial      = "/api/v1/subscriptions/%s/convert-trial"
+	PathSubscriptionRetryPayment      = "/api/v1/subscriptions/%s/retry-payment"
+	PathSubscriptionMigrateProration  = "/api/v1/subscriptions/%s/migrate-with-proration"
+	PathSubscriptionPhases            = "/api/v1/subscriptions/%s/phases" // audit trail
+	PathInternalSubscriptionPastDue   = "/internal/v1/subscriptions/past-due"
+	PathInternalSubscriptionDunningUp = "/internal/v1/subscriptions/%s/dunning-update"
+
+	PathAPIKeys      = "/api/v1/api-keys"
+	PathAPIKeyByID   = "/api/v1/api-keys/%s"
+	PathAPIKeyRevoke = "/api/v1/api-keys/%s/revoke"
+	PathDiscounts    = "/api/v1/discounts"
 
 	// billing-service / billing-platform (billing domain)
 	PathWallets        = "/api/v1/wallets"
 	PathWalletByID     = "/api/v1/wallets/%s"
 	PathPaymentMethods = "/api/v1/payment-methods"
+	// Session 6 — bill run trigger for Check 11 concurrency probe.
+	PathBillRuns = "/api/v1/bill-runs"
 
 	// usage-ingestor (sanity check only)
 	PathUsageIngest = "/v1/ingest"

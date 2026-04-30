@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aforoai/aforo-nextgen-loadgen/internal/lifecycle"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/runner"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/scenario"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/seed"
@@ -33,6 +34,11 @@ type Inputs struct {
 	TolerancePct   float64 // billing-amount drift tolerance (0.001 default = 0.1%)
 	OnlyChecks     []string
 	OnlyArchetypes []string
+
+	// Session 6 — lifecycle transition log loaded from <RunOutputDir>/transitions.jsonl.
+	// nil/empty when the run was a vanilla `run` (no agent), in which case the
+	// lifecycle checks SKIP cleanly.
+	Transitions []lifecycle.TransitionRecord
 }
 
 // Validator is the orchestrator. Construct with New, then call Run.
@@ -121,6 +127,12 @@ func (v *Validator) dispatch(ctx context.Context, name string) *CheckResult {
 		return v.runInvariants(ctx)
 	case CheckBillRunConcurrency:
 		return v.runBillRunConcurrency(ctx)
+	case CheckLifecycleCorrectness:
+		return v.runLifecycleCorrectness(ctx)
+	case CheckStateMachineInvariants:
+		return v.runStateMachineInvariants(ctx)
+	case CheckLifecycleVsBillRun:
+		return v.runLifecycleVsBillRun(ctx)
 	default:
 		return NewCheckResult(name).Skip("unknown check name %q", name)
 	}

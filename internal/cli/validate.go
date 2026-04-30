@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/aforoai/aforo-nextgen-loadgen/internal/lifecycle"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/seed"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/validate"
 )
@@ -89,6 +90,13 @@ func runValidate(ctx context.Context, out, errOut io.Writer, f *validateFlags) e
 		return fmt.Errorf("manifest: %w", err)
 	}
 
+	// Best-effort load — runs without a lifecycle agent leave this empty
+	// and the lifecycle checks SKIP themselves.
+	transitions, err := lifecycle.LoadTransitionLog(f.runOutput)
+	if err != nil {
+		return fmt.Errorf("load transitions.jsonl: %w", err)
+	}
+
 	in := &validate.Inputs{
 		RunOutputDir:   f.runOutput,
 		Manifest:       manifest,
@@ -99,6 +107,7 @@ func runValidate(ctx context.Context, out, errOut io.Writer, f *validateFlags) e
 		TolerancePct:   f.tolerancePct,
 		OnlyChecks:     f.checks,
 		OnlyArchetypes: f.archetypes,
+		Transitions:    transitions,
 	}
 
 	v, err := validate.New(in)

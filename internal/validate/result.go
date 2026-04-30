@@ -48,6 +48,10 @@ const (
 	CheckNegativePaths      = "negative_path_correctness"
 	CheckInvariants         = "property_based_invariants"
 	CheckBillRunConcurrency = "bill_run_concurrency"
+	// Session 6 — lifecycle checks.
+	CheckLifecycleCorrectness  = "lifecycle_correctness"
+	CheckStateMachineInvariants = "state_machine_invariants"
+	CheckLifecycleVsBillRun     = "bill_run_vs_lifecycle"
 )
 
 // AllChecks is the canonical iteration order. The orchestrator runs them in
@@ -62,6 +66,9 @@ var AllChecks = []string{
 	CheckNegativePaths,
 	CheckInvariants,
 	CheckBillRunConcurrency,
+	CheckLifecycleCorrectness,
+	CheckStateMachineInvariants,
+	CheckLifecycleVsBillRun,
 }
 
 // CheckResult is a single check's verdict + reasons. Details is a free-form

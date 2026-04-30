@@ -68,6 +68,41 @@ type BackendClient interface {
 
 	// GetWalletBalance fetches the current wallet balance for the customer.
 	GetWalletBalance(ctx context.Context, tenantID, customerID, currency string) (float64, error)
+
+	// Session 6 — lifecycle checks.
+
+	// GetSubscriptionState reads the platform's current view of a subscription:
+	// its status (one of the 9 states), the offering it points at, and
+	// whether a subscription_phase audit row was written for the most recent
+	// transition. Used by Check 9 (Lifecycle correctness) and Check 10
+	// (State-machine invariants).
+	GetSubscriptionState(ctx context.Context, tenantID, subscriptionID string) (SubscriptionSnapshot, error)
+
+	// MigrateSubscription invokes /migrate-with-proration. Used by Check 11
+	// (lifecycle vs bill-run concurrency) to fire a migrate concurrently with
+	// two bill runs and assert the redis lock + stable-id contract.
+	MigrateSubscription(ctx context.Context, tenantID, subscriptionID, targetOfferingID string) (MigrateOutcome, error)
+}
+
+// SubscriptionSnapshot is the platform's current view of a subscription.
+type SubscriptionSnapshot struct {
+	Status            string  // CREATED|TRIALING|ACTIVE|PAST_DUE|PAUSED|EXPIRING_SOON|EXPIRED|CANCELLED|SUSPENDED
+	OfferingID        string  // current offering after any in-flight migrations
+	PlanVersionID     string  // pinned rate plan version id (Check 9 — versioning)
+	DunningAttempt    int     // current dunning retry counter (Check 9.f)
+	LastPhaseRecorded bool    // true if the most recent state change has a subscription_phase audit row
+	BaseFeeUSD        float64 // for pro-ration math
+	WalletBalanceUSD  float64 // for HYBRID/PREPAID validation
+}
+
+// MigrateOutcome is the platform's response to /migrate-with-proration.
+type MigrateOutcome struct {
+	SourceSubscriptionID string  // pre-migrate sub id
+	TargetSubscriptionID string  // post-migrate sub id (must equal source for stable-id semantic)
+	OfferingID           string  // resolved target offering
+	CalendarRefundUSD    float64 // bilateral pro-ration (positive = refund)
+	HTTPStatus           int     // raw status — 201 on accept, 409 if a concurrent op blocked
+	IsConflict           bool    // true if the platform returned 409
 }
 
 // Capabilities is a bitmask-style struct declaring what a BackendClient can do.
@@ -78,6 +113,7 @@ type Capabilities struct {
 	BillRuns         bool // billing-platform bill run trigger + poll
 	WalletQueries    bool // billing-platform wallet read
 	CrossTenantProbe bool // controlled IDOR probe (intentional)
+	Subscriptions    bool // Session 6 — pricing-service subscription read + migrate
 }
 
 // TimeWindow scopes a backend query to a [Start, End] interval.
@@ -183,6 +219,16 @@ func (o *OfflineBackend) WaitForBillRun(_ context.Context, _, _ string, _ time.D
 // GetWalletBalance requires billing-platform.
 func (o *OfflineBackend) GetWalletBalance(_ context.Context, _, _, _ string) (float64, error) {
 	return 0, ErrUnsupported{Op: "wallet_balance"}
+}
+
+// GetSubscriptionState requires pricing-service. Offline returns ErrUnsupported.
+func (o *OfflineBackend) GetSubscriptionState(_ context.Context, _, _ string) (SubscriptionSnapshot, error) {
+	return SubscriptionSnapshot{}, ErrUnsupported{Op: "subscription_state"}
+}
+
+// MigrateSubscription requires pricing-service.
+func (o *OfflineBackend) MigrateSubscription(_ context.Context, _, _, _ string) (MigrateOutcome, error) {
+	return MigrateOutcome{}, ErrUnsupported{Op: "migrate_subscription"}
 }
 
 // ErrUnsupported is returned by OfflineBackend (and live backends that have

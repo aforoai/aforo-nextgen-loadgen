@@ -49,6 +49,12 @@ func (b *billingTestBackend) WaitForBillRun(_ context.Context, _, _ string, _ ti
 func (b *billingTestBackend) GetWalletBalance(_ context.Context, _, _, _ string) (float64, error) {
 	return 0, ErrUnsupported{Op: "wallet"}
 }
+func (b *billingTestBackend) GetSubscriptionState(_ context.Context, _, _ string) (SubscriptionSnapshot, error) {
+	return SubscriptionSnapshot{}, ErrUnsupported{Op: "subscription_state"}
+}
+func (b *billingTestBackend) MigrateSubscription(_ context.Context, _, _, _ string) (MigrateOutcome, error) {
+	return MigrateOutcome{}, ErrUnsupported{Op: "migrate_subscription"}
+}
 
 // manifestPerUnitPostpaid builds a manifest with one tenant + one customer
 // against PER_UNIT POSTPAID at $0.001/event.

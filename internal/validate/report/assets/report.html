@@ -134,6 +134,48 @@
   </div>
   {{end}}
 
+  {{if .LifecycleRows}}
+  <div class="card">
+    <h2>Lifecycle transitions</h2>
+    <table>
+      <thead><tr><th>kind</th><th>total</th><th>ok</th><th>failures</th><th>state match</th><th>state mismatch</th></tr></thead>
+      <tbody>
+      {{range .LifecycleRows}}
+        <tr class="{{if eq .StateMismatch 0}}{{if eq .Failures 0}}pass{{else}}fail{{end}}{{else}}fail{{end}}">
+          <td>{{.Kind}}</td>
+          <td>{{.Total}}</td>
+          <td>{{.OK}}</td>
+          <td>{{.Failures}}</td>
+          <td>{{.StateMatch}}</td>
+          <td>{{.StateMismatch}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
+  {{if .StateMachineRows}}
+  <div class="card">
+    <h2>State-machine violations</h2>
+    <table>
+      <thead><tr><th>#</th><th>subscription</th><th>transition</th><th>from</th><th>expected to</th><th>reason</th></tr></thead>
+      <tbody>
+      {{range .StateMachineRows}}
+        <tr class="fail">
+          <td>{{.Index}}</td>
+          <td>{{.SubscriptionID}}</td>
+          <td>{{.Transition}}</td>
+          <td>{{.FromState}}</td>
+          <td>{{.ExpectedTo}}</td>
+          <td><span class="violation">{{.Reason}}</span></td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+
   {{if .Violations}}
   <div class="card">
     <h2>Property-based invariant violations</h2>

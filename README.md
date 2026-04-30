@@ -16,26 +16,26 @@ architecture, services, and conventions see
 
 ## Status
 
-Session 5 of 12. The command tree is in place; `version`, `scenarios`,
-`seed`, `run`, `replay`, `validate`, and `report` are fully implemented.
-Other subcommands are stubs that announce the session in which they ship.
-The scenario YAML schema itself is defined in
+Session 6 of 12. The command tree is in place; `version`, `scenarios`,
+`seed`, `run`, `replay`, `validate`, `report`, and `lifecycle` are fully
+implemented. Other subcommands are stubs that announce the session in
+which they ship. The scenario YAML schema itself is defined in
 [`docs/scenario-schema.md`](docs/scenario-schema.md).
 
-| Subcommand  | Ships in   | What it does                                                      |
-| ----------- | ---------- | ----------------------------------------------------------------- |
-| `seed`      | _Session 3_ ✓ | Provision tenants per archetype via Aforo's REST APIs.           |
-| `scenarios` | _Session 2_ ✓ | List, describe, validate, and show built-in scenarios.          |
-| `run`       | _Session 4_ ✓ | Drive a load-test scenario against a target.                    |
-| `replay`    | _Session 4_ ✓ | Replay a recorded run-output against a target.                  |
-| `validate`  | _Session 5_ ✓ | Validate a completed run vs the platform (8 checks).            |
-| `report`    | _Session 5_ ✓ | Render a self-contained HTML run + validation report.           |
-| `lifecycle` | Session 6  | Drive subscription lifecycle transitions.                         |
-| `payments`  | Session 9  | Drive payment, tax, and ERP integration flows.                    |
-| `e2e`       | Session 8  | End-to-end smoke flows against a live target.                     |
-| `doctor`    | Session 11 | Diagnose local environment and target reachability.               |
-| `server`    | Session 12 | Control-plane server (dashboard + multi-node coordinator).        |
-| `version`   | Session 1  | Print semver, commit SHA, and build date.                         |
+| Subcommand  | Ships in      | What it does                                                  |
+| ----------- | ------------- | ------------------------------------------------------------- |
+| `seed`      | _Session 3_ ✓ | Provision tenants per archetype via Aforo's REST APIs.        |
+| `scenarios` | _Session 2_ ✓ | List, describe, validate, and show built-in scenarios.        |
+| `run`       | _Session 4_ ✓ | Drive a load-test scenario against a target.                  |
+| `replay`    | _Session 4_ ✓ | Replay a recorded run-output against a target.                |
+| `validate`  | _Session 5_ ✓ | Validate a completed run vs the platform (11 checks).         |
+| `report`    | _Session 5_ ✓ | Render a self-contained HTML run + validation report.         |
+| `lifecycle` | _Session 6_ ✓ | Drive subscription state-machine transitions during a run.    |
+| `payments`  | Session 9     | Drive payment, tax, and ERP integration flows.                |
+| `e2e`       | Session 8     | End-to-end smoke flows against a live target.                 |
+| `doctor`    | Session 11    | Diagnose local environment and target reachability.           |
+| `server`    | Session 12    | Control-plane server (dashboard + multi-node coordinator).    |
+| `version`   | Session 1     | Print semver, commit SHA, and build date.                     |
 
 ## Install
 
@@ -122,11 +122,62 @@ Stale-key safety: a scenario with `negative_paths.stale_keys_pct > 0`
 fails at startup if the manifest has zero stale subscriptions — the
 load test won't silently skip the fault injection.
 
-## Validation oracle (Session 5)
+## Lifecycle agent (Session 6)
+
+`aforo-loadgen lifecycle` runs the Session-4 event generator AND a
+parallel "lifecycle agent" that fires real subscription state-machine
+transitions concurrent with the load. Together they exercise the
+platform's:
+
+- 9-state subscription state machine (`SubscriptionStateMachine`)
+- pro-ration math on offering migration (full / calendar / wallet / usage)
+- rate-plan version pinning across upgrades + downgrades
+- wallet hold/release lifecycle on PREPAID/HYBRID modes
+- dunning escalation (PAST_DUE → SUSPEND/CANCEL after N retries)
+- bill-run-vs-migrate Redis lock contention
+
+The agent reads `scenario.lifecycle.*_per_hour_pct` to schedule one
+ticker per transition kind. Each ticker samples eligible subscriptions
+(deterministically from `scenario.seed`), filters by state-machine
+legality, fires the API call, and writes a row to
+`<out>/transitions.jsonl`.
+
+| Transition       | Endpoint                                          |
+| ---------------- | ------------------------------------------------- |
+| UPGRADE          | `POST /api/v1/subscriptions/{id}/upgrade`         |
+| DOWNGRADE        | `POST /api/v1/subscriptions/{id}/downgrade`       |
+| PAUSE / RESUME   | `POST /pause` + scheduled `POST /resume`          |
+| TRIAL_CONVERSION | `POST /api/v1/subscriptions/{id}/convert-trial`   |
+| TRIAL_CANCEL     | `POST /api/v1/subscriptions/{id}/cancel`          |
+| MIGRATE          | `POST /api/v1/subscriptions/{id}/migrate-with-proration` |
+| RETRY_PAYMENT    | `POST /api/v1/subscriptions/{id}/retry-payment`   |
+| DUNNING_ESCALATE | (assertion-only — drives `RETRY_PAYMENT` past the configured max-attempts) |
+
+Two rows are appended per transition: a `PENDING` intent row written
+**before** the API call (so a hung agent leaves a breadcrumb) and an
+`OK`/`FAIL`/`SKIPPED` outcome row after. The validator (Checks 9–11)
+counts only outcome rows.
+
+```bash
+# Lifecycle alongside event load:
+aforo-loadgen lifecycle --scenario lifecycle-stress --manifest manifest.json --target staging
+
+# Lifecycle without event load (focused state-machine probing):
+aforo-loadgen lifecycle --scenario lifecycle-stress --target local --no-runner
+
+# Compress real customer pause windows so a 4h run produces both pause + resume signal:
+aforo-loadgen lifecycle --scenario lifecycle-stress --target local --pause-resume-delay 30s
+```
+
+Output: `<out>/transitions.jsonl` (one record per intent + one per
+outcome) plus the standard `run.json` + `scenario.yaml` artifacts. Pass
+the same `<out>` to `aforo-loadgen validate` to run Checks 9–11.
+
+## Validation oracle (Sessions 5–6)
 
 `aforo-loadgen validate` is the post-run oracle. It reads a completed
-run's output (`run.json` + `scenario.yaml`) plus the seed manifest and
-runs eight independent checks:
+run's output (`run.json` + `scenario.yaml` + optional `transitions.jsonl`)
+plus the seed manifest and runs eleven independent checks:
 
 | # | Check | What it verifies |
 | - | ----- | ---------------- |
@@ -138,10 +189,13 @@ runs eight independent checks:
 | 6 | `negative_path_correctness` | every negative-path category was rejected as expected, incl. **zero stale-key false positives** |
 | 7 | `property_based_invariants` | seven seeded fuzz invariants over the billing pipeline |
 | 8 | `bill_run_concurrency` | two simultaneous bill runs collide with 409 (`--include-billing`) |
+| 9 | `lifecycle_correctness` | per transition in `transitions.jsonl`: post-state matches expected, stable-id preserved on migrate, dunning escalates per config (Session 6) |
+| 10 | `state_machine_invariants` | no illegal transitions: CANCELLED → ACTIVE, EXPIRED → anything, GA → BETA regression (Session 6) |
+| 11 | `bill_run_vs_lifecycle` | fire 2 simultaneous bill runs + 1 migrate on the same tenant: exactly 1 bill run wins, 1 returns 409, migrate keeps stable id, no double-billing (Session 6, `--include-billing`) |
 
-Without backend access, checks 1, 6, 7 still run from `run.json` alone —
-ci-smoke validate exits 0 in pure-CI mode. Checks that need infra (2, 3,
-4, 5, 8) `SKIP` with a clear reason.
+Without backend access, checks 1, 6, 7, 9, 10 still run from local
+artifacts alone — ci-smoke validate exits 0 in pure-CI mode. Checks
+that need infra (2, 3, 4, 5, 8, 11) `SKIP` with a clear reason.
 
 The strongest assertion is the stale-key zero-false-positives check
 (Check 6.e.3 + Check 7.g): a single successful ingestion on a revoked
