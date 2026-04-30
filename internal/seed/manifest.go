@@ -209,13 +209,27 @@ func LoadManifest(path string) (*Manifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
+	return LoadManifestFromBytes(data)
+}
+
+// LoadManifestFromBytes parses a manifest from an in-memory byte slice.
+// Session 11 — used by the multi-machine worker to deserialize the
+// manifest the coordinator dispatched in the Assignment payload.
+func LoadManifestFromBytes(data []byte) (*Manifest, error) {
 	var m Manifest
 	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, fmt.Errorf("parse manifest: %w", err)
 	}
 	if m.ManifestVersion != ManifestVersion {
-		return nil, fmt.Errorf("manifest %s has version %d, expected %d (rerun seed to upgrade)",
-			path, m.ManifestVersion, ManifestVersion)
+		return nil, fmt.Errorf("manifest has version %d, expected %d (rerun seed to upgrade)",
+			m.ManifestVersion, ManifestVersion)
 	}
 	return &m, nil
+}
+
+// MarshalManifest serializes the manifest to JSON. Symmetric helper used
+// by the Session 11 coordinator to build the bytes it dispatches in
+// each Assignment.
+func (m *Manifest) MarshalManifest() ([]byte, error) {
+	return json.MarshalIndent(m, "", "  ")
 }

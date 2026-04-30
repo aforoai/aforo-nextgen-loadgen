@@ -125,8 +125,17 @@ func newTestDeps(t *testing.T, handler *recordingHandler) (Deps, *httptest.Serve
 
 func decodeRecords(t *testing.T, buf *bytes.Buffer) []TransitionRecord {
 	t.Helper()
+	return decodeRecordsBytes(t, buf.Bytes())
+}
+
+// decodeRecordsBytes decodes from a copy of the buffer's bytes — used by
+// tests that involve background goroutines so the race detector doesn't
+// fire on a concurrent buf.String()/Bytes() vs Append. Pair with
+// TransitionLog.BytesSnapshot() which copies under the log's mutex.
+func decodeRecordsBytes(t *testing.T, raw []byte) []TransitionRecord {
+	t.Helper()
 	out := []TransitionRecord{}
-	for _, line := range strings.Split(strings.TrimRight(buf.String(), "\n"), "\n") {
+	for _, line := range strings.Split(strings.TrimRight(string(raw), "\n"), "\n") {
 		if line == "" {
 			continue
 		}
@@ -253,20 +262,41 @@ func TestFirePauseAndScheduleResume_Success(t *testing.T) {
 	if pauseCalls.Load() != 1 {
 		t.Fatalf("pause calls = %d, want 1", pauseCalls.Load())
 	}
-	// Wait for the deferred resume to fire.
+	// Wait until BOTH the resume HTTP call has fired AND the resume
+	// goroutine has finished its post-call work (state mutation +
+	// transition log writes). Polling resumeCalls alone is racy: the
+	// HTTP response can land before fireResume returns from Append, so
+	// reading state immediately after resumeCalls increments can
+	// observe a half-committed transition. Count() takes the
+	// transition-log lock, so once it reads 4 the resume goroutine has
+	// definitely returned (intent + outcome × 2 transitions).
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && resumeCalls.Load() == 0 {
+	for time.Now().Before(deadline) {
+		if resumeCalls.Load() == 1 && deps.Log.Count() == 4 {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	if resumeCalls.Load() != 1 {
 		t.Fatalf("resume calls = %d, want 1", resumeCalls.Load())
+	}
+	if deps.Log.Count() != 4 {
+		t.Fatalf("log count = %d, want 4 (resume goroutine has not finished writing)", deps.Log.Count())
 	}
 	// Picker should reflect ACTIVE again.
 	if got := deps.Picker.LiveState("sub-1"); got != scenario.StateActive {
 		t.Errorf("after resume, live state = %s, want ACTIVE", got)
 	}
 	// Transition log: pause-intent + pause-outcome + resume-intent + resume-outcome.
-	recs := decodeRecords(t, buf)
+	// Use the lock-safe BytesSnapshot — reading the bytes.Buffer directly
+	// would race with any (rarely-still-pending) Append even after Count
+	// reads 4 because bytes.Buffer's read methods don't observe the lock.
+	snap, ok := deps.Log.BytesSnapshot()
+	if !ok {
+		t.Fatal("test transition log is not buffer-backed")
+	}
+	_ = buf // buf is shared with snap; we use snap for the lock-safe view
+	recs := decodeRecordsBytes(t, snap)
 	kinds := []TransitionKind{}
 	for _, r := range recs {
 		kinds = append(kinds, r.Transition)

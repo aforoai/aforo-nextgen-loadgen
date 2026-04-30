@@ -448,13 +448,120 @@ type Chaos struct {
 	Events  []ChaosEvent `yaml:"events,omitempty"`
 }
 
-// ChaosEvent is one infra fault. Type is one of: kill_pod, drop_kafka,
-// stop_redis, latency_spike, partition_db, etc. — Session 11 enumerates.
+// ChaosEvent is one infra fault. Type is one of the chaos package's
+// supported scenarios: kafka_kill, redis_flush, ch_slowdown, net_partition.
+//
+// The YAML shape supports two ergonomic forms — both decode into the same
+// struct via a custom UnmarshalYAML:
+//
+//	# nested params (canonical)
+//	- at: 1h
+//	  type: ch_slowdown
+//	  duration: 5m
+//	  params:
+//	    instance_id: i-1234
+//	    latency_ms: 500
+//
+//	# inline params (shorthand)
+//	- at: 1h
+//	  type: ch_slowdown
+//	  duration: 5m
+//	  instance_id: i-1234
+//	  latency_ms: 500
+//
+// Inline keys are merged into Params at decode time; nested params keys
+// take precedence on conflict. Notes is operator free-text embedded into
+// the chaos timeline outcome record.
 type ChaosEvent struct {
 	At       Duration       `yaml:"at"`
 	Type     string         `yaml:"type"`
 	Duration Duration       `yaml:"duration"`
+	Notes    string         `yaml:"notes,omitempty"`
 	Params   map[string]any `yaml:"params,omitempty"`
+}
+
+// reservedChaosKeys are the YAML keys handled directly on ChaosEvent;
+// every other key on a chaos event node is hoisted into Params.
+var reservedChaosKeys = map[string]struct{}{
+	"at":       {},
+	"type":     {},
+	"duration": {},
+	"notes":    {},
+	"params":   {},
+}
+
+// UnmarshalYAML decodes a chaos event, accepting both the canonical
+// "params: {...}" shape and the inline shorthand. Inline keys are
+// hoisted into Params; nested params keys win on conflict.
+//
+// The implementation is intentionally hand-rolled instead of using a
+// shadow struct because we want to (a) accept arbitrary unknown keys
+// without disabling KnownFields(true) globally, and (b) preserve
+// position metadata for nested params via yaml.Node decoding.
+func (e *ChaosEvent) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.MappingNode {
+		return fmt.Errorf("chaos event must be a mapping, got %v", value.Kind)
+	}
+	merged := map[string]any{}
+	for i := 0; i+1 < len(value.Content); i += 2 {
+		k := value.Content[i].Value
+		v := value.Content[i+1]
+		switch k {
+		case "at":
+			var d Duration
+			if err := d.UnmarshalYAML(v); err != nil {
+				return fmt.Errorf("chaos.at: %w", err)
+			}
+			e.At = d
+		case "type":
+			if err := v.Decode(&e.Type); err != nil {
+				return fmt.Errorf("chaos.type: %w", err)
+			}
+		case "duration":
+			var d Duration
+			if err := d.UnmarshalYAML(v); err != nil {
+				return fmt.Errorf("chaos.duration: %w", err)
+			}
+			e.Duration = d
+		case "notes":
+			if err := v.Decode(&e.Notes); err != nil {
+				return fmt.Errorf("chaos.notes: %w", err)
+			}
+		case "params":
+			if e.Params == nil {
+				e.Params = map[string]any{}
+			}
+			var p map[string]any
+			if err := v.Decode(&p); err != nil {
+				return fmt.Errorf("chaos.params: %w", err)
+			}
+			for pk, pv := range p {
+				e.Params[pk] = pv
+			}
+		default:
+			// Inline-shorthand: hoist into Params unless it's reserved.
+			if _, reserved := reservedChaosKeys[k]; reserved {
+				continue
+			}
+			var anyVal any
+			if err := v.Decode(&anyVal); err != nil {
+				return fmt.Errorf("chaos.%s: %w", k, err)
+			}
+			merged[k] = anyVal
+		}
+	}
+	if len(merged) > 0 {
+		if e.Params == nil {
+			e.Params = map[string]any{}
+		}
+		// Inline keys lose to explicit `params:` keys (canonical wins).
+		for k, v := range merged {
+			if _, ok := e.Params[k]; !ok {
+				e.Params[k] = v
+			}
+		}
+	}
+	return nil
 }
 
 // Assertions are the post-run pass/fail thresholds.

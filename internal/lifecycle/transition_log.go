@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -150,6 +151,29 @@ func (l *TransitionLog) Count() int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.count
+}
+
+// BytesSnapshot returns a defensive copy of the underlying buffer's
+// bytes when the log is wrapping an in-memory *bytes.Buffer (the common
+// case for tests that build a TransitionLog via NewTransitionLogTo).
+//
+// Reading the buffer concurrently with Append() is a data race because
+// bytes.Buffer is not synchronized; this method takes the same mutex
+// Append uses, so callers see a consistent snapshot of the bytes
+// committed before BytesSnapshot was called.
+//
+// Returns (nil, false) when the log wraps a non-buffer writer (e.g.
+// the file-backed production transitions.jsonl).
+func (l *TransitionLog) BytesSnapshot() ([]byte, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	buf, ok := l.w.(*bytes.Buffer)
+	if !ok {
+		return nil, false
+	}
+	out := make([]byte, buf.Len())
+	copy(out, buf.Bytes())
+	return out, true
 }
 
 // Snapshot returns a roll-up of transition counts by kind and by status.

@@ -504,12 +504,102 @@ chaos:
   events:
     - at: 0s
       duration: 30s
-      type: kill_pod
+      type: kafka_kill
+      params:
+        instance_id: i-aaaa
 `
 	// at=0 is allowed (epoch zero is "fire immediately"); check only bounds.
 	errs := validateString(t, minimalValid+tail)
 	if errs.HasErrors() {
 		t.Errorf("at=0 with valid type should be clean; got: %s", errs.Error())
+	}
+}
+
+func TestValidate_ChaosUnknownType(t *testing.T) {
+	tail := `
+chaos:
+  enabled: true
+  events:
+    - at: 1m
+      duration: 30s
+      type: not_a_real_type
+`
+	errs := validateString(t, minimalValid+tail)
+	if !hasErrorAtPath(errs, "chaos.events[0].type") {
+		t.Errorf("expected unknown chaos type error; got: %s", errs.Error())
+	}
+}
+
+func TestValidate_ChaosMissingRequiredParam(t *testing.T) {
+	tail := `
+chaos:
+  enabled: true
+  events:
+    - at: 1m
+      duration: 30s
+      type: redis_flush
+      params:
+        bastion_instance_id: i-bastion
+`
+	// Missing cache_endpoint must be flagged.
+	errs := validateString(t, minimalValid+tail)
+	if !hasErrorAtPath(errs, "chaos.events[0].params.cache_endpoint") {
+		t.Errorf("expected missing cache_endpoint error; got: %s", errs.Error())
+	}
+}
+
+func TestValidate_ChaosInlineParamsHoist(t *testing.T) {
+	// Inline shorthand: instance_id and cluster_name are hoisted into Params.
+	tail := `
+chaos:
+  enabled: true
+  events:
+    - at: 1m
+      duration: 30s
+      type: kafka_kill
+      instance_id: i-inline
+      cluster_name: msk-perf-1
+`
+	errs := validateString(t, minimalValid+tail)
+	if errs.HasErrors() {
+		t.Errorf("inline params should hoist into Params; got: %s", errs.Error())
+	}
+}
+
+func TestValidate_ChaosInstantaneousZeroDuration(t *testing.T) {
+	// redis_flush is a one-shot fire; duration: 0 is allowed.
+	tail := `
+chaos:
+  enabled: true
+  events:
+    - at: 1m
+      duration: 0s
+      type: redis_flush
+      params:
+        bastion_instance_id: i-bastion
+        cache_endpoint: perf-redis.amazonaws.com:6379
+`
+	errs := validateString(t, minimalValid+tail)
+	if errs.HasErrors() {
+		t.Errorf("zero-duration redis_flush should be clean; got: %s", errs.Error())
+	}
+}
+
+func TestValidate_ChaosCHSlowdownNonPositiveLatency(t *testing.T) {
+	tail := `
+chaos:
+  enabled: true
+  events:
+    - at: 1m
+      duration: 5m
+      type: ch_slowdown
+      params:
+        instance_id: i-ch
+        latency_ms: 0
+`
+	errs := validateString(t, minimalValid+tail)
+	if !hasErrorAtPath(errs, "chaos.events[0].params.latency_ms") {
+		t.Errorf("expected latency_ms > 0 error; got: %s", errs.Error())
 	}
 }
 

@@ -322,6 +322,55 @@ tax:
 wallet:
   hold_expiry_audit: true
 
+# Session 11 — chaos events through the week. Each event names the
+# instance/cluster/host id by an SSM-targetable identifier; these are
+# deliberately placeholders. The ops runbook walks through replacing
+# them with the real per-environment IDs before launching the run.
+#
+# Reversibility: every chaos type ships with a Recovery callback that
+# the scheduler invokes when the event's duration elapses (or the run
+# aborts). See docs/chaos-engineering.md for the per-type contract.
+chaos:
+  enabled: true
+  events:
+    # Day 0 — early kill: producer retry + DLT routing under broker loss.
+    - at: 1h
+      duration: 30s
+      type: kafka_kill
+      params:
+        instance_id: i-PERF-MSK-BROKER-1
+        cluster_name: aforo-perf-msk
+      notes: Primary MSK broker bounce. Expect Kafka producer retry/3x backoff and DLT routing.
+
+    # Day 0 — cold-cache: BillingHierarchyEnricher + Kong policy cache rebuild.
+    - at: 6h
+      duration: 0s
+      type: redis_flush
+      params:
+        bastion_instance_id: i-PERF-BASTION
+        cache_endpoint: aforo-perf-redis.cache.amazonaws.com:6379
+      notes: Mid-morning Redis flush. Confirms Redis L2 caches rebuild from PostgreSQL primary.
+
+    # Day 1 — ClickHouse latency spike: writer back-pressure + AnalyticsQueryRouter PG fallback.
+    - at: 24h
+      duration: 5m
+      type: ch_slowdown
+      params:
+        instance_id: i-PERF-CLICKHOUSE-1
+        latency_ms: 500
+      notes: ClickHouse +500ms net delay. Expect circuit breaker trip + fallback reads.
+
+    # Day 3 — service-to-service partition: cross-service breaker test.
+    - at: 72h
+      duration: 2m
+      type: net_partition
+      params:
+        source_instance_id: i-PERF-BILLING-PLATFORM
+        dest_ip: 10.0.42.10        # customer-service primary
+        source_service_name: billing-platform
+        dest_service_name: customer-service
+      notes: Drop traffic from billing-platform → customer-service for 2 minutes.
+
 assertions:
   events_lost_max: 0
   invoice_revenue_drift_pct_max: 0.005

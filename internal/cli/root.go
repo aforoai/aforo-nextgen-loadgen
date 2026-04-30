@@ -60,6 +60,8 @@ the full session roadmap.`,
 		newDoctorCommand(&flags),
 		newServerCommand(&flags),
 		newE2ECommand(&flags),
+		newCoordinatorCommand(&flags),
+		newWorkerCommand(&flags),
 		newVersionCommand(&flags),
 	)
 

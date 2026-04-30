@@ -630,6 +630,18 @@ func isValidFXPair(pair string) bool {
 	return true
 }
 
+// SupportedChaosTypes mirrors chaos.SupportedTypes() but lives here so the
+// validator stays free of a dependency on the chaos package (avoids
+// importing chaos for one constant; chaos has its own SupportedTypes()
+// helper that callers should use). Keep these in sync by hand — the
+// validator test asserts the lists match.
+var SupportedChaosTypes = []string{
+	"kafka_kill",
+	"redis_flush",
+	"ch_slowdown",
+	"net_partition",
+}
+
 func (v *validator) checkChaos(s *Scenario) {
 	if !s.Chaos.Enabled {
 		return
@@ -645,14 +657,96 @@ func (v *validator) checkChaos(s *Scenario) {
 		if e.At.Std() < 0 {
 			v.addAt(append(basePath, "at"), "chaos event 'at' must be >= 0")
 		}
-		if e.Duration.Std() <= 0 {
-			v.addAt(append(basePath, "duration"), "chaos event 'duration' must be > 0")
+		// Duration is optional for instantaneous events (e.g. redis_flush
+		// is a one-shot fire that immediately recovers). Negative is
+		// always invalid.
+		if e.Duration.Std() < 0 {
+			v.addAt(append(basePath, "duration"), "chaos event 'duration' must be >= 0 (use 0 for instantaneous events like redis_flush)")
 		}
 		if e.Type == "" {
 			v.addAt(append(basePath, "type"), "chaos event 'type' is required")
+			continue
+		}
+		if !isSupportedChaosType(e.Type) {
+			v.addAt(append(basePath, "type"),
+				fmt.Sprintf("chaos type %q is not one of: %s", e.Type, joinChaosTypes()))
+			continue
+		}
+		// Per-type minimum required params. Operators see file:line:col on
+		// the exact field that's missing.
+		v.checkChaosParams(basePath, e)
+	}
+}
+
+// checkChaosParams validates the per-type minimum-required parameters.
+// Adds one error per missing required field so operators can fix in batches.
+func (v *validator) checkChaosParams(basePath []string, e *ChaosEvent) {
+	required := map[string][]string{
+		"kafka_kill":    {"instance_id"},
+		"redis_flush":   {"bastion_instance_id", "cache_endpoint"},
+		"ch_slowdown":   {"instance_id"},
+		"net_partition": {"source_instance_id", "dest_ip"},
+	}[e.Type]
+	for _, key := range required {
+		if !hasNonEmptyParam(e.Params, key) {
+			v.addAt(append(append([]string{}, basePath...), "params", key),
+				fmt.Sprintf("chaos type %q requires params.%s", e.Type, key))
+		}
+	}
+	// ch_slowdown's latency_ms must be > 0 if present; missing is OK
+	// (default applies in the chaos type).
+	if e.Type == "ch_slowdown" {
+		if raw, ok := e.Params["latency_ms"]; ok {
+			ms := toInt(raw)
+			if ms <= 0 {
+				v.addAt(append(append([]string{}, basePath...), "params", "latency_ms"),
+					fmt.Sprintf("chaos type %q params.latency_ms must be > 0 (got %v)", e.Type, raw))
+			}
 		}
 	}
 }
+
+func hasNonEmptyParam(p map[string]any, key string) bool {
+	if p == nil {
+		return false
+	}
+	v, ok := p[key]
+	if !ok {
+		return false
+	}
+	switch x := v.(type) {
+	case string:
+		return x != ""
+	case nil:
+		return false
+	default:
+		return true
+	}
+}
+
+func toInt(v any) int {
+	switch x := v.(type) {
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case float64:
+		return int(x)
+	default:
+		return 0
+	}
+}
+
+func isSupportedChaosType(t string) bool {
+	for _, x := range SupportedChaosTypes {
+		if x == t {
+			return true
+		}
+	}
+	return false
+}
+
+func joinChaosTypes() string { return strings.Join(SupportedChaosTypes, ", ") }
 
 func (v *validator) checkAssertions(s *Scenario) {
 	if s.Assertions.EventsLostMax < 0 {
