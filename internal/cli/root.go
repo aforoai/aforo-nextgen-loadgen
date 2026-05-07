@@ -37,7 +37,7 @@ the full session roadmap.`,
 	}
 
 	root.PersistentFlags().StringVar(&flags.Target, "target", "",
-		"base URL of the Aforo platform under test (e.g. https://usage-ingestor.aforo.space)")
+		"base URL of the Aforo platform under test (e.g. https://usage-ingestor.aforo.io)")
 	root.PersistentFlags().StringVar(&flags.Config, "config", "",
 		"path to a loadgen YAML config file")
 	root.PersistentFlags().StringVar(&flags.LogLevel, "log-level", "info",

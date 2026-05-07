@@ -123,7 +123,7 @@ func TestResolveTarget_CI_PerServiceOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u2 != "https://pricing.aforo.space" {
+	if u2 != "https://pricing.aforo.io" {
 		t.Errorf("pricing URL = %s, want staging default", u2)
 	}
 }

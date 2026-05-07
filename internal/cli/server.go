@@ -77,7 +77,7 @@ Example:
     --supabase-anon-key $SUPABASE_ANON \
     --supabase-service-role-key $SUPABASE_SERVICE \
     --s3-bucket aforo-loadgen-runs \
-    --grafana-base-url https://grafana.aforo.space
+    --grafana-base-url https://grafana.aforo.io
 `,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runServer(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), &f)
