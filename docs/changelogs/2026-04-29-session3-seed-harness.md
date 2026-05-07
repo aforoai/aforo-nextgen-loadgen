@@ -262,7 +262,7 @@ bugs? if so, fix them and make it production ready." Findings:
   status-update endpoints. The harness creates the subscription in
   ACTIVE and tags the manifest with the requested state for Session 9
   to land via real failed-payment routing.
-- **Production target.** `--target prod` resolves to `*.aforo.io`
+- **Production target.** `--target prod` resolves to `*.aforo.ai`
   but seeding production is not the normal path. Reviewers should
   default to `--target local` or a per-PR review URL.
 

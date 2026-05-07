@@ -122,7 +122,7 @@ The new ci target is a named entry into a runtime-built URL map. Order:
    use the override; the rest fall back to step 3. Lets a CI run pin a
    single service while leaving the others at staging.
 3. **Neither** → the URL falls through to the staging public URL
-   (`https://*.aforo.io`). Functionally identical to `--target staging`
+   (`https://*.aforo.ai`). Functionally identical to `--target staging`
    but logged as `ci` so manifests and report headers are honest.
 
 `AFORO_CI_BASE_URL` is what the four service workflows above export. The

@@ -44,7 +44,7 @@ services:
       - ./aforo-nextgen-loadgen/dashboards:/var/lib/grafana/dashboards/aforo-loadgen:ro
       - ./aforo-nextgen-loadgen/dashboards/grafana/loadgen-provider.yaml:/etc/grafana/provisioning/dashboards/loadgen-provider.yaml:ro
     environment:
-      GF_SERVER_ROOT_URL: https://grafana.aforo.io
+      GF_SERVER_ROOT_URL: https://grafana.aforo.ai
 ```
 
 Grafana re-scans the path every 30 seconds (configured in the

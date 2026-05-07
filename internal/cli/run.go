@@ -56,7 +56,7 @@ oversize), and dispatches via the chosen ingestion path.
 Examples:
   aforo-loadgen run --scenario ci-smoke --manifest manifest.json --target local --out runs/$(date +%s)
   aforo-loadgen run --scenario walk-realistic-50t --manifest manifest.json --target local --duration 5m --pprof-port 6060
-  aforo-loadgen run --scenario matrix-billing --manifest manifest.json --target https://staging.aforo.io --workers 64
+  aforo-loadgen run --scenario matrix-billing --manifest manifest.json --target https://staging.aforo.ai --workers 64
 `,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runRun(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), &f)

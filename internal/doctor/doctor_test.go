@@ -310,7 +310,7 @@ func TestRemedyForUnreachable_LocalSuggestsDocker(t *testing.T) {
 }
 
 func TestRemedyForUnreachable_RemoteSuggestsNetwork(t *testing.T) {
-	got := remedyForUnreachable(aforo.ServiceCatalog, "https://catalog.aforo.io/actuator/health")
+	got := remedyForUnreachable(aforo.ServiceCatalog, "https://catalog.aforo.ai/actuator/health")
 	if !strings.Contains(got, "VPN") {
 		t.Errorf("remote-target remedy should mention network/VPN; got %q", got)
 	}

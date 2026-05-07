@@ -63,15 +63,15 @@ func newServerForTest(t *testing.T, identity *server.Identity) (*httptest.Server
 }
 
 func adminIdentity() *server.Identity {
-	return &server.Identity{UserID: "11111111-1111-1111-1111-111111111111", Email: "admin@aforo.io", Role: "platform_admin"}
+	return &server.Identity{UserID: "11111111-1111-1111-1111-111111111111", Email: "admin@aforo.ai", Role: "platform_admin"}
 }
 
 func supportIdentity() *server.Identity {
-	return &server.Identity{UserID: "22222222-2222-2222-2222-222222222222", Email: "support@aforo.io", Role: "support_agent"}
+	return &server.Identity{UserID: "22222222-2222-2222-2222-222222222222", Email: "support@aforo.ai", Role: "support_agent"}
 }
 
 func unrolledIdentity() *server.Identity {
-	return &server.Identity{UserID: "33333333-3333-3333-3333-333333333333", Email: "stranger@aforo.io", Role: ""}
+	return &server.Identity{UserID: "33333333-3333-3333-3333-333333333333", Email: "stranger@aforo.ai", Role: ""}
 }
 
 func do(t *testing.T, ts *httptest.Server, method, path string, body any) *http.Response {

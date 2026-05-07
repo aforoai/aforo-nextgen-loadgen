@@ -42,7 +42,7 @@ from the scenario seed plus the manifest — replay reads scenario.yaml from
 
 Examples:
   aforo-loadgen replay --run-output runs/ci-smoke-1714400000 --target local
-  aforo-loadgen replay --run-output runs/ci-smoke-1714400000 --target https://staging.aforo.io --manifest manifest.json
+  aforo-loadgen replay --run-output runs/ci-smoke-1714400000 --target https://staging.aforo.ai --manifest manifest.json
 `,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runReplay(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), &f)

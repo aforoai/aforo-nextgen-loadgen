@@ -29,7 +29,7 @@ Three repository secrets:
 | Secret                  | Purpose                                                                                                                                  |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `AFORO_LOADGEN_PAT`     | A PAT with `repo` scope on `aforoai/aforo-nextgen-loadgen`. Lets `go install` fetch the private loadgen module.                          |
-| `AFORO_CI_BASE_URL`     | The URL of the deployed environment to load-test against (e.g. `https://staging.aforo.io`). Required when the smoke target is shared. |
+| `AFORO_CI_BASE_URL`     | The URL of the deployed environment to load-test against (e.g. `https://staging.aforo.ai`). Required when the smoke target is shared. |
 | `AFORO_STAGING_TOKEN`   | Bearer token the loadgen binary uses to authenticate as a platform admin against the smoke target. Required.                             |
 
 If your repo is already in `aforoai/`, the loadgen team has likely set
