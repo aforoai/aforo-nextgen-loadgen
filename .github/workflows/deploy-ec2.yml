@@ -1,0 +1,53 @@
+name: deploy-ec2
+
+# Builds the Linux amd64 binary on every push to main and uploads it to S3.
+# EC2 instances pull from s3://aforo-loadgen-artifacts/aforo-loadgen to get the latest.
+# Each commit is also stored with its SHA for rollback.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-upload:
+    name: build + upload to S3
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: go mod download
+        run: go mod download
+
+      - name: build Linux amd64 binary
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -o ./bin/aforo-loadgen ./cmd/aforo-loadgen
+
+      - name: upload to S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          # latest — EC2 always pulls this
+          aws s3 cp ./bin/aforo-loadgen \
+            s3://aforo-loadgen-artifacts/aforo-loadgen \
+            --metadata "commit=${{ github.sha }}"
+
+          # versioned copy — for rollback
+          aws s3 cp ./bin/aforo-loadgen \
+            s3://aforo-loadgen-artifacts/aforo-loadgen-${{ github.sha }}
+
+          echo "Uploaded:"
+          echo "  latest  → s3://aforo-loadgen-artifacts/aforo-loadgen"
+          echo "  version → s3://aforo-loadgen-artifacts/aforo-loadgen-${{ github.sha }}"
