@@ -74,7 +74,7 @@ When the loadgen server is configured with `--grafana-base-url`,
 every run row in Supabase carries a `grafana_url` field of the form:
 
 ```
-https://grafana.aforo.space/d/loadgen-run/loadgen-run?var-runId=<run-id>
+https://grafana.aforo.ai/d/loadgen-run/loadgen-run?var-runId=<run-id>
 ```
 
 Control Tower's run detail page renders this as a "View live

@@ -43,7 +43,7 @@ aforo-loadgen server \
   --supabase-service-role-key $SUPABASE_SERVICE_ROLE_KEY \
   --s3-bucket aforo-loadgen-runs \
   --s3-prefix prod/ \
-  --grafana-base-url https://grafana.aforo.space
+  --grafana-base-url https://grafana.aforo.ai
 ```
 
 ## Endpoints

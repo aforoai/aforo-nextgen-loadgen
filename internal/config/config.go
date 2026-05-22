@@ -13,7 +13,7 @@ package config
 //   - Session 6: payment/tax/ERP fixtures
 type Config struct {
 	// Target is the base URL of the Aforo platform under test
-	// (e.g. https://usage-ingestor.aforo.space). Overridable via --target.
+	// (e.g. https://usage-ingestor.aforo.ai). Overridable via --target.
 	Target string `yaml:"target"`
 }
 

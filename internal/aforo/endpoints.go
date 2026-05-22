@@ -24,39 +24,39 @@ type Service string
 
 const (
 	// ServiceOrganization owns tenants, internal admin endpoints, audit log.
-	// Production: https://org.aforo.space — local: http://localhost:8086.
+	// Production: https://org.aforo.ai — local: http://localhost:8086.
 	ServiceOrganization Service = "organization"
 
 	// ServiceCatalog owns products, billable units (metrics), and (in the
 	// renamed billing-platform configuration) some billing-domain entities.
-	// Production: https://catalog.aforo.space — local: http://localhost:8081.
+	// Production: https://catalog.aforo.ai — local: http://localhost:8081.
 	ServiceCatalog Service = "catalog"
 
 	// ServicePricing owns rate plans, offerings, subscriptions, and API keys.
-	// Production: https://pricing.aforo.space — local: http://localhost:8083.
+	// Production: https://pricing.aforo.ai — local: http://localhost:8083.
 	ServicePricing Service = "pricing"
 
 	// ServiceCustomer owns customers, teams, agents.
-	// Production: https://customer.aforo.space — local: http://localhost:8085.
+	// Production: https://customer.aforo.ai — local: http://localhost:8085.
 	ServiceCustomer Service = "customer"
 
 	// ServiceBilling owns wallets, escrow, payment methods, invoices.
-	// Production: https://billing.aforo.space — local: http://localhost:8090.
+	// Production: https://billing.aforo.ai — local: http://localhost:8090.
 	ServiceBilling Service = "billing"
 
 	// ServiceUsageIngestor — used only by the integration sanity check
 	// (a stale key is rejected with 401/403).
-	// Production: https://usage-ingestor.aforo.space — local: http://localhost:8084.
+	// Production: https://usage-ingestor.aforo.ai — local: http://localhost:8084.
 	ServiceUsageIngestor Service = "usage-ingestor"
 
 	// ServiceAnalytics owns ClickHouse-backed analytics, event log, system
 	// health, and uptime monitoring. doctor probes /actuator/health.
-	// Production: https://analytics.aforo.space — local: http://localhost:8088.
+	// Production: https://analytics.aforo.ai — local: http://localhost:8088.
 	ServiceAnalytics Service = "analytics"
 
 	// ServiceStorefront owns the customer portal BFF, headless API, and
 	// storefront config publishing. doctor probes /actuator/health.
-	// Production: https://storefront.aforo.space — local: http://localhost:8089.
+	// Production: https://storefront.aforo.ai — local: http://localhost:8089.
 	ServiceStorefront Service = "storefront"
 
 	// ServiceAIService owns Anthropic-backed content / section / component
@@ -127,34 +127,34 @@ var LocalTarget = Target{
 var StagingTarget = Target{
 	Name: "staging",
 	URLs: map[Service]string{
-		ServiceOrganization:  "https://org.aforo.space",
-		ServiceCatalog:       "https://catalog.aforo.space",
-		ServicePricing:       "https://pricing.aforo.space",
-		ServiceCustomer:      "https://customer.aforo.space",
-		ServiceBilling:       "https://billing.aforo.space",
-		ServiceUsageIngestor: "https://usage-ingestor.aforo.space",
-		ServiceAnalytics:     "https://analytics.aforo.space",
-		ServiceStorefront:    "https://storefront.aforo.space",
+		ServiceOrganization:  "https://org.aforo.ai",
+		ServiceCatalog:       "https://catalog.aforo.ai",
+		ServicePricing:       "https://pricing.aforo.ai",
+		ServiceCustomer:      "https://customer.aforo.ai",
+		ServiceBilling:       "https://billing.aforo.ai",
+		ServiceUsageIngestor: "https://usage-ingestor.aforo.ai",
+		ServiceAnalytics:     "https://analytics.aforo.ai",
+		ServiceStorefront:    "https://storefront.aforo.ai",
 		// ai-service does not have a public hostname today; staging runs
 		// targeting external URLs skip the ai-service probe.
 		ServiceAIService: "",
 	},
 }
 
-// ProdTarget points at the public aforo.space URLs documented in CLAUDE.md.
+// ProdTarget points at the public aforo.ai URLs documented in CLAUDE.md.
 // Production seeding is not the normal path — guarded behind --target=prod
 // in seed.go. Most runs target local or a per-PR review env.
 var ProdTarget = Target{
 	Name: "prod",
 	URLs: map[Service]string{
-		ServiceOrganization:  "https://org.aforo.space",
-		ServiceCatalog:       "https://catalog.aforo.space",
-		ServicePricing:       "https://pricing.aforo.space",
-		ServiceCustomer:      "https://customer.aforo.space",
-		ServiceBilling:       "https://billing.aforo.space",
-		ServiceUsageIngestor: "https://usage-ingestor.aforo.space",
-		ServiceAnalytics:     "https://analytics.aforo.space",
-		ServiceStorefront:    "https://storefront.aforo.space",
+		ServiceOrganization:  "https://org.aforo.ai",
+		ServiceCatalog:       "https://catalog.aforo.ai",
+		ServicePricing:       "https://pricing.aforo.ai",
+		ServiceCustomer:      "https://customer.aforo.ai",
+		ServiceBilling:       "https://billing.aforo.ai",
+		ServiceUsageIngestor: "https://usage-ingestor.aforo.ai",
+		ServiceAnalytics:     "https://analytics.aforo.ai",
+		ServiceStorefront:    "https://storefront.aforo.ai",
 		ServiceAIService:     "",
 	},
 }
