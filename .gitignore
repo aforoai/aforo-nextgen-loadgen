@@ -31,3 +31,6 @@ manifest-*.json
 # Run artifacts (Session 4) and e2e workflow artifacts (Session 7).
 /runs/
 /e2e/
+
+# Stale doc-snapshot zips (every loose .md/.pdf in docs/ is the source of truth; zip backups pollute git status — see CLAUDE.md drift entry 2026-05-22)
+docs/*.zip
