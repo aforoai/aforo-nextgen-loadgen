@@ -1,0 +1,17 @@
+# V113 SOC 2 CC8.1 (Phase 2, 2026-05-25): automated dependency update PRs.
+# Closes the vulnerability-management gap from the SOC 2 audit. Weekly
+# schedule keeps the PR queue tractable; security-only updates can be
+# bumped to daily once operators tune the rule.
+
+version: 2
+updates:
+  # CI/CD — GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
