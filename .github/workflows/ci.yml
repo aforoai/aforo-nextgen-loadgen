@@ -72,14 +72,14 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: '~> v2'
+          version: 'v2.9.0'
           args: check
 
       - name: goreleaser snapshot (cross-compile dry run, no publish)
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: '~> v2'
+          version: 'v2.9.0'
           args: release --snapshot --clean --skip=publish
         env:
           # Snapshots never push the formula, but goreleaser still

@@ -286,11 +286,27 @@ func (c *Client) doOnce(ctx context.Context, method, fullURL string, body []byte
 	}
 
 	if out != nil && len(respBody) > 0 {
-		if err := json.Unmarshal(respBody, out); err != nil {
+		if err := unmarshalAforoResponse(respBody, out); err != nil {
 			return &aforo.APIError{Method: method, URL: fullURL, Status: resp.StatusCode, Body: string(respBody), UnderlyingErr: fmt.Errorf("unmarshal: %w", err)}
 		}
 	}
 	return nil
+}
+
+func unmarshalAforoResponse(respBody []byte, out any) error {
+	if err := json.Unmarshal(respBody, out); err == nil {
+		return nil
+	}
+	var wrapped struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &wrapped); err != nil {
+		return err
+	}
+	if len(wrapped.Data) == 0 || string(wrapped.Data) == "null" {
+		return json.Unmarshal([]byte(`{}`), out)
+	}
+	return json.Unmarshal(wrapped.Data, out)
 }
 
 func (c *Client) recordDryRun(method, fullURL string, body []byte, opts RequestOptions, out any) error {
