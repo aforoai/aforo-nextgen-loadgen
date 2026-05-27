@@ -49,21 +49,21 @@ func accessorTypeForProductType(pt scenario.ProductType) string {
 // Field-name + required-field contract (verified against pricing-service
 // CreateApiKeyRequest.java):
 //   - accessorId     — @NotBlank, the App or Agent id that owns this key.
-//                      pricing-service does NOT validate that the row exists
-//                      in customer-service (it just stamps the column), so
-//                      loadgen synthesizes "loadgen-{app|agent}-{subId}".
+//     pricing-service does NOT validate that the row exists
+//     in customer-service (it just stamps the column), so
+//     loadgen synthesizes "loadgen-{app|agent}-{subId}".
 //   - accessorType   — @NotBlank, APP | AGENT.
 //   - customerId     — @NotBlank, must match the subscription's customer.
 //   - subscriptionIds — @NotEmpty list. Subscription must be ACTIVE; key
-//                      create is therefore wired BEFORE
-//                      transitionSubscription in the seeder so the sub is
-//                      still in its initial ACTIVE state.
+//     create is therefore wired BEFORE
+//     transitionSubscription in the seeder so the sub is
+//     still in its initial ACTIVE state.
 //   - name           — optional human-readable key name (carries what the
-//                      previous "description" field tried to record).
+//     previous "description" field tried to record).
 //   - environment    — optional "live" | "test"; defaults server-side to
-//                      "live" so we send live for stability.
+//     "live" so we send live for stability.
 //   - scopes         — optional comma-separated permissions; defaults to
-//                      "read" server-side.
+//     "read" server-side.
 //
 // The previous body shape ({externalId, subscriptionId, credentialType,
 // description}) was rejected by the server with 400 because none of those
