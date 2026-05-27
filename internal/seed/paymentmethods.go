@@ -25,11 +25,11 @@ var stripeTestTokens = []string{
 // `@NotBlank` in CreatePaymentMethodRequest.java, so any rename here re-breaks 400.
 // In test mode, gatewayToken is a Stripe pm_xxx token.
 type paymentMethodCreateRequest struct {
-	ExternalID  string `json:"externalId"`
-	CustomerID  string `json:"customerId"`
+	ExternalID   string `json:"externalId"`
+	CustomerID   string `json:"customerId"`
 	GatewayToken string `json:"gatewayToken"`
-	MethodType  string `json:"methodType"`
-	StripeMode  string `json:"stripeMode"`
+	MethodType   string `json:"methodType"`
+	StripeMode   string `json:"stripeMode"`
 }
 
 type paymentMethodResponse struct {
