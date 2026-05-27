@@ -20,14 +20,16 @@ var stripeTestTokens = []string{
 	"pm_card_visa_debit", // 4000 0566 5566 5556 — succeeds
 }
 
-// paymentMethodCreateRequest mirrors billing-platform's payment-method DTO.
-// In test mode, paymentMethodToken is a Stripe pm_xxx token.
+// paymentMethodCreateRequest mirrors billing-service's CreatePaymentMethodRequest DTO.
+// Field names MUST match the Java DTO exactly — `gatewayToken` + `methodType` are
+// `@NotBlank` in CreatePaymentMethodRequest.java, so any rename here re-breaks 400.
+// In test mode, gatewayToken is a Stripe pm_xxx token.
 type paymentMethodCreateRequest struct {
-	ExternalID         string `json:"externalId"`
-	CustomerID         string `json:"customerId"`
-	PaymentMethodToken string `json:"paymentMethodToken"`
-	Type               string `json:"type"`
-	StripeMode         string `json:"stripeMode"`
+	ExternalID  string `json:"externalId"`
+	CustomerID  string `json:"customerId"`
+	GatewayToken string `json:"gatewayToken"`
+	MethodType  string `json:"methodType"`
+	StripeMode  string `json:"stripeMode"`
 }
 
 type paymentMethodResponse struct {
@@ -46,11 +48,11 @@ func provisionPaymentMethod(ctx context.Context, c *Client, tenantID, externalID
 	}
 	token := stripeTestTokens[seq%len(stripeTestTokens)]
 	body := paymentMethodCreateRequest{
-		ExternalID:         externalID,
-		CustomerID:         customerID,
-		PaymentMethodToken: token,
-		Type:               "CARD",
-		StripeMode:         "test",
+		ExternalID:   externalID,
+		CustomerID:   customerID,
+		GatewayToken: token,
+		MethodType:   "CARD",
+		StripeMode:   "test",
 	}
 	createURL, err := c.Target().Path(aforo.ServiceBilling, aforo.PathPaymentMethods)
 	if err != nil {
