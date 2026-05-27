@@ -35,6 +35,35 @@ jobs:
       - name: test
         run: make test
 
+  # contract-test: validates loadgen's request/response Go structs against
+  # the committed OpenAPI snapshots under openapi/. Separated from the
+  # main build-test job because failures here are usually backend-side
+  # renames that need a snapshot refresh (`make sync-openapi`) +
+  # a coordinated loadgen update. Surfacing the failure on its own job
+  # tab makes the right action (review the snapshot diff, then update
+  # the loadgen struct) obvious to a PR author who otherwise sees a
+  # generic "tests failed" badge.
+  #
+  # No docker stack required at CI time — uses the committed snapshots.
+  # The snapshots are refreshed manually by a maintainer running
+  # `make sync-openapi` against a live local docker-compose stack.
+  contract-test:
+    name: backend contract test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: go mod download
+        run: go mod download
+
+      - name: contract test (loadgen ↔ backend OpenAPI snapshot)
+        run: make contract-test
+
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest

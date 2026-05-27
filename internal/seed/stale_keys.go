@@ -64,12 +64,15 @@ func verifyAllKeysRevoked(ctx context.Context, c *Client, tenantID string, sub *
 			// the error return; caller can decide whether to fail the run.
 			return fmt.Errorf("fetch key %s for stale verification: %w", k.KeyID, err)
 		}
-		k.Revoked = fetched.Revoked
+		// Revoked is a method since the drift-fix (2026-05-27) — backend models
+		// revocation as `status = REVOKED` (string enum), not as a boolean
+		// column. apiKeyResponse.Revoked() returns Status == "REVOKED".
+		k.Revoked = fetched.Revoked()
 		k.RevokedAt = fetched.RevokedAt
 
 		// CANCELLED is the strict contract — if we initiated /cancel and the
 		// key isn't revoked, that's a platform bug we want surfaced.
-		if sub.Status == scenario.StateCancelled && !fetched.Revoked {
+		if sub.Status == scenario.StateCancelled && !fetched.Revoked() {
 			return fmt.Errorf("api key %s on CANCELLED sub %s should be revoked but is not", k.KeyID, sub.SubscriptionID)
 		}
 	}

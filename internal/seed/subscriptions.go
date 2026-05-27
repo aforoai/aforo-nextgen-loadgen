@@ -29,26 +29,52 @@ import (
 //     subscription in TRIALING state; trialEndsAt is an Instant
 //     ("2026-05-27T14:23:00Z") that overrides the offering's trialDays.
 //
-// externalId, walletId, paymentMethodId, endDate are NOT DTO fields on
-// CreateSubscriptionRequest — silently dropped server-side. Loadgen keeps
-// the wire-level fields for forward-compat and to record intent in the
-// manifest; they have no server effect today.
+// CONVENTION (see CONVENTIONS.md "Wire-format alignment"): EVERY field on
+// this struct maps to a real CreateSubscriptionRequest.java column.
+// Deterministic identity for cross-day lookup is the (customerId, offeringId)
+// pair (queried via lookupSubscriptionByCustomerAndOffering using the real
+// `?customerId=` filter). Idempotency-Key is the loadgen-internal seedKey
+// set by provisionSubscription.
+//
+// Drift-fix (rename pass): `walletId` / `paymentMethodId` previously sat on
+// this struct as "forward-compat phantom fields hoping backend would adopt
+// them"; both are NOT on CreateSubscriptionRequest (verified). Removed per
+// the no-phantom-fields convention — the wallet binding is implicit (one
+// wallet per customer + currency) and the payment method binding is
+// implicit (the customer's default PaymentMethod), so loadgen's downstream
+// flows still work without passing these on the create.
+//
+// `endDate` IS a real CreateSubscriptionRequest column (verified — it
+// drives the SubscriptionExpiryJob's nightly scan when set in the past).
+// Round-2 audit caught that the rename pass had wrongly dropped it.
+// Restored.
 type subscriptionCreateRequest struct {
-	ExternalID      string     `json:"externalId,omitempty"`
-	OfferingID      string     `json:"offeringId"`
-	CustomerID      string     `json:"customerId"`
-	BillingCycle    string     `json:"billingCycle,omitempty"`
-	StartDate       string     `json:"startDate"`
-	EndDate         string     `json:"endDate,omitempty"`
-	StartTrial      bool       `json:"startTrial,omitempty"`
-	TrialEndsAt     *time.Time `json:"trialEndsAt,omitempty"`
-	WalletID        string     `json:"walletId,omitempty"`
-	PaymentMethodID string     `json:"paymentMethodId,omitempty"`
+	OfferingID   string     `json:"offeringId"`
+	CustomerID   string     `json:"customerId"`
+	BillingCycle string     `json:"billingCycle,omitempty"`
+	StartDate    string     `json:"startDate"`
+	EndDate      string     `json:"endDate,omitempty"`
+	StartTrial   bool       `json:"startTrial,omitempty"`
+	TrialEndsAt  *time.Time `json:"trialEndsAt,omitempty"`
 }
 
+// subscriptionResponse mirrors the subset of pricing-service's
+// SubscriptionResponse that the seed harness consumes.
+//
+// Drift-fix (2026-05-27): the response no longer reads `externalId` —
+// pricing-service has no such field on the entity or DTO (verified against
+// aforo-nextgen-pricing-service/.../SubscriptionResponse.java; fields are
+// id, tenantId, customerId, offeringId, status, ...; NO externalId). The
+// previous loadgen response struct read `json:"externalId"` which always
+// decoded to "" and made every lookupSubscriptionByExternalID call return
+// "not found", silently fanning out duplicate creates on cross-day reruns.
+// (customerId, offeringId) is the deterministic identity pair — loadgen
+// creates one subscription per (customer, offering) — and drives
+// lookupSubscriptionByCustomerAndOffering.
 type subscriptionResponse struct {
 	ID         string    `json:"id"`
-	ExternalID string    `json:"externalId"`
+	CustomerID string    `json:"customerId"`
+	OfferingID string    `json:"offeringId"`
 	Status     string    `json:"status"`
 	CreatedAt  time.Time `json:"createdAt"`
 }
@@ -64,9 +90,18 @@ type subscriptionCancelRequest struct {
 // CANCELLED and EXPIRED states are achieved POST-create via cancel/expire
 // calls — the platform emits the atomic key-revocation cascade only when
 // going through those endpoints.
-func provisionSubscription(ctx context.Context, c *Client, tenantID, externalID, offeringID, customerID, walletID, paymentMethodID string, target scenario.SubscriptionState, archetype string) (subscriptionResponse, time.Time, error) {
-	if existing, ok, err := lookupSubscriptionByExternalID(ctx, c, tenantID, externalID); err != nil {
-		return subscriptionResponse{}, time.Time{}, fmt.Errorf("lookup sub %q: %w", externalID, err)
+// Drift-fix (2026-05-27): cross-day idempotency now uses
+// lookupSubscriptionByCustomerAndOffering (the deterministic identity pair
+// pricing-service actually exposes) rather than the previous lookup-by-
+// externalId which never matched (SubscriptionResponse has no externalId
+// field).
+//
+// Parameters:
+//   - seedKey: loadgen-internal opaque deterministic string sent as the
+//     HTTP Idempotency-Key header. See CONVENTIONS.md.
+func provisionSubscription(ctx context.Context, c *Client, tenantID, seedKey, offeringID, customerID, walletID, paymentMethodID string, target scenario.SubscriptionState, archetype string) (subscriptionResponse, time.Time, error) {
+	if existing, ok, err := lookupSubscriptionByCustomerAndOffering(ctx, c, tenantID, customerID, offeringID); err != nil {
+		return subscriptionResponse{}, time.Time{}, fmt.Errorf("lookup sub for customer=%q offering=%q: %w", customerID, offeringID, err)
 	} else if ok {
 		// Existing subscription — re-applying state transitions if necessary
 		// is handled by transitionSubscription below.
@@ -75,14 +110,22 @@ func provisionSubscription(ctx context.Context, c *Client, tenantID, externalID,
 
 	now := time.Now().UTC()
 	body := subscriptionCreateRequest{
-		ExternalID:      externalID,
-		OfferingID:      offeringID,
-		CustomerID:      customerID,
-		BillingCycle:    "MONTHLY",
-		StartDate:       now.Format("2006-01-02"), // pricing-service LocalDate
-		WalletID:        walletID,
-		PaymentMethodID: paymentMethodID,
+		OfferingID:   offeringID,
+		CustomerID:   customerID,
+		BillingCycle: "MONTHLY",
+		StartDate:    now.Format("2006-01-02"), // pricing-service LocalDate
 	}
+	// walletID + paymentMethodID are NO LONGER sent on the create body —
+	// backend doesn't have those columns on CreateSubscriptionRequest
+	// (per CONVENTIONS.md no-phantom-fields rule). The implicit wallet
+	// binding (one company wallet per customer) + implicit default
+	// payment method discovery is what backend already does. The
+	// parameters remain in the function signature for back-compat with
+	// callers that pass them; they're recorded into the manifest by the
+	// caller (seeder.go) and used downstream for state-transition + key
+	// flows, but not on the wire to /subscriptions.
+	_ = walletID
+	_ = paymentMethodID
 
 	switch target {
 	case scenario.StateTrialing:
@@ -97,7 +140,9 @@ func provisionSubscription(ctx context.Context, c *Client, tenantID, externalID,
 		// Make the subscription's end date in the past — the platform's
 		// SubscriptionExpiryJob picks this up on its next 5-minute tick.
 		// The transitionSubscription helper has a faster path that calls
-		// /internal/subscriptions/{id}/expire to skip the wait.
+		// /internal/subscriptions/{id}/expire to skip the wait; this
+		// endDate-in-past is the fallback when that internal endpoint
+		// isn't available.
 		body.EndDate = now.Add(-1 * time.Hour).Format("2006-01-02")
 	}
 
@@ -108,20 +153,21 @@ func provisionSubscription(ctx context.Context, c *Client, tenantID, externalID,
 	var resp subscriptionResponse
 	err = c.Do(ctx, http.MethodPost, createURL, body, &resp, RequestOptions{
 		TenantID:    tenantID,
-		Idempotency: externalID,
+		Idempotency: seedKey,
 	})
 	if err != nil {
 		if aforo.IsConflict(err) {
-			existing, ok, lookupErr := lookupSubscriptionByExternalID(ctx, c, tenantID, externalID)
+			existing, ok, lookupErr := lookupSubscriptionByCustomerAndOffering(ctx, c, tenantID, customerID, offeringID)
 			if lookupErr == nil && ok {
 				return existing, time.Time{}, nil
 			}
 		}
-		return subscriptionResponse{}, time.Time{}, fmt.Errorf("create sub %q (target state=%s): %w", externalID, target, err)
+		return subscriptionResponse{}, time.Time{}, fmt.Errorf("create sub (seedKey=%q target=%s): %w", seedKey, target, err)
 	}
 	if c.DryRun() {
-		resp.ID = "dryrun-sub-" + externalID
-		resp.ExternalID = externalID
+		resp.ID = "dryrun-sub-" + seedKey
+		resp.CustomerID = customerID
+		resp.OfferingID = offeringID
 		resp.Status = "ACTIVE"
 		resp.CreatedAt = now
 	}
@@ -199,26 +245,26 @@ func transitionSubscription(ctx context.Context, c *Client, tenantID, subID stri
 	return nil, nil
 }
 
-func lookupSubscriptionByExternalID(ctx context.Context, c *Client, tenantID, externalID string) (subscriptionResponse, bool, error) {
+// lookupSubscriptionByCustomerAndOffering queries pricing-service's GET
+// /api/v1/subscriptions with the server-side `?customerId=` filter (verified
+// SubscriptionController.list accepts ?customerId= + ?status=) and filters
+// client-side by exact `offeringId` match. The pair is unique per active
+// subscription (a customer can hold at most one active subscription per
+// offering in loadgen's seed scenarios).
+func lookupSubscriptionByCustomerAndOffering(ctx context.Context, c *Client, tenantID, customerID, offeringID string) (subscriptionResponse, bool, error) {
 	listURL, err := c.Target().Path(aforo.ServicePricing, aforo.PathSubscriptions)
 	if err != nil {
 		return subscriptionResponse{}, false, err
 	}
-	var page struct {
-		Data []subscriptionResponse `json:"data"`
-	}
-	err = c.Do(ctx, http.MethodGet, listURL, nil, &page, RequestOptions{
+	var subs []subscriptionResponse
+	if _, err := listAllOptional(ctx, c, listURL, RequestOptions{
 		TenantID: tenantID,
-		Query:    map[string][]string{"externalId": {externalID}},
-	})
-	if err != nil {
-		if aforo.IsNotFound(err) {
-			return subscriptionResponse{}, false, nil
-		}
+		Query:    map[string][]string{"customerId": {customerID}},
+	}, &subs); err != nil {
 		return subscriptionResponse{}, false, err
 	}
-	for _, s := range page.Data {
-		if s.ExternalID == externalID {
+	for _, s := range subs {
+		if s.CustomerID == customerID && s.OfferingID == offeringID {
 			return s, true, nil
 		}
 	}
@@ -242,16 +288,21 @@ func FetchSubscription(ctx context.Context, c *Client, tenantID, subID string) (
 		resp.ID = subID
 		resp.Status = "CANCELLED"
 	}
-	return SubscriptionStatus{ID: resp.ID, Status: resp.Status, ExternalID: resp.ExternalID}, nil
+	return SubscriptionStatus{ID: resp.ID, Status: resp.Status}, nil
 }
 
 // SubscriptionStatus is the snapshot returned by FetchSubscription. Exported
 // so run-engine code in Sessions 4+ can read the value without re-importing
 // internal DTOs.
+//
+// Drift-fix (2026-05-27): the public ExternalID field was removed because
+// pricing-service's SubscriptionResponse has no externalId field — it always
+// resolved to "". Callers that need cross-day idempotency should look up
+// subscriptions by (customerId, offeringId) via the manifest, not by
+// externalId via the API.
 type SubscriptionStatus struct {
-	ID         string
-	ExternalID string
-	Status     string
+	ID     string
+	Status string
 }
 
 // archiveSubscription cancels (= soft-archives) a subscription during clean.

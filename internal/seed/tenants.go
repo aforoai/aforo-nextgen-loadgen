@@ -12,6 +12,12 @@ import (
 // tenantCreateRequest is the body sent to organization-service's
 // POST /api/v1/internal/tenants. Field names mirror the documented internal
 // admin contract; production callers also send a tier and a contact e-mail.
+//
+// EXCEPTION TO THE CONVENTIONS.md "no externalId" rule: tenants are the
+// ONE entity where backend (LoadgenTenantResponse on the /internal/admin
+// path) genuinely carries an `externalId` column. The field round-trips
+// through Springdoc → create returns it → list filter ?externalId= honors
+// it. So `externalId` is a real wire field here, not a phantom — keep it.
 type tenantCreateRequest struct {
 	ExternalID  string            `json:"externalId"`
 	Name        string            `json:"name"`

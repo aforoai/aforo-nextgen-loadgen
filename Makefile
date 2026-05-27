@@ -27,7 +27,8 @@ LDFLAGS     := -s -w \
 GOFLAGS     := -trimpath
 
 .PHONY: all build test lint fmt vet tidy install clean release release-check help \
-        doctor-local doctor-staging e2e-local e2e-staging e2e-test
+        doctor-local doctor-staging e2e-local e2e-staging e2e-test \
+        sync-openapi contract-test
 
 all: build
 
@@ -120,6 +121,30 @@ e2e-staging: build
 ## e2e-test: run the tag-gated end-to-end Go test (requires Docker stack up)
 e2e-test:
 	go test -tags=e2e -count=1 -v ./test/e2e/...
+
+## sync-openapi: refresh openapi/<service>.json snapshots from the running backend stack.
+##
+## Convention: snapshots are the source of truth for the contract test
+## (internal/seed/contract_test.go TestBackendContract). Refresh whenever a
+## backend DTO changes, and commit the diff alongside any loadgen Go-struct
+## change in the SAME PR so reviewers see the field rename end-to-end.
+##
+## By default targets the local docker-compose stack on
+## localhost:8081..8090. Override via AFORO_OPENAPI_TARGET=staging.
+sync-openapi:
+	@./scripts/sync-openapi.sh
+
+## contract-test: run the wire-format contract gate.
+##
+## Reflects over every loadgen request / response struct and asserts every
+## json:"..." tag is declared in the corresponding backend OpenAPI schema.
+## Fails CI if a loadgen struct names a field the backend doesn't (= bug),
+## or if a backend rename slipped through without a matching loadgen update
+## (= stale snapshot — run `make sync-openapi`).
+##
+## No docker stack required — uses the committed openapi/<svc>.json snapshots.
+contract-test:
+	go test -count=1 -v -run TestBackendContract ./internal/seed/...
 
 ## help: list documented targets
 help:

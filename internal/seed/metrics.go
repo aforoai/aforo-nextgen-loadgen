@@ -36,10 +36,15 @@ type bulkSeedRequest struct {
 	TemplateNames []string `json:"templateNames"`
 }
 
+// metricResponse mirrors catalog-service's MetricResponse subset the
+// bulk endpoint returns.
+//
+// Drift-fix (rename pass — see CONVENTIONS.md): the previous loadgen
+// response struct read `json:"externalId"` which catalog-service has
+// never returned. Dropped per the no-phantom-fields convention.
 type metricResponse struct {
-	ID         string `json:"id"`
-	ExternalID string `json:"externalId"`
-	Name       string `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // provisionMetricsForProduct calls /api/v1/metrics/bulk to instantiate the
@@ -95,9 +100,8 @@ func provisionMetricsForProduct(ctx context.Context, c *Client, tenantID, produc
 			return nil, fmt.Errorf("bulk-seed metrics (dry-run) for product %s: %w", productID, err)
 		}
 		return []metricResponse{{
-			ID:         "dryrun-metric-" + externalIDPrefix,
-			ExternalID: externalIDPrefix + "-1",
-			Name:       fmt.Sprintf("dryrun %s metric", pt),
+			ID:   "dryrun-metric-" + externalIDPrefix,
+			Name: fmt.Sprintf("dryrun %s metric", pt),
 		}}, nil
 	}
 

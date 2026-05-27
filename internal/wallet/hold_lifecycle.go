@@ -304,58 +304,107 @@ func (c *Collector) snapshot(ctx context.Context, cust Customer, phase string) (
 			Phase: phase, Note: err.Error(),
 		}, err
 	}
+	// HeldUSD is derived by summing the PENDING holds we already fetched
+	// rather than reading a non-existent `held_amount` wallet field
+	// (drift-fix 2026-05-27 — backend WalletResponse has no held-amount
+	// field; the previous snake_case `held_amount` decode silently
+	// returned 0 and made every hold-lifecycle audit log misleading).
+	// HeldUSD comes from sumPendingHolds below.
+	heldUSD := c.sumPendingHolds(ctx, cust)
 	return Snapshot{
 		TenantID:    cust.TenantID,
 		CustomerID:  cust.CustomerID,
 		WalletID:    cust.WalletID,
 		Currency:    orDefault(cust.Currency, resp.Currency),
 		BalanceUSD:  resp.Balance,
-		HeldUSD:     resp.HeldAmount,
+		HeldUSD:     heldUSD,
 		Phase:       phase,
 		HoldsActive: resp.HoldsActive,
 	}, nil
 }
 
-// fetchHolds GETs /api/v1/wallets/{id}/holds and decodes the active hold
-// rows. Returns empty when the platform has no holds endpoint exposed.
+// fetchHolds GETs /api/v1/wallets/{id}/holds and decodes the active (PENDING)
+// hold rows. Returns empty when the platform has no holds endpoint exposed.
+//
+// Drift-fix (2026-05-27): the inline response struct previously read
+// snake_case fields (`subscription_id`, `hold_usd`, `state`, ...) but the
+// backend response is camelCase from a hand-rolled Map<String,Object>
+// (verified at WalletServiceImpl.listPendingHolds — keys are id, amount,
+// holdType, scope, referenceId, expiresAt, createdAt). The previous
+// struct silently decoded everything to zero values, breaking the
+// hold-lifecycle logging path. Also the endpoint returns a plain JSON
+// array (List<Map>), not a {data:[...]} envelope — the ApiResponseAdvice
+// wrapping makes it {data:[...]} but the seed.Client's GetJSON helper
+// already unwraps that layer.
+//
+// referenceId is the subscription id for SUBSCRIPTION-scope holds; for
+// other scopes (TOP_UP, REFUND, etc.) it is whatever drove the hold.
+// HoldType + Scope together describe the hold's purpose.
+//
+// settledUsd / releasedUsd are NOT exposed by listPendingHolds (PENDING
+// holds by definition haven't been settled or released yet). The seed
+// harness's HoldEvent type carries those fields anyway so cross-phase
+// comparisons can subtract from PENDING-snapshot rows once the holds
+// transition to SETTLED / RELEASED via a separate ledger query.
 func (c *Collector) fetchHolds(ctx context.Context, cust Customer) ([]HoldEvent, error) {
 	if cust.WalletID == "" {
 		return nil, nil
 	}
 	path := fmt.Sprintf("/api/v1/wallets/%s/holds", cust.WalletID)
-	var resp struct {
-		Data []struct {
-			ID             string  `json:"id"`
-			SubscriptionID string  `json:"subscription_id"`
-			State          string  `json:"state"`
-			HoldUSD        float64 `json:"hold_usd"`
-			SettledUSD     float64 `json:"settled_usd"`
-			ReleasedUSD    float64 `json:"released_usd"`
-		} `json:"data"`
+	var holds []struct {
+		ID          string  `json:"id"`
+		Amount      float64 `json:"amount"`
+		HoldType    string  `json:"holdType"`
+		Scope       string  `json:"scope"`
+		ReferenceID string  `json:"referenceId"`
+		ExpiresAt   string  `json:"expiresAt"`
+		CreatedAt   string  `json:"createdAt"`
 	}
-	_, err := c.client.GetJSON(ctx, aforo.ServiceBilling, path, cust.TenantID, &resp)
+	_, err := c.client.GetJSON(ctx, aforo.ServiceBilling, path, cust.TenantID, &holds)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]HoldEvent, 0, len(resp.Data))
-	for _, h := range resp.Data {
+	out := make([]HoldEvent, 0, len(holds))
+	for _, h := range holds {
 		out = append(out, HoldEvent{
 			TenantID: cust.TenantID, CustomerID: cust.CustomerID, WalletID: cust.WalletID,
-			HoldID: h.ID, SubscriptionID: h.SubscriptionID,
-			State: h.State, HoldUSD: h.HoldUSD,
-			SettledUSD: h.SettledUSD, ReleasedUSD: h.ReleasedUSD,
+			HoldID: h.ID, SubscriptionID: h.ReferenceID,
+			State:   "PENDING", // listPendingHolds only returns PENDING by definition
+			HoldUSD: h.Amount,
 		})
 	}
 	return out, nil
 }
 
+// sumPendingHolds calls fetchHolds for the customer and totals the
+// HoldUSD across all PENDING entries. Returns 0 (with the error swallowed
+// to a debug log path) if the holds endpoint is unavailable — the
+// snapshot path is best-effort logging, not a billing-correctness gate.
+func (c *Collector) sumPendingHolds(ctx context.Context, cust Customer) float64 {
+	holds, err := c.fetchHolds(ctx, cust)
+	if err != nil {
+		return 0
+	}
+	var total float64
+	for _, h := range holds {
+		total += h.HoldUSD
+	}
+	return total
+}
+
 // walletResponse is the subset of platform GET /api/v1/wallets/{id} we read.
+//
+// Drift-fix (2026-05-27): backend WalletResponse uses camelCase
+// (verified WalletResponse.java). The previous snake_case `held_amount` and
+// `holds_active` would never decode — leaving those values at zero. Backend
+// does not expose holds_active on the wallet itself; it's derived
+// client-side from len(listPendingHolds). Keeping the field on the struct
+// for back-compat but not reading it from the wire.
 type walletResponse struct {
 	WalletID    string  `json:"id"`
 	Currency    string  `json:"currency"`
 	Balance     float64 `json:"balance"`
-	HeldAmount  float64 `json:"held_amount"`
-	HoldsActive int     `json:"holds_active"`
+	HoldsActive int     `json:"-"` // populated client-side, not from wire
 }
 
 func orDefault(s, def string) string {

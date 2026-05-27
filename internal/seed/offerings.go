@@ -31,40 +31,78 @@ import (
 // walletInitialBalanceUsd: NOT a DTO field on CreateOfferingRequest. Wallet
 // initial balance lives on the wallet resource, not the offering. Loadgen
 // keeps the field for forward-compat but it's currently a no-op.
+// CONVENTION (see CONVENTIONS.md "Wire-format alignment"): EVERY field on
+// this struct maps to a real CreateOfferingRequest.java column.
+// Deterministic identity for cross-day lookup is `code` (per-tenant
+// UNIQUE on the entity, driven by lookupOfferingByCode). Idempotency-Key
+// is the loadgen-internal seedKey set by provisionOffering.
+//
+// Round-2 audit drop: `walletInitialBalanceUsd` was previously declared
+// here as a "forward-compat phantom for the day backend lifts the wallet
+// initial balance to the offering". Backend CreateOfferingRequest.java
+// genuinely doesn't have it (verified — wallet initial balance lives on
+// the wallet resource itself, not the offering). Per the no-phantom-
+// fields convention, dropped. The wallet's initial balance is now passed
+// directly to provisionWallet.
 type offeringCreateRequest struct {
-	ExternalID        string  `json:"externalId,omitempty"`
-	Code              string  `json:"code"`
-	Name              string  `json:"name"`
-	Description       string  `json:"description,omitempty"`
-	Type              string  `json:"type,omitempty"`
-	Status            string  `json:"status,omitempty"`
-	PrimaryRatePlanID string  `json:"primaryRatePlanId"`
-	BillingMode       string  `json:"billingMode"`
-	Currency          string  `json:"currency"`
-	TrialDays         int     `json:"trialDays,omitempty"`
-	WalletInitialUSD  float64 `json:"walletInitialBalanceUsd,omitempty"`
+	Code              string `json:"code"`
+	Name              string `json:"name"`
+	Description       string `json:"description,omitempty"`
+	Type              string `json:"type,omitempty"`
+	Status            string `json:"status,omitempty"`
+	PrimaryRatePlanID string `json:"primaryRatePlanId"`
+	BillingMode       string `json:"billingMode"`
+	Currency          string `json:"currency"`
+	TrialDays         int    `json:"trialDays,omitempty"`
 }
 
+// offeringResponse mirrors the subset of pricing-service's OfferingResponse
+// that the seed harness consumes.
+//
+// Drift-fix (2026-05-27): the response no longer reads `externalId` —
+// pricing-service has no such field on the entity or DTO (verified against
+// aforo-nextgen-pricing-service/.../OfferingResponse.java). The previous
+// loadgen response struct read `json:"externalId"` which always decoded to
+// "" and made every lookupOfferingByExternalID call return "not found".
+// `code` is the per-tenant UNIQUE field (loadgen sets `Code: externalID`
+// on the create request), so it's the right deterministic identity key.
 type offeringResponse struct {
-	ID         string `json:"id"`
-	ExternalID string `json:"externalId"`
+	ID   string `json:"id"`
+	Code string `json:"code"`
+	Name string `json:"name"`
 }
 
 // provisionOffering wraps a rate plan in a billing-mode offering. The
 // validator already ensures wallet_initial_balance_usd > 0 for PREPAID/HYBRID
 // archetypes — we surface it on the offering so the platform's escrow logic
 // has the budget value at subscription create.
-func provisionOffering(ctx context.Context, c *Client, tenantID, externalID string, a scenario.TenantArchetype, ratePlanID, currency string) (offeringResponse, error) {
-	if existing, ok, err := lookupOfferingByExternalID(ctx, c, tenantID, externalID); err != nil {
-		return offeringResponse{}, fmt.Errorf("lookup offering %q: %w", externalID, err)
+//
+// Idempotency strategy (drift-fix 2026-05-27):
+//   - Within 24h: Idempotency-Key header on POST.
+//   - Cross-day / DB-reset: lookupOfferingByCode runs first and uses
+//     pricing-service's /offerings/search?name= (substring) + client-side
+//     filter by exact `code` match. `code` is per-tenant UNIQUE on the
+//     entity, so an exact match guarantees the right row.
+//
+// Parameters:
+//   - seedKey: loadgen-internal opaque deterministic string. Re-used as the
+//     offering's `code` (which IS a real CreateOfferingRequest column — per-
+//     tenant UNIQUE) because the seedKey shape already satisfies code's
+//     uniqueness contract. So seedKey plays two roles: (a) HTTP
+//     Idempotency-Key header value, (b) the `code` body field. The natural
+//     identity used by lookupOfferingByCode is `code`. See CONVENTIONS.md.
+func provisionOffering(ctx context.Context, c *Client, tenantID, seedKey string, a scenario.TenantArchetype, ratePlanID, currency string) (offeringResponse, error) {
+	code := seedKey // the seedKey IS the offering code (real DTO column).
+
+	if existing, ok, err := lookupOfferingByCode(ctx, c, tenantID, code); err != nil {
+		return offeringResponse{}, fmt.Errorf("lookup offering %q: %w", code, err)
 	} else if ok {
 		return existing, nil
 	}
 	// Name MUST NOT contain square brackets — same forward-compat
 	// reasoning as products + rate plans (see products.go).
 	body := offeringCreateRequest{
-		ExternalID:        externalID,
-		Code:              externalID,
+		Code:              code,
 		Name:              fmt.Sprintf("Loadgen Offering %s", a.Name),
 		Description:       fmt.Sprintf("auto-provisioned for archetype=%s", a.Name),
 		Type:              "STANDALONE",
@@ -74,9 +112,9 @@ func provisionOffering(ctx context.Context, c *Client, tenantID, externalID stri
 		Currency:          currency,
 		TrialDays:         a.RateConfig.TrialDays,
 	}
-	if a.BillingMode == scenario.BillingPrepaid || a.BillingMode == scenario.BillingHybrid {
-		body.WalletInitialUSD = a.RateConfig.WalletInitialBalanceUSD
-	}
+	// Wallet initial balance is intentionally NOT set on the offering body
+	// (round-2 audit removed walletInitialBalanceUsd as a phantom field).
+	// Backend honors it via provisionWallet's body.InitialBalance instead.
 	createURL, err := c.Target().Path(aforo.ServicePricing, aforo.PathOfferings)
 	if err != nil {
 		return offeringResponse{}, err
@@ -84,44 +122,41 @@ func provisionOffering(ctx context.Context, c *Client, tenantID, externalID stri
 	var resp offeringResponse
 	err = c.Do(ctx, http.MethodPost, createURL, body, &resp, RequestOptions{
 		TenantID:    tenantID,
-		Idempotency: externalID,
+		Idempotency: seedKey,
 	})
 	if err != nil {
 		if aforo.IsConflict(err) {
-			existing, ok, lookupErr := lookupOfferingByExternalID(ctx, c, tenantID, externalID)
+			existing, ok, lookupErr := lookupOfferingByCode(ctx, c, tenantID, code)
 			if lookupErr == nil && ok {
 				return existing, nil
 			}
 		}
-		return offeringResponse{}, fmt.Errorf("create offering %q: %w", externalID, err)
+		return offeringResponse{}, fmt.Errorf("create offering (seedKey=%q): %w", seedKey, err)
 	}
 	if c.DryRun() {
-		resp.ID = "dryrun-offering-" + externalID
-		resp.ExternalID = externalID
+		resp.ID = "dryrun-offering-" + seedKey
+		resp.Code = code
+		resp.Name = body.Name
 	}
 	return resp, nil
 }
 
-func lookupOfferingByExternalID(ctx context.Context, c *Client, tenantID, externalID string) (offeringResponse, bool, error) {
+// lookupOfferingByCode pages through pricing-service's GET /api/v1/offerings
+// (no server-side `code` filter on OfferingController list) and matches
+// client-side by exact code. Loadgen's `code = externalID` convention means
+// at most one row matches per tenant; the per-tenant UNIQUE constraint
+// enforces this server-side.
+func lookupOfferingByCode(ctx context.Context, c *Client, tenantID, code string) (offeringResponse, bool, error) {
 	listURL, err := c.Target().Path(aforo.ServicePricing, aforo.PathOfferings)
 	if err != nil {
 		return offeringResponse{}, false, err
 	}
-	var page struct {
-		Data []offeringResponse `json:"data"`
-	}
-	err = c.Do(ctx, http.MethodGet, listURL, nil, &page, RequestOptions{
-		TenantID: tenantID,
-		Query:    map[string][]string{"externalId": {externalID}},
-	})
-	if err != nil {
-		if aforo.IsNotFound(err) {
-			return offeringResponse{}, false, nil
-		}
+	var offerings []offeringResponse
+	if _, err := listAllOptional(ctx, c, listURL, RequestOptions{TenantID: tenantID}, &offerings); err != nil {
 		return offeringResponse{}, false, err
 	}
-	for _, o := range page.Data {
-		if o.ExternalID == externalID {
+	for _, o := range offerings {
+		if o.Code == code {
 			return o, true, nil
 		}
 	}

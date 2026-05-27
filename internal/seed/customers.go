@@ -11,43 +11,73 @@ import (
 // customerCreateRequest mirrors customer-service's CreateCustomerRequest.
 //
 // Field-name contract (verified against customer-service
-// CreateCustomerRequest.java):
+// CreateCustomerRequest.java; enforced by internal/seed/contract_test.go):
 //   - name — @NotBlank, @Size(max=255).
 //   - email — @NotBlank, @Email.
-//   - plan — @NotBlank, one of STANDARD|BUSINESS|ENTERPRISE. Loadgen
-//     previously omitted this and would have hit 400 "Plan is required"
-//     once the product-creation blocker is past.
+//   - plan — @NotBlank, one of STANDARD|BUSINESS|ENTERPRISE.
 //   - defaultCurrency (NOT "currency") — ISO 4217. The DTO field is
-//     `defaultCurrency`; the previous "currency" key was silently dropped.
-//   - externalId is NOT a DTO field — silently dropped server-side.
-//     Loadgen keeps it on the body for forward-compat.
+//     `defaultCurrency`; "currency" would be silently dropped.
+//
+// CONVENTION (see CONVENTIONS.md "Wire-format alignment"): EVERY field on
+// this struct maps to a real CreateCustomerRequest.java column.
+// Deterministic identity for cross-day lookup is `email`
+// (lookupCustomerByEmail). Idempotency-Key is the loadgen-internal
+// seedKey set by provisionCustomer.
 type customerCreateRequest struct {
-	ExternalID      string `json:"externalId,omitempty"`
 	Name            string `json:"name"`
 	Email           string `json:"email"`
 	Plan            string `json:"plan"`
 	DefaultCurrency string `json:"defaultCurrency,omitempty"`
 }
 
+// customerResponse mirrors the subset of customer-service's CustomerResponse
+// that the seed harness consumes.
+//
+// Drift-fix (2026-05-27): the response no longer reads `externalId` —
+// customer-service has no such field on the entity or DTO (verified against
+// aforo-nextgen-customer-service/.../CustomerResponse.java). The previous
+// loadgen response struct read `json:"externalId"` which always decoded to
+// "" and made every lookupCustomerByExternalID call return "not found",
+// silently fanning out duplicate creates on cross-day reruns.
+// Name + email are the deterministic identity keys (email is unique per
+// tenant: `${externalID}@loadgen.aforo.test`) and drive lookupCustomerByEmail.
 type customerResponse struct {
-	ID         string `json:"id"`
-	ExternalID string `json:"externalId"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
 }
 
 // provisionCustomer creates one customer for a tenant. Currency is recorded
 // on the customer (so the offering can be currency-matched).
-func provisionCustomer(ctx context.Context, c *Client, tenantID, externalID, currency string, archetype string, seq int) (customerResponse, error) {
-	if existing, ok, err := lookupCustomerByExternalID(ctx, c, tenantID, externalID); err != nil {
-		return customerResponse{}, fmt.Errorf("lookup customer %q: %w", externalID, err)
+//
+// Idempotency strategy (drift-fix 2026-05-27):
+//   - Within 24h: Idempotency-Key header on POST is honored by customer-
+//     service so re-sending the same request returns the same response.
+//   - Cross-day / DB-reset: lookupCustomerByEmail runs first. customer-
+//     service's GET /api/v1/customers exposes no server-side filter, so the
+//     lookup pages client-side and matches by exact email (the deterministic
+//     key derived from externalID).
+//
+// Parameters:
+//   - seedKey: loadgen-internal opaque deterministic string sent as the
+//     HTTP Idempotency-Key header. Also embedded in the customer's
+//     email ({seedKey}@loadgen.aforo.test) so the email itself remains a
+//     deterministic cross-day identity key (driven by lookupCustomerByEmail).
+//     See CONVENTIONS.md for the seedKey + Idempotency-Key contract.
+func provisionCustomer(ctx context.Context, c *Client, tenantID, seedKey, currency string, archetype string, seq int) (customerResponse, error) {
+	email := fmt.Sprintf("%s@loadgen.aforo.test", seedKey)
+
+	if existing, ok, err := lookupCustomerByEmail(ctx, c, tenantID, email); err != nil {
+		return customerResponse{}, fmt.Errorf("lookup customer %q: %w", email, err)
 	} else if ok {
 		return existing, nil
 	}
-	// Name MUST NOT contain square brackets — same forward-compat
-	// reasoning as products (see products.go).
+	// Name MUST NOT contain square brackets — catalog-service's
+	// ValidBusinessName validator (mirrored on customer.name) rejects
+	// anything outside [a-zA-Z0-9\s\-_.()].
 	body := customerCreateRequest{
-		ExternalID:      externalID,
 		Name:            fmt.Sprintf("Loadgen Customer %s %03d", archetype, seq),
-		Email:           fmt.Sprintf("%s@loadgen.aforo.test", externalID),
+		Email:           email,
 		Plan:            "STANDARD",
 		DefaultCurrency: currency,
 	}
@@ -58,44 +88,42 @@ func provisionCustomer(ctx context.Context, c *Client, tenantID, externalID, cur
 	var resp customerResponse
 	err = c.Do(ctx, http.MethodPost, createURL, body, &resp, RequestOptions{
 		TenantID:    tenantID,
-		Idempotency: externalID,
+		Idempotency: seedKey,
 	})
 	if err != nil {
 		if aforo.IsConflict(err) {
-			existing, ok, lookupErr := lookupCustomerByExternalID(ctx, c, tenantID, externalID)
+			existing, ok, lookupErr := lookupCustomerByEmail(ctx, c, tenantID, email)
 			if lookupErr == nil && ok {
 				return existing, nil
 			}
 		}
-		return customerResponse{}, fmt.Errorf("create customer %q: %w", externalID, err)
+		return customerResponse{}, fmt.Errorf("create customer (seedKey=%q): %w", seedKey, err)
 	}
 	if c.DryRun() {
-		resp.ID = "dryrun-customer-" + externalID
-		resp.ExternalID = externalID
+		resp.ID = "dryrun-customer-" + seedKey
+		resp.Email = email
+		resp.Name = body.Name
 	}
 	return resp, nil
 }
 
-func lookupCustomerByExternalID(ctx context.Context, c *Client, tenantID, externalID string) (customerResponse, bool, error) {
+// lookupCustomerByEmail pages through customer-service's GET /api/v1/customers
+// and filters client-side by exact email match. customer-service's list
+// endpoint has no server-side email filter (verified against
+// CustomerController.listCustomers — accepts only Pageable). The seed
+// harness's deterministic email scheme (`<externalId>@loadgen.aforo.test`)
+// guarantees uniqueness, so an exact match is the right identity check.
+func lookupCustomerByEmail(ctx context.Context, c *Client, tenantID, email string) (customerResponse, bool, error) {
 	listURL, err := c.Target().Path(aforo.ServiceCustomer, aforo.PathCustomers)
 	if err != nil {
 		return customerResponse{}, false, err
 	}
-	var page struct {
-		Data []customerResponse `json:"data"`
-	}
-	err = c.Do(ctx, http.MethodGet, listURL, nil, &page, RequestOptions{
-		TenantID: tenantID,
-		Query:    map[string][]string{"externalId": {externalID}},
-	})
-	if err != nil {
-		if aforo.IsNotFound(err) {
-			return customerResponse{}, false, nil
-		}
+	var customers []customerResponse
+	if _, err := listAllOptional(ctx, c, listURL, RequestOptions{TenantID: tenantID}, &customers); err != nil {
 		return customerResponse{}, false, err
 	}
-	for _, x := range page.Data {
-		if x.ExternalID == externalID {
+	for _, x := range customers {
+		if x.Email == email {
 			return x, true, nil
 		}
 	}

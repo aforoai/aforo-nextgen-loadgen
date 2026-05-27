@@ -429,10 +429,15 @@ func (be *fakeBackend) handle(w http.ResponseWriter, r *http.Request, body []byt
 			if id := lastPathSegment(path); id != "" {
 				for _, ent := range be.entities[collection] {
 					if ent["id"] == id {
-						// Synthesize revoked=true on api-keys post-cancel for tests.
+						// Synthesize status="REVOKED" on api-keys post-cancel for tests.
+						// Drift-fix 2026-05-27: backend models revocation as
+						// `status = REVOKED` (string enum), not as a boolean
+						// `revoked` column. apiKeyResponse.Revoked() reads
+						// Status == "REVOKED", so the test fake must set
+						// status (not revoked) to match the real wire shape.
 						if collection == "api-keys" {
 							ent = copyMap(ent)
-							ent["revoked"] = true
+							ent["status"] = "REVOKED"
 							now := time.Now().UTC().Format(time.RFC3339)
 							ent["revokedAt"] = now
 						}
@@ -456,10 +461,24 @@ func (be *fakeBackend) handle(w http.ResponseWriter, r *http.Request, body []byt
 	case http.MethodPost:
 		var payload map[string]any
 		_ = json.Unmarshal(body, &payload)
-		extID, _ := payload["externalId"].(string)
+
+		// Drift-fix (rename pass): production loadgen request bodies no
+		// longer carry an `externalId` field on most entities (per the
+		// no-phantom-fields convention in CONVENTIONS.md). The fake
+		// previously indexed entities by payload["externalId"]; we now
+		// use the HTTP Idempotency-Key header (= loadgen's seedKey) as
+		// the dedup key, matching how real backends honor Idempotency-Key.
+		// Tenants are the one entity whose body still carries externalId
+		// legitimately, and the header also matches for them.
+		seedKey := r.Header.Get("Idempotency-Key")
+		// Fall back to body externalId for tenants (still wire field)
+		// in case a future caller drops the header.
+		if seedKey == "" {
+			seedKey, _ = payload["externalId"].(string)
+		}
 
 		// /subscriptions/{id}/cancel and /pause and /api-keys/{id}/revoke don't
-		// have externalIds — they're action endpoints.
+		// have body keys — they're action endpoints.
 		if strings.Contains(r.URL.Path, "/cancel") || strings.Contains(r.URL.Path, "/pause") || strings.Contains(r.URL.Path, "/revoke") || strings.Contains(r.URL.Path, "/expire") {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 			return
@@ -495,8 +514,8 @@ func (be *fakeBackend) handle(w http.ResponseWriter, r *http.Request, body []byt
 			return
 		}
 
-		if extID != "" {
-			if _, ok := be.entities[collection][extID]; ok {
+		if seedKey != "" {
+			if _, ok := be.entities[collection][seedKey]; ok {
 				writeJSON(w, http.StatusConflict, map[string]any{"error": "already exists"})
 				return
 			}
@@ -506,8 +525,8 @@ func (be *fakeBackend) handle(w http.ResponseWriter, r *http.Request, body []byt
 			ent[k] = v
 		}
 		ent["id"] = be.nextID(collection)
-		if extID != "" {
-			be.entities[collection][extID] = ent
+		if seedKey != "" {
+			be.entities[collection][seedKey] = ent
 		}
 		// Subscription create response includes status=ACTIVE so transition logic works.
 		if collection == "subscriptions" && ent["status"] == nil {

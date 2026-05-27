@@ -377,14 +377,16 @@ func miniManifest() *seed.Manifest {
 				BillingMode:  scenario.BillingPostpaid,
 				Products: []seed.ManifestProduct{{
 					ProductID:   "product-1",
-					ExternalID:  "p-1",
+					Name:        "p-1",
+					SeedKey:     "loadgen-product-test-1",
 					ProductType: scenario.ProductAPI,
 					MetricIDs:   []string{"metric-1"},
 				}},
 				Customers: []seed.ManifestCustomer{
 					{
 						CustomerID: "cust-1",
-						ExternalID: "loadgen-cust-1",
+						Email:      "loadgen-cust-1@loadgen.aforo.test",
+						SeedKey:    "loadgen-cust-1",
 						Currency:   "USD",
 						Subscriptions: []seed.ManifestSubscription{
 							{
@@ -416,14 +418,16 @@ func miniManifest() *seed.Manifest {
 				BillingMode:  scenario.BillingPostpaid,
 				Products: []seed.ManifestProduct{{
 					ProductID:   "product-2",
-					ExternalID:  "p-2",
+					Name:        "p-2",
+					SeedKey:     "loadgen-product-test-2",
 					ProductType: scenario.ProductAPI,
 					MetricIDs:   []string{"metric-2"},
 				}},
 				Customers: []seed.ManifestCustomer{
 					{
 						CustomerID: "cust-2",
-						ExternalID: "loadgen-cust-2",
+						Email:      "loadgen-cust-2@loadgen.aforo.test",
+						SeedKey:    "loadgen-cust-2",
 						Currency:   "USD",
 						Subscriptions: []seed.ManifestSubscription{
 							{

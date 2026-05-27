@@ -34,6 +34,14 @@ type Manifest struct {
 // ManifestTenant is a single tenant slot — one archetype, one billing config,
 // the products/rate plans/offerings created for it, and the customers (each
 // of whom may have multiple subscriptions across different states).
+//
+// IDENTITY FIELDS (see CONVENTIONS.md "Manifest schema"):
+//   - tenant_id: backend-assigned primary key (`id` on LoadgenTenantResponse).
+//   - external_id: the ONE legitimate externalId on the platform —
+//     organization-service's /internal/admin endpoint genuinely stores
+//     and round-trips this column. Kept named external_id because that's
+//     the backend column name; renaming to seed_key here would lose the
+//     direct backend ↔ manifest mapping.
 type ManifestTenant struct {
 	TenantID     string                `json:"tenant_id"`
 	ExternalID   string                `json:"external_id"`
@@ -47,34 +55,63 @@ type ManifestTenant struct {
 }
 
 // ManifestProduct mirrors a created product (catalog-service).
+//
+// IDENTITY FIELDS:
+//   - product_id: backend `id`.
+//   - name: backend `name` — the deterministic cross-day identity key for
+//     lookupProductByName.
+//   - seed_key: loadgen-internal Idempotency-Key value (= what we sent on
+//     the HTTP Idempotency-Key header). Useful for grep-debugging across
+//     loadgen logs but NOT a backend column on products.
 type ManifestProduct struct {
 	ProductID   string               `json:"product_id"`
-	ExternalID  string               `json:"external_id"`
+	Name        string               `json:"name"`
+	SeedKey     string               `json:"seed_key"`
 	ProductType scenario.ProductType `json:"product_type"`
 	MetricIDs   []string             `json:"metric_ids,omitempty"`
 }
 
 // ManifestRatePlan mirrors a created rate plan.
+//
+// IDENTITY FIELDS:
+//   - rate_plan_id: backend `id`.
+//   - name: backend `name` — deterministic key for lookupRatePlanByName.
+//   - seed_key: loadgen-internal Idempotency-Key value.
 type ManifestRatePlan struct {
 	RatePlanID string         `json:"rate_plan_id"`
-	ExternalID string         `json:"external_id"`
+	Name       string         `json:"name"`
+	SeedKey    string         `json:"seed_key"`
 	Version    int            `json:"version"`
 	Config     map[string]any `json:"config"`
 }
 
 // ManifestOffering mirrors a created offering.
+//
+// IDENTITY FIELDS:
+//   - offering_id: backend `id`.
+//   - code: backend `code` (per-tenant UNIQUE) — deterministic key for
+//     lookupOfferingByCode. Loadgen reuses seedKey as the code value.
+//   - seed_key: loadgen-internal Idempotency-Key value (= code).
 type ManifestOffering struct {
 	OfferingID  string               `json:"offering_id"`
-	ExternalID  string               `json:"external_id"`
+	Code        string               `json:"code"`
+	SeedKey     string               `json:"seed_key"`
 	BillingMode scenario.BillingMode `json:"billing_mode"`
 	Currency    string               `json:"currency"`
 }
 
 // ManifestCustomer is one customer, with the subscriptions (and their keys)
 // the harness created for them.
+//
+// IDENTITY FIELDS:
+//   - customer_id: backend `id`.
+//   - email: backend `email` — deterministic key for lookupCustomerByEmail
+//     (`{seed_key}@loadgen.aforo.test`).
+//   - seed_key: loadgen-internal Idempotency-Key value.
 type ManifestCustomer struct {
 	CustomerID    string                 `json:"customer_id"`
-	ExternalID    string                 `json:"external_id"`
+	Email         string                 `json:"email"`
+	SeedKey       string                 `json:"seed_key"`
 	Currency      string                 `json:"currency"`
 	Discount      *ManifestDiscount      `json:"discount,omitempty"`
 	Subscriptions []ManifestSubscription `json:"subscriptions"`
@@ -91,9 +128,18 @@ type ManifestDiscount struct {
 // ManifestSubscription is one subscription row. Stale=true means the
 // subscription is in CANCELLED or EXPIRED — keys here are revoked and
 // negative-path traffic uses them to test stale-key rejection.
+//
+// IDENTITY FIELDS:
+//   - subscription_id: backend `id`.
+//   - customer_id + offering_id: the deterministic identity pair for
+//     lookupSubscriptionByCustomerAndOffering (backend has no
+//     externalId column on subscriptions).
+//   - seed_key: loadgen-internal Idempotency-Key value.
 type ManifestSubscription struct {
 	SubscriptionID         string                     `json:"subscription_id"`
-	ExternalID             string                     `json:"external_id"`
+	CustomerID             string                     `json:"customer_id"`
+	OfferingID             string                     `json:"offering_id"`
+	SeedKey                string                     `json:"seed_key"`
 	Status                 scenario.SubscriptionState `json:"status"`
 	Stale                  bool                       `json:"stale"`
 	StaleReason            string                     `json:"stale_reason,omitempty"`

@@ -19,10 +19,14 @@ type Subject struct {
 	BillingMode    scenario.BillingMode
 	CustomerID     string
 	SubscriptionID string
-	ExternalSubID  string
-	State          scenario.SubscriptionState
-	OfferingIDs    []string // every offering on the tenant — for migration target choice
-	CurrentOffer   string   // best-effort; empty when seed harness didn't capture
+	// SubSeedKey is the loadgen-internal Idempotency-Key value that was used
+	// when the subscription was provisioned. Useful for grep-debugging
+	// across seed + lifecycle logs. NOT a backend column on subscriptions
+	// (per CONVENTIONS.md — only tenants legitimately carry externalId).
+	SubSeedKey   string
+	State        scenario.SubscriptionState
+	OfferingIDs  []string // every offering on the tenant — for migration target choice
+	CurrentOffer string   // best-effort; empty when seed harness didn't capture
 }
 
 // Picker samples eligible Subjects for transition kinds. Sampling is
@@ -68,7 +72,7 @@ func NewPicker(m *seed.Manifest, seed int64) *Picker {
 					BillingMode:    t.BillingMode,
 					CustomerID:     c.CustomerID,
 					SubscriptionID: s.SubscriptionID,
-					ExternalSubID:  s.ExternalID,
+					SubSeedKey:     s.SeedKey,
 					State:          s.Status,
 					OfferingIDs:    offerings,
 				})

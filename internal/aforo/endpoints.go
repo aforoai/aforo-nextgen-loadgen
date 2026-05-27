@@ -326,3 +326,27 @@ const (
 	// usage-ingestor (sanity check only)
 	PathUsageIngest = "/v1/ingest"
 )
+
+// PathWalletByCustomer is the URL for billing-service's
+// GET /api/v1/wallets/by-customer/{customerId} dedicated endpoint that
+// returns the single company wallet (with department wallet info embedded)
+// for a customer. Used by loadgen's lookup-before-create idempotency path
+// in place of the previous broken `?externalId=` filter on the list root.
+//
+// Kept as a helper function rather than a fmt-style constant because the
+// path segment is interpolated (mirrors how a fmt.Sprintf pattern would
+// behave) without giving up compile-time call-site discoverability via
+// `find references`.
+func PathWalletByCustomer(customerID string) string {
+	return "/api/v1/wallets/by-customer/" + customerID
+}
+
+// PathPaymentMethodsByCustomer is the URL for billing-service's
+// GET /api/v1/payment-methods/customer/{customerId} dedicated endpoint that
+// returns the list of payment methods for a customer. Used in place of the
+// previous broken `?externalId=` filter on the list root, which doesn't
+// exist server-side (the list root is not exposed at all; only the
+// per-customer subroute is).
+func PathPaymentMethodsByCustomer(customerID string) string {
+	return "/api/v1/payment-methods/customer/" + customerID
+}

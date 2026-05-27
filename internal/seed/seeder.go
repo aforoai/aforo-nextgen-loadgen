@@ -131,7 +131,10 @@ func (s *Seeder) Run(ctx context.Context) (*RunResult, error) {
 
 func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenario.TenantArchetype, seq int, rng *mathrand.Rand) error {
 	c := s.cfg.Client
-	tenantExternalID := externalID("tenant", a.Name, s.cfg.RunID, seq)
+	// Tenant is the ONE entity where externalId is a real backend column
+	// (LoadgenTenantResponse on /internal/admin). Other entities use
+	// seedKey only as the Idempotency-Key header value. See CONVENTIONS.md.
+	tenantExternalID := seedKey("tenant", a.Name, s.cfg.RunID, seq)
 	tenant, err := provisionTenant(ctx, c, tenantExternalID, fmt.Sprintf("Loadgen Tenant [%s] %03d", a.Name, seq), a.Name)
 	if err != nil {
 		return err
@@ -149,21 +152,22 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 	productIDs := make([]string, 0, len(a.ProductTypes))
 	metricIDs := make([]string, 0, 4)
 	for _, pt := range a.ProductTypes {
-		prodExt := externalID(fmt.Sprintf("product-%s", pt), a.Name, s.cfg.RunID, seq)
-		prod, err := provisionProduct(ctx, c, tenant.ID, prodExt, a.Name, pt)
+		prodSeedKey := seedKey(fmt.Sprintf("product-%s", pt), a.Name, s.cfg.RunID, seq)
+		prod, err := provisionProduct(ctx, c, tenant.ID, prodSeedKey, a.Name, pt)
 		if err != nil {
 			return err
 		}
 		productIDs = append(productIDs, prod.ID)
 
-		metricExt := externalID(fmt.Sprintf("metrics-%s", pt), a.Name, s.cfg.RunID, seq)
-		metrics, err := provisionMetricsForProduct(ctx, c, tenant.ID, prod.ID, pt, metricExt)
+		metricSeedKey := seedKey(fmt.Sprintf("metrics-%s", pt), a.Name, s.cfg.RunID, seq)
+		metrics, err := provisionMetricsForProduct(ctx, c, tenant.ID, prod.ID, pt, metricSeedKey)
 		if err != nil {
 			return err
 		}
 		mProd := ManifestProduct{
 			ProductID:   prod.ID,
-			ExternalID:  prodExt,
+			Name:        prod.Name,
+			SeedKey:     prodSeedKey,
 			ProductType: pt,
 		}
 		for _, m := range metrics {
@@ -174,14 +178,15 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 	}
 
 	// One rate plan covering all products + their metrics.
-	rpExt := externalID("rateplan", a.Name, s.cfg.RunID, seq)
-	rp, err := provisionRatePlan(ctx, c, tenant.ID, a, productIDs, metricIDs, rpExt)
+	rpSeedKey := seedKey("rateplan", a.Name, s.cfg.RunID, seq)
+	rp, err := provisionRatePlan(ctx, c, tenant.ID, a, productIDs, metricIDs, rpSeedKey)
 	if err != nil {
 		return err
 	}
 	mt.RatePlans = append(mt.RatePlans, ManifestRatePlan{
 		RatePlanID: rp.ID,
-		ExternalID: rpExt,
+		Name:       rp.Name,
+		SeedKey:    rpSeedKey,
 		Version:    rp.Version,
 		Config:     rateConfigSummary(a),
 	})
@@ -192,15 +197,16 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 	currencies := uniqueCurrencies(plan.Customers)
 	offByCurrency := make(map[string]offeringResponse, len(currencies))
 	for _, cur := range currencies {
-		offExt := externalID(fmt.Sprintf("offering-%s", cur), a.Name, s.cfg.RunID, seq)
-		off, err := provisionOffering(ctx, c, tenant.ID, offExt, a, rp.ID, cur)
+		offSeedKey := seedKey(fmt.Sprintf("offering-%s", cur), a.Name, s.cfg.RunID, seq)
+		off, err := provisionOffering(ctx, c, tenant.ID, offSeedKey, a, rp.ID, cur)
 		if err != nil {
 			return err
 		}
 		offByCurrency[cur] = off
 		mt.Offerings = append(mt.Offerings, ManifestOffering{
 			OfferingID:  off.ID,
-			ExternalID:  offExt,
+			Code:        off.Code,
+			SeedKey:     offSeedKey,
 			BillingMode: a.BillingMode,
 			Currency:    cur,
 		})
@@ -208,22 +214,23 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 
 	// One customer + subscription chain per plan slot.
 	for _, cp := range plan.Customers {
-		custExt := externalID("customer", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
-		cust, err := provisionCustomer(ctx, c, tenant.ID, custExt, cp.Currency, a.Name, cp.Seq)
+		custSeedKey := seedKey("customer", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
+		cust, err := provisionCustomer(ctx, c, tenant.ID, custSeedKey, cp.Currency, a.Name, cp.Seq)
 		if err != nil {
 			return err
 		}
 		mc := ManifestCustomer{
 			CustomerID: cust.ID,
-			ExternalID: custExt,
+			Email:      cust.Email,
+			SeedKey:    custSeedKey,
 			Currency:   cp.Currency,
 			Discount:   cp.Discount,
 		}
 
 		walletID := ""
 		if a.BillingMode == scenario.BillingPrepaid || a.BillingMode == scenario.BillingHybrid {
-			walExt := externalID("wallet", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
-			wallet, err := provisionWallet(ctx, c, tenant.ID, walExt, cust.ID, cp.Currency, a.RateConfig.WalletInitialBalanceUSD)
+			walSeedKey := seedKey("wallet", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
+			wallet, err := provisionWallet(ctx, c, tenant.ID, walSeedKey, cust.ID, cp.Currency, a.RateConfig.WalletInitialBalanceUSD)
 			if err != nil {
 				return err
 			}
@@ -232,8 +239,8 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 
 		paymentMethodID := ""
 		if a.BillingMode == scenario.BillingPostpaid || a.BillingMode == scenario.BillingHybrid {
-			pmExt := externalID("pm", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
-			pm, err := provisionPaymentMethod(ctx, c, tenant.ID, pmExt, cust.ID, cp.Seq)
+			pmSeedKey := seedKey("pm", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
+			pm, err := provisionPaymentMethod(ctx, c, tenant.ID, pmSeedKey, cust.ID, cp.Seq)
 			if err != nil {
 				return err
 			}
@@ -241,15 +248,17 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		}
 
 		off := offByCurrency[cp.Currency]
-		subExt := externalID("sub", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
-		sub, _, err := provisionSubscription(ctx, c, tenant.ID, subExt, off.ID, cust.ID, walletID, paymentMethodID, cp.State, a.Name)
+		subSeedKey := seedKey("sub", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
+		sub, _, err := provisionSubscription(ctx, c, tenant.ID, subSeedKey, off.ID, cust.ID, walletID, paymentMethodID, cp.State, a.Name)
 		if err != nil {
 			return err
 		}
 
 		ms := ManifestSubscription{
 			SubscriptionID:         sub.ID,
-			ExternalID:             subExt,
+			CustomerID:             cust.ID,
+			OfferingID:             off.ID,
+			SeedKey:                subSeedKey,
 			Status:                 cp.State,
 			WalletID:               walletID,
 			PaymentMethodID:        paymentMethodID,
@@ -258,8 +267,8 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 
 		// Apply discount, if any.
 		if cp.Discount != nil {
-			discExt := externalID("discount", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
-			if err := applyDiscount(ctx, c, tenant.ID, discExt, sub.ID, cp.Discount); err != nil {
+			discSeedKey := seedKey("discount", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
+			if err := applyDiscount(ctx, c, tenant.ID, discSeedKey, sub.ID, cp.Discount); err != nil {
 				return err
 			}
 		}
@@ -282,8 +291,8 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		// nothing else downstream depends on a key being present.
 		if cp.State != scenario.StateTrialing {
 			pt := a.ProductTypes[0]
-			keyExt := externalID("key", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
-			key, err := provisionAPIKey(ctx, c, tenant.ID, keyExt, cust.ID, sub.ID, pt)
+			keySeedKey := seedKey("key", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
+			key, err := provisionAPIKey(ctx, c, tenant.ID, keySeedKey, cust.ID, sub.ID, pt)
 			if err != nil {
 				return err
 			}
@@ -328,10 +337,26 @@ func uniqueCurrencies(plans []customerPlan) []string {
 	return out
 }
 
-// externalID is the deterministic naming pattern: "loadgen-{kind}-{archetype}-{run}-{seq:03d}".
-// All entity types follow this so a manual `--clean` against a stale manifest
-// can also be reconstructed by listing-then-archiving by external_id prefix.
-func externalID(kind, archetype, runID string, seq int) string {
+// seedKey is the deterministic Idempotency-Key string loadgen sends as the
+// HTTP `Idempotency-Key` header on every entity create. Shape:
+// "loadgen-{kind}-{archetype}-{run}-{seq:03d}". Two callers with the same
+// (kind, archetype, runID, seq) produce the same key, so backend's
+// IdempotencyResponseService caches the response and a retry returns the
+// same body without creating a duplicate.
+//
+// CONVENTION (see CONVENTIONS.md "Identity model"): seedKey is a LOADGEN-
+// INTERNAL concept. It is NOT a backend column on any entity except
+// tenants. It is NEVER sent in a request body — only as the
+// Idempotency-Key header. Cross-day deterministic identity for lookups
+// uses each entity's real backend column (products→name, customers→email,
+// offerings→code, etc.); the seedKey only matters within the backend's
+// idempotency-cache TTL (24h default).
+//
+// The "external_id prefix" naming convention remains useful for `--clean`
+// scans against the LoadgenTenant /internal/admin endpoint (the one place
+// backend genuinely stores externalId), and for grep-debugging in
+// loadgen-side logs.
+func seedKey(kind, archetype, runID string, seq int) string {
 	return fmt.Sprintf("loadgen-%s-%s-%s-%03d", kind, archetype, runID, seq)
 }
 

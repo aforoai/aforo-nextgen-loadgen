@@ -446,14 +446,58 @@ go test -tags integration ./internal/seed/... # seeds, picks a stale key, hits i
 ## Development
 
 ```bash
-make build      # compile to bin/aforo-loadgen
-make test       # run unit tests with -race
-make lint       # run golangci-lint (run `make lint-install` first)
-make fmt        # gofmt -s
-make tidy       # go mod tidy
+make build           # compile to bin/aforo-loadgen
+make test            # run unit tests with -race
+make lint            # run golangci-lint (run `make lint-install` first)
+make fmt             # gofmt -s
+make tidy            # go mod tidy
+make contract-test   # validate loadgen ↔ backend OpenAPI wire-format contract
+make sync-openapi    # refresh openapi/<service>.json snapshots from a running backend
 ```
 
-CI runs `make build`, `make test`, and `golangci-lint` on every PR.
+CI runs `make build`, `make test`, `make contract-test`, and `golangci-lint`
+on every PR.
+
+### Backend wire-format contract (sync mechanism)
+
+Loadgen calls 9 backend microservices via REST. The governing rule is:
+**loadgen invents no field names — every json tag, every Go identifier, every
+manifest column maps 1:1 to a real backend column.** The full convention
+lives at [`CONVENTIONS.md`](CONVENTIONS.md) — read that before adding a
+new entity or modifying an existing wire surface.
+
+The convention is enforced mechanically: every Go request / response
+struct in `internal/seed/` carries `json:"..."` tags that the contract
+test at `internal/seed/contract_test.go` reflects against the committed
+OpenAPI snapshots under `openapi/`. Drift fails CI.
+
+The flow when a backend DTO changes:
+
+1. Backend rename lands (e.g. `productType` → `type` on
+   `ProductResponse.java`).
+2. A maintainer runs `make sync-openapi` against a running local
+   docker-compose stack to refresh `openapi/<service>.json` from
+   Springdoc's `/v3/api-docs` endpoint.
+3. The next `make contract-test` (or `make test`, or CI) reports the
+   loadgen struct that still names the old field, along with a fix
+   message pointing at the struct file and the snapshot diff.
+4. The PR author updates the loadgen struct and commits both the snapshot
+   AND the loadgen change together so reviewers see the contract drift
+   end-to-end.
+
+Both directions are covered:
+
+- **Loadgen drift** (wrong json tag): contract test fails immediately on PR.
+- **Backend drift** (renamed field) without snapshot refresh: undetected
+  until the next `make sync-openapi`. Run it at least once per sprint
+  even when nothing in loadgen has changed — the diff in
+  `openapi/<service>.json` is itself a useful PR review artifact.
+
+When a new request/response struct lands in `internal/seed/`, add a row to
+`contractEntries()` in `internal/seed/contract_test.go` so the new struct
+is enforced. See `internal/contract/doc.go` for what the contract test
+catches + what it does NOT (type-shape drift and @NotBlank validation
+remain integration-test territory).
 
 ### Adding a subcommand
 

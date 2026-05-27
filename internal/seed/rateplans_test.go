@@ -174,12 +174,18 @@ func TestBuildRatePlanRequest_PerPricingModel(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := buildRatePlanRequest(tc.a, productIDs, metricIDs, "loadgen-rateplan-"+tc.a.Name+"-001")
+			// buildRatePlanRequest signature dropped its externalID arg
+			// (rename pass — see CONVENTIONS.md "Wire-format alignment").
+			// The deterministic backend identity for cross-day idempotency
+			// is now Name; the Idempotency-Key header is set by
+			// provisionRatePlan via the caller's seedKey, not by this builder.
+			req := buildRatePlanRequest(tc.a, productIDs, metricIDs)
 			if len(req.ProductIDs) != 1 || req.ProductIDs[0] != "prod-1" {
 				t.Errorf("ProductIDs = %v", req.ProductIDs)
 			}
-			if req.ExternalID != "loadgen-rateplan-"+tc.a.Name+"-001" {
-				t.Errorf("ExternalID = %s", req.ExternalID)
+			wantName := "Loadgen Rate Plan " + tc.a.Name
+			if req.Name != wantName {
+				t.Errorf("Name = %q, want %q", req.Name, wantName)
 			}
 			tc.assert(t, req)
 		})
