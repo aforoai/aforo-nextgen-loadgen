@@ -98,14 +98,14 @@ jobs:
           cache: true
 
       - name: goreleaser check (config validation)
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: 'v2.9.0'
           args: check
 
       - name: goreleaser snapshot (cross-compile dry run, no publish)
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: 'v2.9.0'
