@@ -8,12 +8,25 @@ import (
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/aforo"
 )
 
-// customerCreateRequest mirrors customer-service's create body.
+// customerCreateRequest mirrors customer-service's CreateCustomerRequest.
+//
+// Field-name contract (verified against customer-service
+// CreateCustomerRequest.java):
+//   - name — @NotBlank, @Size(max=255).
+//   - email — @NotBlank, @Email.
+//   - plan — @NotBlank, one of STANDARD|BUSINESS|ENTERPRISE. Loadgen
+//     previously omitted this and would have hit 400 "Plan is required"
+//     once the product-creation blocker is past.
+//   - defaultCurrency (NOT "currency") — ISO 4217. The DTO field is
+//     `defaultCurrency`; the previous "currency" key was silently dropped.
+//   - externalId is NOT a DTO field — silently dropped server-side.
+//     Loadgen keeps it on the body for forward-compat.
 type customerCreateRequest struct {
-	ExternalID string `json:"externalId"`
-	Name       string `json:"name"`
-	Email      string `json:"email,omitempty"`
-	Currency   string `json:"currency,omitempty"`
+	ExternalID      string `json:"externalId,omitempty"`
+	Name            string `json:"name"`
+	Email           string `json:"email"`
+	Plan            string `json:"plan"`
+	DefaultCurrency string `json:"defaultCurrency,omitempty"`
 }
 
 type customerResponse struct {
@@ -29,11 +42,14 @@ func provisionCustomer(ctx context.Context, c *Client, tenantID, externalID, cur
 	} else if ok {
 		return existing, nil
 	}
+	// Name MUST NOT contain square brackets — same forward-compat
+	// reasoning as products (see products.go).
 	body := customerCreateRequest{
-		ExternalID: externalID,
-		Name:       fmt.Sprintf("Loadgen Customer [%s] %03d", archetype, seq),
-		Email:      fmt.Sprintf("%s@loadgen.aforo.test", externalID),
-		Currency:   currency,
+		ExternalID:      externalID,
+		Name:            fmt.Sprintf("Loadgen Customer %s %03d", archetype, seq),
+		Email:           fmt.Sprintf("%s@loadgen.aforo.test", externalID),
+		Plan:            "STANDARD",
+		DefaultCurrency: currency,
 	}
 	createURL, err := c.Target().Path(aforo.ServiceCustomer, aforo.PathCustomers)
 	if err != nil {

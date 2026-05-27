@@ -12,16 +12,27 @@ import (
 // metricConfigRequest mirrors pricing-service's MetricConfigRequest — one
 // row per (metric, pricing_model) inside a rate plan. The platform's V3 rate
 // plan API accepts any combination of metrics, each with its own model.
+//
+// Field-name + allowed-value contract (verified against pricing-service
+// CreateRatePlanRequest.MetricConfigRequest):
+//   - JSON field is "model" (NOT "pricingModel"). The Java field name is
+//     "model" with default "PER_UNIT"; sending "pricingModel" is silently
+//     ignored and every metric is then billed as PER_UNIT, breaking every
+//     non-PER_UNIT archetype.
+//   - billingTiming allowed values: "ARREARS" | "ADVANCE". The legacy value
+//     "IN_ARREARS" is rejected.
+//   - JSON field is "ovBehavior" (NOT "overageBehavior") with allowed values
+//     "CHARGE" | "BLOCK" | "IGNORE". The legacy value "ALLOW" is rejected.
 type metricConfigRequest struct {
-	MetricID        string                `json:"metricId"`
-	PricingModel    scenario.PricingModel `json:"pricingModel"`
-	Rate            float64               `json:"rate,omitempty"`
-	IncludedFree    int64                 `json:"includedFree,omitempty"`
-	BlockSize       int64                 `json:"blockSize,omitempty"`
-	MinFee          float64               `json:"minFee,omitempty"`
-	BillingTiming   string                `json:"billingTiming,omitempty"`
-	Tiers           []rateTierRequest     `json:"tiers,omitempty"`
-	OverageBehavior string                `json:"overageBehavior,omitempty"`
+	MetricID      string                `json:"metricId"`
+	Model         scenario.PricingModel `json:"model"`
+	Rate          float64               `json:"rate,omitempty"`
+	IncludedFree  int64                 `json:"includedFree,omitempty"`
+	BlockSize     int64                 `json:"blockSize,omitempty"`
+	MinFee        float64               `json:"minFee,omitempty"`
+	BillingTiming string                `json:"billingTiming,omitempty"`
+	Tiers         []rateTierRequest     `json:"tiers,omitempty"`
+	OvBehavior    string                `json:"ovBehavior,omitempty"`
 }
 
 type rateTierRequest struct {
@@ -34,10 +45,17 @@ type rateTierRequest struct {
 
 // ratePlanCreateRequest is the V3 rate plan create body. productIds and
 // metricConfigs replace the v1 productId/metricId scalars.
+//
+// Top-level pricingModel is @NotBlank on the server — omitting it returns
+// 400 "Pricing model is required". The per-metric `model` is independent;
+// the top-level field is the rate plan's primary pricing model and drives
+// the wizard UI in aforo-product (no functional billing role today since
+// each metric carries its own model).
 type ratePlanCreateRequest struct {
-	ExternalID    string                `json:"externalId"`
+	ExternalID    string                `json:"externalId,omitempty"`
 	Name          string                `json:"name"`
 	Description   string                `json:"description,omitempty"`
+	PricingModel  string                `json:"pricingModel"`
 	Currency      string                `json:"currency"`
 	BaseFee       float64               `json:"baseFee,omitempty"`
 	ProductIDs    []string              `json:"productIds"`
@@ -105,12 +123,17 @@ func provisionRatePlan(ctx context.Context, c *Client, tenantID string, a scenar
 // also exercising the HTTP transport).
 func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metricIDs []string, externalID string) ratePlanCreateRequest {
 	rc := a.RateConfig
+	// Name MUST NOT contain square brackets — even though pricing-service
+	// today only checks @NotBlank on rate-plan names, the platform-wide
+	// convention is ValidBusinessName for any future strictening. Keep
+	// loadgen-generated names within [a-zA-Z0-9 \-_.()] for forward-compat.
 	body := ratePlanCreateRequest{
-		ExternalID:  externalID,
-		Name:        fmt.Sprintf("Loadgen Rate Plan [%s]", a.Name),
-		Description: fmt.Sprintf("Auto-provisioned for archetype=%s pricing=%s billing=%s", a.Name, a.PricingModel, a.BillingMode),
-		Currency:    "USD",
-		ProductIDs:  productIDs,
+		ExternalID:   externalID,
+		Name:         fmt.Sprintf("Loadgen Rate Plan %s", a.Name),
+		Description:  fmt.Sprintf("Auto-provisioned for archetype=%s pricing=%s billing=%s", a.Name, a.PricingModel, a.BillingMode),
+		PricingModel: string(a.PricingModel),
+		Currency:     "USD",
+		ProductIDs:   productIDs,
 	}
 	if a.PricingModel == scenario.PricingFlatRate {
 		body.BaseFee = rc.FlatFeeUSD
@@ -126,8 +149,8 @@ func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metri
 	for _, mid := range metricIDs {
 		mc := metricConfigRequest{
 			MetricID:      mid,
-			PricingModel:  a.PricingModel,
-			BillingTiming: "IN_ARREARS",
+			Model:         a.PricingModel,
+			BillingTiming: "ARREARS",
 		}
 		switch a.PricingModel {
 		case scenario.PricingFlatRate:
@@ -151,7 +174,10 @@ func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metri
 			if rc.BlockSizeUnits > 0 {
 				mc.BlockSize = rc.BlockSizeUnits
 			}
-			mc.OverageBehavior = "ALLOW"
+			// "CHARGE" is the v3 ovBehavior value that means "bill the
+			// overage at the metric's rate" — same intent as the legacy
+			// "ALLOW" name but matches the pricing-service enum.
+			mc.OvBehavior = "CHARGE"
 		case scenario.PricingGraduated:
 			mc.Tiers = tiersFromBands(rc.GraduatedTiers)
 		case scenario.PricingVolumeTiered:

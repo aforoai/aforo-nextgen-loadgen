@@ -267,13 +267,28 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		// One API key per subscription. Credential type is product-type aware.
 		// The first product type on the archetype drives the credential type
 		// (a multi-product archetype like AI_AGENT+API has at least one of each).
-		pt := a.ProductTypes[0]
-		keyExt := externalID("key", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
-		key, err := provisionAPIKey(ctx, c, tenant.ID, keyExt, sub.ID, pt)
-		if err != nil {
-			return err
+		// customerId is required by pricing-service's CreateApiKeyRequest and
+		// must match the subscription's customer.
+		//
+		// pricing-service ApiKeyServiceImpl.createKey rejects non-ACTIVE
+		// subscriptions ("Subscription is not active (status: TRIALING)").
+		// Loadgen creates the sub with startTrial=true for StateTrialing
+		// targets (see subscriptions.go), so the sub is TRIALING at this
+		// point — calling provisionAPIKey would 400. Skip key creation
+		// for TRIALING; the manifest still records the subscription, just
+		// without a bound key. Real-world trial customers also typically
+		// don't get keys until they convert, so this matches platform
+		// semantics. transitionSubscription is a no-op for TRIALING so
+		// nothing else downstream depends on a key being present.
+		if cp.State != scenario.StateTrialing {
+			pt := a.ProductTypes[0]
+			keyExt := externalID("key", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
+			key, err := provisionAPIKey(ctx, c, tenant.ID, keyExt, cust.ID, sub.ID, pt)
+			if err != nil {
+				return err
+			}
+			ms.APIKeys = append(ms.APIKeys, toManifestAPIKey(key))
 		}
-		ms.APIKeys = append(ms.APIKeys, toManifestAPIKey(key))
 
 		// Drive the subscription into its target state. CANCELLED/EXPIRED
 		// trigger the platform's atomic key-revocation cascade.

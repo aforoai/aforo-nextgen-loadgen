@@ -406,6 +406,22 @@ func (be *fakeBackend) handle(w http.ResponseWriter, r *http.Request, body []byt
 	switch r.Method {
 	case http.MethodGet:
 		extID := r.URL.Query().Get("externalId")
+		// /metrics/templates/{productType} returns a top-level list (matches
+		// real catalog-service MetricController.getTemplates). Return one
+		// canned template per request so the seeder has at least one name
+		// to pass into the bulk-create payload.
+		if strings.Contains(r.URL.Path, "/metrics/templates/") {
+			pt := lastPathSegment(r.URL.Path)
+			writeJSON(w, http.StatusOK, []map[string]any{{
+				"name":            fmt.Sprintf("Fake %s Template", pt),
+				"unitLabel":       "requests",
+				"aggregationType": "COUNT",
+				"eventField":      "request_count",
+				"description":     "fake-backend template",
+				"required":        true,
+			}})
+			return
+		}
 		// Pattern: /api/.../{collection}/{id} → fetch by id (used for fetchAPIKey, fetchSubscription)
 		path := strings.TrimSuffix(r.URL.Path, "/")
 		if !strings.HasSuffix(path, collection) {
@@ -449,12 +465,33 @@ func (be *fakeBackend) handle(w http.ResponseWriter, r *http.Request, body []byt
 			return
 		}
 
-		// /metrics/bulk doesn't have externalId either — return a synthetic created list.
+		// /metrics/bulk returns a top-level list (mirrors catalog-service's
+		// MetricController.bulkCreate response shape). We synthesize one
+		// metric per templateName so loadgen's downstream rate-plan create
+		// has a non-empty metricIDs slice.
 		if strings.HasSuffix(r.URL.Path, "/metrics/bulk") {
-			id := be.nextID("metric")
-			writeJSON(w, http.StatusOK, map[string]any{
-				"created": []map[string]any{{"id": id, "externalId": payload["externalIdPrefix"], "name": "Metric"}},
-			})
+			names, _ := payload["templateNames"].([]any)
+			created := []map[string]any{}
+			for i, n := range names {
+				nameStr, _ := n.(string)
+				if nameStr == "" {
+					nameStr = fmt.Sprintf("Metric-%d", i)
+				}
+				created = append(created, map[string]any{
+					"id":   be.nextID("metric"),
+					"name": nameStr,
+				})
+			}
+			if len(created) == 0 {
+				// Fallback so the seeder doesn't get an empty list when a
+				// test calls bulk with no templateNames (shouldn't happen
+				// post-fix, but keep the stub forgiving).
+				created = append(created, map[string]any{
+					"id":   be.nextID("metric"),
+					"name": "Metric",
+				})
+			}
+			writeJSON(w, http.StatusOK, created)
 			return
 		}
 

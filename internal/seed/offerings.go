@@ -9,17 +9,40 @@ import (
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/scenario"
 )
 
-// offeringCreateRequest mirrors pricing-service's OfferingCreateRequest.
+// offeringCreateRequest mirrors pricing-service's CreateOfferingRequest.
 // Escrow config fields are populated only for PREPAID/HYBRID modes.
+//
+// Field-name contract (verified against pricing-service
+// CreateOfferingRequest.java):
+//   - code — @NotBlank, unique-per-tenant identifier. Omitting it returns
+//     400 "Offering code is required". We reuse the loadgen externalId as
+//     the code so re-runs hit the per-tenant UNIQUE constraint and the
+//     server returns 409 (which loadgen's conflict path handles).
+//   - primaryRatePlanId (NOT "ratePlanId") — Size 36, the rate plan this
+//     offering wraps. Loadgen previously sent "ratePlanId" which the DTO
+//     does not declare; the server silently dropped it and the offering
+//     created with no rate plan, breaking downstream subscription create.
+//   - type — STANDALONE | BUNDLE | ADDON. We always create STANDALONE.
+//   - status — DRAFT | ACTIVE | ARCHIVED. We create ACTIVE so the offering
+//     is immediately available for subscriptions.
+//   - externalId is NOT a DTO field — silently dropped server-side.
+//     Loadgen keeps it on the body for forward-compat.
+//
+// walletInitialBalanceUsd: NOT a DTO field on CreateOfferingRequest. Wallet
+// initial balance lives on the wallet resource, not the offering. Loadgen
+// keeps the field for forward-compat but it's currently a no-op.
 type offeringCreateRequest struct {
-	ExternalID       string  `json:"externalId"`
-	Name             string  `json:"name"`
-	Description      string  `json:"description,omitempty"`
-	RatePlanID       string  `json:"ratePlanId"`
-	BillingMode      string  `json:"billingMode"`
-	Currency         string  `json:"currency"`
-	TrialDays        int     `json:"trialDays,omitempty"`
-	WalletInitialUSD float64 `json:"walletInitialBalanceUsd,omitempty"`
+	ExternalID        string  `json:"externalId,omitempty"`
+	Code              string  `json:"code"`
+	Name              string  `json:"name"`
+	Description       string  `json:"description,omitempty"`
+	Type              string  `json:"type,omitempty"`
+	Status            string  `json:"status,omitempty"`
+	PrimaryRatePlanID string  `json:"primaryRatePlanId"`
+	BillingMode       string  `json:"billingMode"`
+	Currency          string  `json:"currency"`
+	TrialDays         int     `json:"trialDays,omitempty"`
+	WalletInitialUSD  float64 `json:"walletInitialBalanceUsd,omitempty"`
 }
 
 type offeringResponse struct {
@@ -37,14 +60,19 @@ func provisionOffering(ctx context.Context, c *Client, tenantID, externalID stri
 	} else if ok {
 		return existing, nil
 	}
+	// Name MUST NOT contain square brackets — same forward-compat
+	// reasoning as products + rate plans (see products.go).
 	body := offeringCreateRequest{
-		ExternalID:  externalID,
-		Name:        fmt.Sprintf("Loadgen Offering [%s]", a.Name),
-		Description: fmt.Sprintf("auto-provisioned for archetype=%s", a.Name),
-		RatePlanID:  ratePlanID,
-		BillingMode: string(a.BillingMode),
-		Currency:    currency,
-		TrialDays:   a.RateConfig.TrialDays,
+		ExternalID:        externalID,
+		Code:              externalID,
+		Name:              fmt.Sprintf("Loadgen Offering %s", a.Name),
+		Description:       fmt.Sprintf("auto-provisioned for archetype=%s", a.Name),
+		Type:              "STANDALONE",
+		Status:            "ACTIVE",
+		PrimaryRatePlanID: ratePlanID,
+		BillingMode:       string(a.BillingMode),
+		Currency:          currency,
+		TrialDays:         a.RateConfig.TrialDays,
 	}
 	if a.BillingMode == scenario.BillingPrepaid || a.BillingMode == scenario.BillingHybrid {
 		body.WalletInitialUSD = a.RateConfig.WalletInitialBalanceUSD
