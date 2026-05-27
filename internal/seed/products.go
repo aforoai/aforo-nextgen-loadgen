@@ -10,14 +10,25 @@ import (
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/scenario"
 )
 
-// productCreateRequest mirrors the catalog-service product create body. The
+// productCreateRequest mirrors the catalog-service CreateProductRequest. The
 // real DTO carries more fields (audience, maturityStage, etc.); we send the
 // minimum that lets the platform create a valid product.
+//
+// Field-name contract (verified against catalog-service
+// CreateProductRequest.java):
+//   - JSON field is "type" (NOT "productType"). Sending "productType" yields a
+//     400 with fieldError "type: Product type is required".
+//   - JSON field is "description" (NOT "shortDescription"). The DTO has no
+//     "shortDescription" field; sending it is silently ignored.
+//   - ExternalID is NOT a DTO field — catalog-service silently drops it on
+//     create. Loadgen keeps it on the body so that if catalog ever adopts the
+//     field, no client change is needed; it does NOT participate in catalog
+//     lookup today (GET /api/v1/products has no externalId filter).
 type productCreateRequest struct {
-	ExternalID  string `json:"externalId"`
+	ExternalID  string `json:"externalId,omitempty"`
 	Name        string `json:"name"`
-	ShortDesc   string `json:"shortDescription,omitempty"`
-	ProductType string `json:"productType"`
+	Description string `json:"description,omitempty"`
+	ProductType string `json:"type"`
 	Status      string `json:"status,omitempty"`
 }
 
@@ -36,10 +47,13 @@ func provisionProduct(ctx context.Context, c *Client, tenantID, externalID strin
 		return existing, nil
 	}
 
+	// Name MUST NOT contain square brackets — catalog-service's
+	// ValidBusinessName validator rejects anything outside
+	// [a-zA-Z0-9\s\-_.()] with "Business name contains invalid characters".
 	body := productCreateRequest{
 		ExternalID:  externalID,
-		Name:        fmt.Sprintf("Loadgen Product [%s] %s", archetype, pt),
-		ShortDesc:   fmt.Sprintf("Auto-provisioned by aforo-loadgen for archetype=%s", archetype),
+		Name:        fmt.Sprintf("Loadgen Product %s %s", archetype, pt),
+		Description: fmt.Sprintf("Auto-provisioned by aforo-loadgen for archetype=%s", archetype),
 		ProductType: string(pt),
 		Status:      "ACTIVE",
 	}

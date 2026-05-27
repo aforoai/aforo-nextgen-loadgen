@@ -38,8 +38,14 @@ func TestBuildRatePlanRequest_PerPricingModel(t *testing.T) {
 				if req.MetricConfigs[0].Rate != 0 {
 					t.Errorf("FLAT_RATE metric rate should be 0, got %v", req.MetricConfigs[0].Rate)
 				}
-				if req.MetricConfigs[0].PricingModel != scenario.PricingFlatRate {
-					t.Errorf("metric pricing model = %s, want FLAT_RATE", req.MetricConfigs[0].PricingModel)
+				if req.MetricConfigs[0].Model != scenario.PricingFlatRate {
+					t.Errorf("metric pricing model = %s, want FLAT_RATE", req.MetricConfigs[0].Model)
+				}
+				if req.PricingModel != string(scenario.PricingFlatRate) {
+					t.Errorf("top-level pricingModel = %s, want FLAT_RATE", req.PricingModel)
+				}
+				if req.MetricConfigs[0].BillingTiming != "ARREARS" {
+					t.Errorf("billingTiming = %q, want ARREARS (NOT IN_ARREARS)", req.MetricConfigs[0].BillingTiming)
 				}
 			},
 		},
@@ -100,6 +106,11 @@ func TestBuildRatePlanRequest_PerPricingModel(t *testing.T) {
 				}
 				if m.Rate != 0.001 {
 					t.Errorf("rate = %v, want 0.001", m.Rate)
+				}
+				// INCLUDED_QUOTA MUST set ovBehavior=CHARGE (the legacy
+				// "ALLOW" was an invalid enum value; v3 contract is CHARGE).
+				if m.OvBehavior != "CHARGE" {
+					t.Errorf("ovBehavior = %q, want CHARGE (NOT ALLOW)", m.OvBehavior)
 				}
 			},
 		},

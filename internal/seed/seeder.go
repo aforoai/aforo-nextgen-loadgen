@@ -267,9 +267,11 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		// One API key per subscription. Credential type is product-type aware.
 		// The first product type on the archetype drives the credential type
 		// (a multi-product archetype like AI_AGENT+API has at least one of each).
+		// customerId is required by pricing-service's CreateApiKeyRequest and
+		// must match the subscription's customer.
 		pt := a.ProductTypes[0]
 		keyExt := externalID("key", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
-		key, err := provisionAPIKey(ctx, c, tenant.ID, keyExt, sub.ID, pt)
+		key, err := provisionAPIKey(ctx, c, tenant.ID, keyExt, cust.ID, sub.ID, pt)
 		if err != nil {
 			return err
 		}

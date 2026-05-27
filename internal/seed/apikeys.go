@@ -17,6 +17,10 @@ import (
 //	Agentic API      → BEARER_TOKEN  (sk_live_xxx)
 //	AI Agent         → CLIENT_CREDENTIALS  (client_id + client_secret)
 //	MCP Server       → CLIENT_CREDENTIALS  (client_id + client_secret)
+//
+// The credentialType is NOT a request input — pricing-service resolves it
+// internally from the accessor's product type. This helper is kept to drive
+// loadgen's manifest + dry-run synthesis only.
 func credentialTypeForProductType(pt scenario.ProductType) string {
 	switch pt {
 	case scenario.ProductAIAgent, scenario.ProductMCPServer:
@@ -26,11 +30,54 @@ func credentialTypeForProductType(pt scenario.ProductType) string {
 	}
 }
 
+// accessorTypeForProductType maps the product type to pricing-service's
+// AccessorType enum (APP | AGENT). CLAUDE.md "Hierarchy":
+//
+//	Standard API / Agentic API → App   → API Key (accessorType=APP)
+//	AI Agent      / MCP Server → Agent → API Key (accessorType=AGENT)
+func accessorTypeForProductType(pt scenario.ProductType) string {
+	switch pt {
+	case scenario.ProductAIAgent, scenario.ProductMCPServer:
+		return "AGENT"
+	default:
+		return "APP"
+	}
+}
+
+// apiKeyCreateRequest mirrors pricing-service's CreateApiKeyRequest.
+//
+// Field-name + required-field contract (verified against pricing-service
+// CreateApiKeyRequest.java):
+//   - accessorId     — @NotBlank, the App or Agent id that owns this key.
+//                      pricing-service does NOT validate that the row exists
+//                      in customer-service (it just stamps the column), so
+//                      loadgen synthesizes "loadgen-{app|agent}-{subId}".
+//   - accessorType   — @NotBlank, APP | AGENT.
+//   - customerId     — @NotBlank, must match the subscription's customer.
+//   - subscriptionIds — @NotEmpty list. Subscription must be ACTIVE; key
+//                      create is therefore wired BEFORE
+//                      transitionSubscription in the seeder so the sub is
+//                      still in its initial ACTIVE state.
+//   - name           — optional human-readable key name (carries what the
+//                      previous "description" field tried to record).
+//   - environment    — optional "live" | "test"; defaults server-side to
+//                      "live" so we send live for stability.
+//   - scopes         — optional comma-separated permissions; defaults to
+//                      "read" server-side.
+//
+// The previous body shape ({externalId, subscriptionId, credentialType,
+// description}) was rejected by the server with 400 because none of those
+// fields are in the DTO — accessorId, accessorType, customerId, and
+// subscriptionIds were all missing. ExternalID is silently dropped today.
 type apiKeyCreateRequest struct {
-	ExternalID     string `json:"externalId"`
-	SubscriptionID string `json:"subscriptionId"`
-	CredentialType string `json:"credentialType"`
-	Description    string `json:"description,omitempty"`
+	ExternalID      string   `json:"externalId,omitempty"`
+	AccessorID      string   `json:"accessorId"`
+	AccessorType    string   `json:"accessorType"`
+	CustomerID      string   `json:"customerId"`
+	SubscriptionIDs []string `json:"subscriptionIds"`
+	Name            string   `json:"name,omitempty"`
+	Environment     string   `json:"environment,omitempty"`
+	Scopes          string   `json:"scopes,omitempty"`
 }
 
 type apiKeyResponse struct {
@@ -47,17 +94,33 @@ type apiKeyResponse struct {
 // provisionAPIKey creates one credential per subscription. After Aforo
 // revokes the key (via subscription cancel), GET /api-keys/{id} reflects
 // revoked=true and we record that on the manifest.
-func provisionAPIKey(ctx context.Context, c *Client, tenantID, externalID, subscriptionID string, pt scenario.ProductType) (apiKeyResponse, error) {
+//
+// customerId is required by pricing-service and must match the
+// subscription's customer; the seeder passes it from the same Customer the
+// subscription was created against.
+func provisionAPIKey(ctx context.Context, c *Client, tenantID, externalID, customerID, subscriptionID string, pt scenario.ProductType) (apiKeyResponse, error) {
 	if existing, ok, err := lookupAPIKeyByExternalID(ctx, c, tenantID, externalID); err != nil {
 		return apiKeyResponse{}, fmt.Errorf("lookup api-key %q: %w", externalID, err)
 	} else if ok {
 		return existing, nil
 	}
+	accessorType := accessorTypeForProductType(pt)
+	// pricing-service stamps accessorId on the key without verifying the App
+	// or Agent row exists in customer-service, so a synthetic id is safe.
+	// Per-subscription scope keeps it stable across loadgen re-runs.
+	accessorPrefix := "loadgen-app-"
+	if accessorType == "AGENT" {
+		accessorPrefix = "loadgen-agent-"
+	}
 	body := apiKeyCreateRequest{
-		ExternalID:     externalID,
-		SubscriptionID: subscriptionID,
-		CredentialType: credentialTypeForProductType(pt),
-		Description:    fmt.Sprintf("Loadgen %s key for sub %s", pt, subscriptionID),
+		ExternalID:      externalID,
+		AccessorID:      accessorPrefix + subscriptionID,
+		AccessorType:    accessorType,
+		CustomerID:      customerID,
+		SubscriptionIDs: []string{subscriptionID},
+		Name:            fmt.Sprintf("Loadgen %s key for sub %s", pt, subscriptionID),
+		Environment:     "live",
+		Scopes:          "read",
 	}
 	createURL, err := c.Target().Path(aforo.ServicePricing, aforo.PathAPIKeys)
 	if err != nil {
@@ -80,8 +143,9 @@ func provisionAPIKey(ctx context.Context, c *Client, tenantID, externalID, subsc
 	if c.DryRun() {
 		resp.ID = "dryrun-key-" + externalID
 		resp.ExternalID = externalID
-		resp.CredentialType = body.CredentialType
-		switch body.CredentialType {
+		ct := credentialTypeForProductType(pt)
+		resp.CredentialType = ct
+		switch ct {
 		case "CLIENT_CREDENTIALS":
 			resp.ClientID = "dryrun-client-id-" + externalID
 			resp.ClientSecret = "dryrun-client-secret-" + externalID

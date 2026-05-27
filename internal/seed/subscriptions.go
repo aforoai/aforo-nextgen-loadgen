@@ -10,17 +10,40 @@ import (
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/scenario"
 )
 
-// subscriptionCreateRequest mirrors pricing-service's V3 subscription
-// create body.
+// subscriptionCreateRequest mirrors pricing-service's V3
+// CreateSubscriptionRequest.
+//
+// Field-name + shape contract (verified against pricing-service
+// CreateSubscriptionRequest.java):
+//   - customerId — @NotBlank.
+//   - offeringId — @NotBlank.
+//   - startDate — @NotNull, Java LocalDate. Jackson decodes this as
+//     "YYYY-MM-DD"; sending a full RFC3339 timestamp (e.g.
+//     "2026-05-27T14:23:00Z") yields a 400 deserialization error. Loadgen
+//     uses a string of shape "2006-01-02" rather than time.Time so the
+//     wire format matches LocalDate exactly.
+//   - endDate — optional LocalDate.
+//   - billingCycle — MONTHLY | QUARTERLY | ANNUAL (default MONTHLY on the
+//     server but we send explicitly so the wire is self-describing).
+//   - startTrial + trialEndsAt — V3 trial flow. startTrial=true enters the
+//     subscription in TRIALING state; trialEndsAt is an Instant
+//     ("2026-05-27T14:23:00Z") that overrides the offering's trialDays.
+//
+// externalId, walletId, paymentMethodId, endDate are NOT DTO fields on
+// CreateSubscriptionRequest — silently dropped server-side. Loadgen keeps
+// the wire-level fields for forward-compat and to record intent in the
+// manifest; they have no server effect today.
 type subscriptionCreateRequest struct {
-	ExternalID      string     `json:"externalId"`
+	ExternalID      string     `json:"externalId,omitempty"`
 	OfferingID      string     `json:"offeringId"`
 	CustomerID      string     `json:"customerId"`
+	BillingCycle    string     `json:"billingCycle,omitempty"`
+	StartDate       string     `json:"startDate"`
+	EndDate         string     `json:"endDate,omitempty"`
+	StartTrial      bool       `json:"startTrial,omitempty"`
+	TrialEndsAt     *time.Time `json:"trialEndsAt,omitempty"`
 	WalletID        string     `json:"walletId,omitempty"`
 	PaymentMethodID string     `json:"paymentMethodId,omitempty"`
-	TrialEndsAt     *time.Time `json:"trialEndsAt,omitempty"`
-	StartDate       *time.Time `json:"startDate,omitempty"`
-	EndDate         *time.Time `json:"endDate,omitempty"`
 }
 
 type subscriptionResponse struct {
@@ -50,26 +73,32 @@ func provisionSubscription(ctx context.Context, c *Client, tenantID, externalID,
 		return existing, time.Time{}, nil
 	}
 
+	now := time.Now().UTC()
 	body := subscriptionCreateRequest{
 		ExternalID:      externalID,
 		OfferingID:      offeringID,
 		CustomerID:      customerID,
+		BillingCycle:    "MONTHLY",
+		StartDate:       now.Format("2006-01-02"), // pricing-service LocalDate
 		WalletID:        walletID,
 		PaymentMethodID: paymentMethodID,
 	}
-	now := time.Now().UTC()
 
 	switch target {
 	case scenario.StateTrialing:
+		// V3 trial: server enters TRIALING when startTrial=true. trialEndsAt
+		// is an Instant override; default would come from the offering's
+		// trialDays config but we set 14d explicitly so the manifest
+		// records a deterministic expiry.
 		t := now.Add(14 * 24 * time.Hour)
+		body.StartTrial = true
 		body.TrialEndsAt = &t
 	case scenario.StateExpired:
 		// Make the subscription's end date in the past — the platform's
 		// SubscriptionExpiryJob picks this up on its next 5-minute tick.
 		// The transitionSubscription helper has a faster path that calls
 		// /internal/subscriptions/{id}/expire to skip the wait.
-		past := now.Add(-1 * time.Hour)
-		body.EndDate = &past
+		body.EndDate = now.Add(-1 * time.Hour).Format("2006-01-02")
 	}
 
 	createURL, err := c.Target().Path(aforo.ServicePricing, aforo.PathSubscriptions)
