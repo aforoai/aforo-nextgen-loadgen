@@ -195,6 +195,31 @@ When adding a new `provisionXxx` for a 10th entity type:
 
 ## Maintenance workflow
 
+### Bootstrap (first-time setup)
+
+The repo intentionally ships **without pre-populated `openapi/<service>.json`
+snapshots**. Until a maintainer runs `make sync-openapi` once against a live
+backend stack, `make contract-test` PASSES with every per-service subtest
+SKIPPED (citing `openapi snapshot for "<svc>" not available — run
+\`make sync-openapi\``). This is deliberate — committing snapshots that
+weren't verified against a real running backend is the original drift trap
+that the contract test exists to prevent.
+
+Once the maintainer has run the bootstrap, the contract test moves from
+"all subtests skipped" to "all subtests asserting"; the recurring-refresh
+table below covers steady-state maintenance from that point forward.
+
+Step-by-step bootstrap procedure lives in
+[`openapi/README.md` § Bootstrap](openapi/README.md#bootstrap-first-time-setup--what-to-expect-when-no-snapshots-exist).
+Summary: bring up `docker-compose -f docker-compose.local-dev.yml up -d`
+from `aforo-nextgen-docker`, wait for `/actuator/health` on each backend
+port, then `make sync-openapi` from this repo, then commit the resulting
+JSON files in a PR that explicitly notes "first snapshot population —
+contract test now ENFORCING for these services" so reviewers know the test
+gate just became load-bearing.
+
+### Steady-state refresh
+
 | Backend change | Loadgen action |
 |---|---|
 | New field added to existing DTO | None required. Loadgen reads/writes a subset; new fields auto-tolerated by Jackson. Refresh snapshot via `make sync-openapi` if loadgen wants to start consuming the field. |
@@ -202,6 +227,7 @@ When adding a new `provisionXxx` for a 10th entity type:
 | Existing field removed | Same as rename. Contract test fails until loadgen drops the tag. |
 | New entity added (new DTO) | If loadgen needs to seed it, follow "Adding a new entity" above. Otherwise no action. |
 | Backend adds `externalId` to an entity that didn't have one | Loadgen can adopt the column on the response struct + use it as the natural identity. Coordinate with a single PR that refreshes the snapshot + updates the lookup function. |
+| Snapshots vanish (someone deleted `openapi/*.json`) | Contract test reverts to bootstrap behavior — all subtests skip cleanly. Re-run `make sync-openapi` against the local stack to restore. No data loss; snapshots are reproducible. |
 
 ---
 
