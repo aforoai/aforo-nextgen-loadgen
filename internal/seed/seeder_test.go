@@ -113,6 +113,7 @@ func TestSeederDryRun(t *testing.T) {
 // httptest.Server, asserts the correct API call sequence, and verifies the
 // manifest shape end-to-end.
 func TestSeederWithFakeBackend(t *testing.T) {
+	stubFakeBackendStripeEnv(t)
 	server, calls := newFakeAforoServer(t)
 	defer server.Close()
 
@@ -178,6 +179,7 @@ func TestSeederWithFakeBackend(t *testing.T) {
 // CANCELLED state receive a POST to /subscriptions/{id}/cancel — the only
 // endpoint that triggers Aforo's atomic key-revocation cascade.
 func TestSeederHandlesCancelledStateThroughCancelEndpoint(t *testing.T) {
+	stubFakeBackendStripeEnv(t)
 	server, calls := newFakeAforoServer(t)
 	defer server.Close()
 
@@ -248,6 +250,7 @@ func TestSeederHandlesCancelledStateThroughCancelEndpoint(t *testing.T) {
 // because the first was idempotent on externalId." Counts of created entities
 // remain 1 across two runs.
 func TestSeederIdempotent(t *testing.T) {
+	stubFakeBackendStripeEnv(t)
 	server, calls := newFakeAforoServer(t)
 	defer server.Close()
 
@@ -307,6 +310,7 @@ func TestSeederIdempotent(t *testing.T) {
 
 // TestSeederFiltersByArchetype verifies --archetypes-only narrows the run.
 func TestSeederFiltersByArchetype(t *testing.T) {
+	stubFakeBackendStripeEnv(t)
 	server, _ := newFakeAforoServer(t)
 	defer server.Close()
 
@@ -717,4 +721,19 @@ func allCancelledScenario(t *testing.T) *scenario.Scenario {
 			},
 		},
 	}
+}
+
+// stubFakeBackendStripeEnv sets placeholder Stripe credentials so the
+// fake-backend tests can exercise provisionPaymentGatewayIfNeeded
+// without operator env setup. t.Setenv auto-restores after the test.
+// Drift-fix 2026-06-01: payment-gateway provisioning was added as a
+// per-tenant prereq for POSTPAID/HYBRID archetypes; tests that hit a
+// real (non-dry-run) Client against the httptest fake server need
+// these env vars to be non-empty to bypass the operator-facing
+// "AFORO_LOADGEN_STRIPE_API_KEY not set" guard.
+func stubFakeBackendStripeEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("AFORO_LOADGEN_STRIPE_API_KEY", "sk_test_fake_backend")
+	t.Setenv("AFORO_LOADGEN_STRIPE_PUBLIC_KEY", "pk_test_fake_backend")
+	t.Setenv("AFORO_LOADGEN_STRIPE_WEBHOOK_SECRET", "whsec_fake_backend")
 }

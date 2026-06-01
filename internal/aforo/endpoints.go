@@ -328,6 +328,14 @@ const (
 	PathWallets        = "/api/v1/wallets"
 	PathWalletByID     = "/api/v1/wallets/%s"
 	PathPaymentMethods = "/api/v1/payment-methods"
+	// Per-tenant prerequisites that organization-service's
+	// TenantProvisioningService normally creates as part of tenant
+	// provisioning. Loadgen calls LoadgenInternalTenantController
+	// directly which bypasses that flow, so we have to provision
+	// these ourselves before any payment-method create. See
+	// internal/seed/billing_setup.go for the per-tenant logic.
+	PathInternalBillingEntitiesProvisionDefault = "/internal/v1/billing-entities/provision-default"
+	PathPaymentGateways                         = "/api/v1/payment-gateways"
 	// Session 6 — bill run trigger for Check 11 concurrency probe.
 	PathBillRuns = "/api/v1/bill-runs"
 

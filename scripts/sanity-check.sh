@@ -33,7 +33,16 @@
 #
 # Required env (for layers 6-9 only)
 # ----------------------------------
-#   AFORO_ADMIN_TOKEN  — bearer JWT with OWNER or ADMIN role
+#   AFORO_ADMIN_TOKEN              — bearer JWT with OWNER or ADMIN role
+#
+# Required env for POSTPAID/HYBRID scenarios (most built-ins, incl. ci-smoke):
+#   AFORO_LOADGEN_STRIPE_API_KEY        — Stripe sk_test_… key (sandbox)
+#   AFORO_LOADGEN_STRIPE_PUBLIC_KEY     — Stripe pk_test_… key (optional)
+#   AFORO_LOADGEN_STRIPE_WEBHOOK_SECRET — Stripe whsec_… secret  (optional)
+# Loadgen registers a primary payment gateway per tenant before any
+# payment-method create, mirroring what organization-service's normal
+# tenant-provisioning flow would set up. PREPAID-only scenarios don't
+# need these vars (they use wallets instead of cards).
 #
 # Exit codes
 # ----------
@@ -190,6 +199,14 @@ check_live_prereqs() {
     echo "  AFORO_ADMIN_TOKEN: export it before running live layers."
     echo "  jq, curl: brew install jq / part of macOS base."
     return 1
+  fi
+  # Soft check: Stripe creds are only required for POSTPAID/HYBRID
+  # scenarios. We can't tell from here which mode the chosen scenario
+  # uses, so just warn — loadgen itself will hard-fail per archetype
+  # with an actionable message if the credential is actually needed.
+  if [[ -z "${AFORO_LOADGEN_STRIPE_API_KEY:-}" ]]; then
+    yellow "note: AFORO_LOADGEN_STRIPE_API_KEY not set — POSTPAID/HYBRID archetypes will fail at gateway provisioning"
+    echo
   fi
   return 0
 }

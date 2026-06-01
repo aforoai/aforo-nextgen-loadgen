@@ -140,6 +140,20 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		return err
 	}
 
+	// Per-tenant billing prerequisites that organization-service's normal
+	// TenantProvisioningService.provision() would have set up. Loadgen
+	// uses LoadgenInternalTenantController directly which skips that
+	// flow, so we replicate the missing steps:
+	//   - default billing entity (always — many downstream billing ops need it)
+	//   - primary payment gateway (only when archetype's billing mode requires it)
+	// See internal/seed/billing_setup.go for rationale + env-var contract.
+	if _, err := provisionDefaultBillingEntity(ctx, c, tenant.ID); err != nil {
+		return err
+	}
+	if err := provisionPaymentGatewayIfNeeded(ctx, c, tenant.ID, a.BillingMode); err != nil {
+		return err
+	}
+
 	mt := ManifestTenant{
 		TenantID:     tenant.ID,
 		ExternalID:   tenantExternalID,
