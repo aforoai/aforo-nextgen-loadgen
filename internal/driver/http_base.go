@@ -97,8 +97,8 @@ func applyAuthHeaders(req *http.Request, e *generator.Event, adminToken string) 
 // applyTenantHeaders sets the tenant identity headers used by the platform's
 // TenantFilter and per-tenant rate limiter.
 func applyTenantHeaders(req *http.Request, e *generator.Event) {
-	if e.Envelope.TenantID != "" {
-		req.Header.Set("X-Tenant-Id", e.Envelope.TenantID)
+	if e.TenantID != "" {
+		req.Header.Set("X-Tenant-Id", e.TenantID)
 	}
 	if e.Envelope.CustomerID != "" {
 		req.Header.Set("X-Customer-Id", e.Envelope.CustomerID)
@@ -108,7 +108,7 @@ func applyTenantHeaders(req *http.Request, e *generator.Event) {
 // applyTraceHeaders sets the loadgen correlation headers so server logs can
 // be cross-referenced with run.json post-run.
 func applyTraceHeaders(req *http.Request, e *generator.Event) {
-	req.Header.Set("X-Loadgen-Event-Id", e.Envelope.EventID)
+	req.Header.Set("X-Loadgen-Event-Id", e.EventID)
 	if e.NegativePath != "" {
 		req.Header.Set("X-Loadgen-Negative-Path", string(e.NegativePath))
 	}

@@ -126,8 +126,11 @@ func (d *RESTDirect) Submit(ctx context.Context, e *generator.Event) Result {
 	} else if d.cfg.AdminToken != "" {
 		req.Header.Set("Authorization", "Bearer "+d.cfg.AdminToken)
 	}
-	if e.Envelope.TenantID != "" {
-		req.Header.Set("X-Tenant-Id", e.Envelope.TenantID)
+	// TenantID and EventID moved off Envelope (they're not part of the
+	// backend's IngestUsageEventRequest contract) — read from the
+	// in-memory Event instead. Drift-fix 2026-06-01.
+	if e.TenantID != "" {
+		req.Header.Set("X-Tenant-Id", e.TenantID)
 	}
 	if e.Envelope.CustomerID != "" {
 		req.Header.Set("X-Customer-Id", e.Envelope.CustomerID)
@@ -136,7 +139,9 @@ func (d *RESTDirect) Submit(ctx context.Context, e *generator.Event) Result {
 		req.Header.Set("X-Client-Id", e.Auth.ClientID)
 	}
 	// Tag the request so server-side logs can correlate with run.json.
-	req.Header.Set("X-Loadgen-Event-Id", e.Envelope.EventID)
+	if e.EventID != "" {
+		req.Header.Set("X-Loadgen-Event-Id", e.EventID)
+	}
 	if e.NegativePath != "" {
 		req.Header.Set("X-Loadgen-Negative-Path", string(e.NegativePath))
 	}

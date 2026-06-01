@@ -184,7 +184,7 @@ func smokeManifest() *seed.Manifest {
 				TenantID:   "t-smoke",
 				ExternalID: "loadgen-smoke-1",
 				Archetype:  "smoke-x",
-				Products:   []seed.ManifestProduct{{ProductID: "p-1", ProductType: scenario.ProductAPI, MetricIDs: []string{"m-1"}}},
+				Products:   []seed.ManifestProduct{{ProductID: "p-1", ProductType: scenario.ProductAPI, MetricIDs: []string{"m-1"}, Metrics: []seed.ManifestMetric{{ID: "m-1", Name: "api_calls"}}}},
 				Customers: []seed.ManifestCustomer{
 					{
 						CustomerID: "c-smoke",

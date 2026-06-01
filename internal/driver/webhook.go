@@ -46,7 +46,7 @@ type WebhookConfig struct {
 // configured header (default "X-Hub-Signature-256", with the "sha256="
 // prefix the platform's WebhookIngestService strips before comparing).
 //
-// Tenant routing: per event, look up the source by event.Envelope.TenantID;
+// Tenant routing: per event, look up the source by event.TenantID;
 // if the tenant has no source registered, return ErrNoWebhookSource and let
 // the runner classify it as a transport-class failure.
 type Webhook struct {
@@ -112,7 +112,7 @@ func (d *Webhook) Sources() map[string]WebhookSource {
 // POSTing to /v1/ingest/webhook/{sourceId}.
 func (d *Webhook) Submit(ctx context.Context, e *generator.Event) Result {
 	d.mu.RLock()
-	src, ok := d.sources[e.Envelope.TenantID]
+	src, ok := d.sources[e.TenantID]
 	d.mu.RUnlock()
 	if !ok {
 		// Try a synthetic fallback: if the manifest didn't seed sources, we
@@ -120,8 +120,8 @@ func (d *Webhook) Submit(ctx context.Context, e *generator.Event) Result {
 		// id and a synthesized secret. The platform will 404 — that's fine
 		// for the load shape; tests use SetSources to drive the happy path.
 		src = WebhookSource{
-			SourceID:     e.Envelope.TenantID,
-			TenantID:     e.Envelope.TenantID,
+			SourceID:     e.TenantID,
+			TenantID:     e.TenantID,
 			Secret:       "loadgen-synthetic-secret",
 			HeaderName:   "X-Hub-Signature-256",
 			Algorithm:    "hmac-sha256",

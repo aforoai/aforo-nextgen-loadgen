@@ -49,13 +49,17 @@ func TestRESTDirectSubmitHappyPath(t *testing.T) {
 
 	e := &generator.Event{
 		Envelope: generator.Envelope{
-			EventID:        "evt-1",
-			EventTimestamp: time.Now().UTC(),
-			TenantID:       "tenant-A",
+			CustomerID:     "cust-001",
+			MetricName:     "api_calls",
+			Quantity:       1.0,
+			OccurredAt:     time.Now().UTC(),
+			IdempotencyKey: "evt-1",
 			ProductType:    "API",
-			Body:           map[string]any{"endpoint": "/x"},
+			Metadata:       map[string]any{"endpoint": "/x"},
 		},
-		Auth: generator.EventAuth{Token: "sk_test_secret"},
+		TenantID: "tenant-A",
+		EventID:  "evt-1",
+		Auth:     generator.EventAuth{Token: "sk_test_secret"},
 	}
 	res := d.Submit(context.Background(), e)
 	if !res.IsSuccess() {
@@ -81,8 +85,8 @@ func TestRESTDirectSubmitHappyPath(t *testing.T) {
 	if err := json.Unmarshal(receivedBody, &got); err != nil {
 		t.Fatalf("server received invalid JSON: %v body=%s", err, receivedBody)
 	}
-	if got["event_id"] != "evt-1" {
-		t.Errorf("event_id = %v, want evt-1", got["event_id"])
+	if got["idempotencyKey"] != "evt-1" {
+		t.Errorf("idempotencyKey = %v, want evt-1", got["idempotencyKey"])
 	}
 }
 
@@ -103,7 +107,7 @@ func TestRESTDirectMalformedSendsRawBody(t *testing.T) {
 	defer d.Close()
 
 	e := &generator.Event{
-		Envelope:     generator.Envelope{EventID: "x", TenantID: "t"},
+		Envelope:     generator.Envelope{},
 		RawBody:      []byte(`{"event_id":"x","tenant_id":"t","body":{"endpoint"`),
 		NegativePath: generator.NPMalformed,
 		Auth:         generator.EventAuth{Token: "k"},
@@ -135,7 +139,7 @@ func TestRESTDirectAdminTokenFallback(t *testing.T) {
 	}
 	defer d.Close()
 
-	e := &generator.Event{Envelope: generator.Envelope{EventID: "e"}}
+	e := &generator.Event{Envelope: generator.Envelope{}}
 	_ = d.Submit(context.Background(), e)
 	if auth != "Bearer admin_xyz" {
 		t.Errorf("Authorization = %q, want Bearer admin_xyz", auth)
@@ -159,7 +163,7 @@ func TestRESTDirectTransportError(t *testing.T) {
 	defer d.Close()
 
 	e := &generator.Event{
-		Envelope: generator.Envelope{EventID: "x"},
+		Envelope: generator.Envelope{},
 		Auth:     generator.EventAuth{Token: "k"},
 	}
 	res := d.Submit(context.Background(), e)
@@ -185,7 +189,7 @@ func TestRESTDirectRedirectIsTransport(t *testing.T) {
 	defer d.Close()
 
 	e := &generator.Event{
-		Envelope: generator.Envelope{EventID: "x"},
+		Envelope: generator.Envelope{},
 		Auth:     generator.EventAuth{Token: "k"},
 	}
 	res := d.Submit(context.Background(), e)

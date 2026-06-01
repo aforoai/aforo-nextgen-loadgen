@@ -33,11 +33,11 @@ func TestGeneratorDeterminism(t *testing.T) {
 		t.Fatalf("collected %d / %d events, want %d", len(a), len(b), N)
 	}
 	for i := range a {
-		if a[i].Envelope.EventID != b[i].Envelope.EventID {
-			t.Errorf("event %d: A.id=%s B.id=%s — non-deterministic", i, a[i].Envelope.EventID, b[i].Envelope.EventID)
+		if a[i].EventID != b[i].EventID {
+			t.Errorf("event %d: A.id=%s B.id=%s — non-deterministic", i, a[i].EventID, b[i].EventID)
 		}
-		if a[i].Envelope.TenantID != b[i].Envelope.TenantID {
-			t.Errorf("event %d: tenant differs A=%s B=%s", i, a[i].Envelope.TenantID, b[i].Envelope.TenantID)
+		if a[i].TenantID != b[i].TenantID {
+			t.Errorf("event %d: tenant differs A=%s B=%s", i, a[i].TenantID, b[i].TenantID)
 		}
 		if a[i].Envelope.ProductType != b[i].Envelope.ProductType {
 			t.Errorf("event %d: product differs A=%s B=%s", i, a[i].Envelope.ProductType, b[i].Envelope.ProductType)
@@ -238,7 +238,7 @@ func TestOversizeInjectorExceedsLimit(t *testing.T) {
 			continue
 		}
 		size := 0
-		if v, ok := e.Envelope.Body["_oversize_pad"].(string); ok {
+		if v, ok := e.Envelope.Metadata["_oversize_pad"].(string); ok {
 			size = len(v)
 		}
 		if size <= 10*1024*1024 {
@@ -268,12 +268,12 @@ func TestFutureLatePathTimestamps(t *testing.T) {
 	for _, e := range events {
 		switch e.NegativePath {
 		case NPLate:
-			diff := now.Sub(e.Envelope.EventTimestamp)
+			diff := now.Sub(e.Envelope.OccurredAt)
 			if diff < 90*time.Minute || diff > 150*time.Minute {
 				t.Errorf("late_event ts diff %s, want ~120m", diff)
 			}
 		case NPFuture:
-			diff := e.Envelope.EventTimestamp.Sub(now)
+			diff := e.Envelope.OccurredAt.Sub(now)
 			// Pacer may have advanced now slightly; tolerate ±60s.
 			if diff < 9*time.Minute || diff > 11*time.Minute {
 				t.Errorf("future_event ts diff %s, want ~10m", diff)
@@ -381,6 +381,8 @@ func miniManifest() *seed.Manifest {
 					SeedKey:     "loadgen-product-test-1",
 					ProductType: scenario.ProductAPI,
 					MetricIDs:   []string{"metric-1"},
+
+					Metrics: []seed.ManifestMetric{{ID: "metric-1", Name: "metric_1"}},
 				}},
 				Customers: []seed.ManifestCustomer{
 					{
@@ -422,6 +424,8 @@ func miniManifest() *seed.Manifest {
 					SeedKey:     "loadgen-product-test-2",
 					ProductType: scenario.ProductAPI,
 					MetricIDs:   []string{"metric-2"},
+
+					Metrics: []seed.ManifestMetric{{ID: "metric-2", Name: "metric_2"}},
 				}},
 				Customers: []seed.ManifestCustomer{
 					{

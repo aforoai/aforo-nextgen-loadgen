@@ -273,7 +273,7 @@ func (f *FairnessFilteredEvents) run() {
 		if e == nil {
 			continue
 		}
-		if !f.gate.Allow(e.Envelope.TenantID, f.totalTen) {
+		if !f.gate.Allow(e.TenantID, f.totalTen) {
 			if f.onDeferred != nil {
 				f.onDeferred(e)
 			}

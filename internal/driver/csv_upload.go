@@ -87,7 +87,7 @@ func (d *CSVUpload) Name() string { return "csv_upload" }
 // Result is returned.
 func (d *CSVUpload) Submit(ctx context.Context, e *generator.Event) Result {
 	d.mu.Lock()
-	tid := e.Envelope.TenantID
+	tid := e.TenantID
 	buf := d.buffers[tid]
 	if buf == nil {
 		buf = &csvTenantBuf{}
@@ -123,13 +123,13 @@ func (d *CSVUpload) appendRow(buf *csvTenantBuf, e *generator.Event) {
 	// CSV row count as the base counter; per-event quantity is optional.
 	const quantity = 1
 	row := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%d\n",
-		csvEscape(e.Envelope.EventID),
-		e.Envelope.EventTimestamp.Format("2006-01-02T15:04:05Z07:00"),
-		csvEscape(e.Envelope.TenantID),
+		csvEscape(e.EventID),
+		e.Envelope.OccurredAt.Format("2006-01-02T15:04:05Z07:00"),
+		csvEscape(e.TenantID),
 		csvEscape(e.Envelope.CustomerID),
-		csvEscape(e.Envelope.SubscriptionID),
+		csvEscape(e.SubscriptionID),
 		csvEscape(e.Envelope.ProductType),
-		csvEscape(e.Envelope.MetricID),
+		csvEscape(e.Envelope.MetricName),
 		quantity,
 	)
 	buf.body.WriteString(row)
@@ -164,7 +164,7 @@ func (d *CSVUpload) flush(ctx context.Context, e *generator.Event, buf *csvTenan
 	// `file` part — the CSV bytes themselves with the standard MIME type.
 	header := make(map[string][]string)
 	header["Content-Disposition"] = []string{
-		`form-data; name="file"; filename="aforo-loadgen-` + e.Envelope.TenantID + `.csv"`,
+		`form-data; name="file"; filename="aforo-loadgen-` + e.TenantID + `.csv"`,
 	}
 	header["Content-Type"] = []string{"text/csv"}
 	part, err := writer.CreatePart(header)
@@ -176,7 +176,7 @@ func (d *CSVUpload) flush(ctx context.Context, e *generator.Event, buf *csvTenan
 	}
 
 	// Optional default metric name and default customer id form fields.
-	_ = writer.WriteField("defaultMetricName", e.Envelope.MetricID)
+	_ = writer.WriteField("defaultMetricName", e.Envelope.MetricName)
 	_ = writer.WriteField("defaultCustomerId", e.Envelope.CustomerID)
 	_ = writer.WriteField("rowCount", strconv.Itoa(buf.rows))
 	if err := writer.Close(); err != nil {

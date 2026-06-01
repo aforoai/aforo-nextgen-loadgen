@@ -43,10 +43,8 @@ func TestPoolDispatchesAllEvents(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		ch <- &generator.Event{
 			Envelope: generator.Envelope{
-				EventID:     "e",
 				ProductType: "API",
-				TenantID:    "t",
-			},
+				},
 		}
 	}
 	close(ch)
@@ -70,7 +68,7 @@ func TestPoolSkipsWhenCircuitOpen(t *testing.T) {
 	}
 	ch := make(chan *generator.Event, 50)
 	for i := 0; i < 50; i++ {
-		ch <- &generator.Event{Envelope: generator.Envelope{EventID: "e"}}
+		ch <- &generator.Event{Envelope: generator.Envelope{}}
 	}
 	close(ch)
 	pool.Run(context.Background(), ch)
@@ -104,7 +102,7 @@ func TestPoolExpectedFailuresDoNotTripBreaker(t *testing.T) {
 	ch := make(chan *generator.Event, 20)
 	for i := 0; i < 20; i++ {
 		ch <- &generator.Event{
-			Envelope:     generator.Envelope{EventID: "e"},
+			Envelope:     generator.Envelope{},
 			NegativePath: generator.NPFuture,
 		}
 	}
@@ -137,7 +135,7 @@ func TestPoolBackpressureTrips(t *testing.T) {
 	}
 	ch := make(chan *generator.Event, 50)
 	for i := 0; i < 50; i++ {
-		ch <- &generator.Event{Envelope: generator.Envelope{EventID: "e"}}
+		ch <- &generator.Event{Envelope: generator.Envelope{}}
 	}
 	close(ch)
 	pool.Run(context.Background(), ch)
@@ -163,7 +161,7 @@ func TestPoolOnResultCallback(t *testing.T) {
 	}
 	ch := make(chan *generator.Event, 100)
 	for i := 0; i < 100; i++ {
-		ch <- &generator.Event{Envelope: generator.Envelope{EventID: "e"}}
+		ch <- &generator.Event{Envelope: generator.Envelope{}}
 	}
 	close(ch)
 	pool.Run(context.Background(), ch)

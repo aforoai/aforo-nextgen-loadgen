@@ -154,7 +154,7 @@ func (p *NegativePathPlanner) Apply(e *Event, kind NegativePathKind, rng *mathra
 // late_event: backdate the timestamp 2h. Aforo accepts it (>5min late but
 // <90d) and flags it as a late arrival.
 func injectLate(e *Event) error {
-	e.Envelope.EventTimestamp = e.Envelope.EventTimestamp.Add(-2 * time.Hour)
+	e.Envelope.OccurredAt = e.Envelope.OccurredAt.Add(-2 * time.Hour)
 	e.NegativePath = NPLate
 	return nil
 }
@@ -162,23 +162,24 @@ func injectLate(e *Event) error {
 // future_event: forward-date 10 minutes. Aforo's UsageEventValidator
 // rejects anything >5min in the future.
 func injectFuture(e *Event) error {
-	e.Envelope.EventTimestamp = e.Envelope.EventTimestamp.Add(10 * time.Minute)
+	e.Envelope.OccurredAt = e.Envelope.OccurredAt.Add(10 * time.Minute)
 	e.NegativePath = NPFuture
 	return nil
 }
 
 // malformed: corrupt the JSON body. We emit it as a raw byte slice so the
 // driver doesn't re-marshal a valid envelope. The driver's RawBody field
-// takes precedence over Envelope when set.
+// takes precedence over Envelope when set. Field names match the new
+// IngestUsageEventRequest contract (camelCase).
 func injectMalformed(e *Event) error {
 	// Build a roughly-shaped envelope with a dangling brace + truncated
 	// field. Real malformed traffic in production looks like this when a
 	// client SDK is misconfigured or a buffer is truncated mid-emit.
 	corrupted := []byte(fmt.Sprintf(
-		`{"event_id":%q,"tenant_id":%q,"event_timestamp":%q,"body":{"endpoint":"/api/v1/users"`,
-		e.Envelope.EventID,
-		e.Envelope.TenantID,
-		e.Envelope.EventTimestamp.UTC().Format(time.RFC3339Nano),
+		`{"idempotencyKey":%q,"customerId":%q,"occurredAt":%q,"metadata":{"endpoint":"/api/v1/users"`,
+		e.EventID,
+		e.Envelope.CustomerID,
+		e.Envelope.OccurredAt.UTC().Format(time.RFC3339Nano),
 	))
 	e.RawBody = corrupted
 	e.NegativePath = NPMalformed
@@ -231,7 +232,7 @@ func (p *NegativePathPlanner) injectStaleKey(e *Event, rng *mathrand.Rand) error
 	e.Auth.Token = key.Secret
 	e.Auth.ClientID = key.ClientID
 	e.Auth.IsFabricated = false
-	e.Envelope.SubscriptionID = sub.SubscriptionID
+	e.SubscriptionID = sub.SubscriptionID
 	e.NegativePath = NPStaleKey
 	e.StaleReason = sub.StaleReason
 	e.StaleSince = sub.StaleSince
@@ -254,7 +255,10 @@ func injectOversize(e *Event, rng *mathrand.Rand) error {
 	const seedBytes = 1024
 	seed := padString(rng, seedBytes)
 	repeats := (targetBytes / seedBytes) + 1
-	e.Envelope.Body["_oversize_pad"] = strings.Repeat(seed, repeats)
+	if e.Envelope.Metadata == nil {
+		e.Envelope.Metadata = map[string]any{}
+	}
+	e.Envelope.Metadata["_oversize_pad"] = strings.Repeat(seed, repeats)
 	e.NegativePath = NPOversize
 	return nil
 }

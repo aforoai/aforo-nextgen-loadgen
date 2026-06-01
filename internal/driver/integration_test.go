@@ -67,13 +67,10 @@ func newIntegrationDriver(t *testing.T) *RESTDirect {
 func baseEvent() *generator.Event {
 	return &generator.Event{
 		Envelope: generator.Envelope{
-			EventID:        randHex(16),
-			EventTimestamp: time.Now().UTC(),
-			TenantID:       os.Getenv("AFORO_TENANT_ID"),
+			OccurredAt: time.Now().UTC(),
 			CustomerID:     "loadgen-int-cust",
-			SubscriptionID: "loadgen-int-sub",
 			ProductType:    "API",
-			Body: map[string]any{
+			Metadata: map[string]any{
 				"endpoint":       "/api/v1/health",
 				"method":         "GET",
 				"status_code":    200,

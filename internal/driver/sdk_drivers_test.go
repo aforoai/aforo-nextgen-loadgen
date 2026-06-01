@@ -21,15 +21,16 @@ import (
 func newTestEvent() *generator.Event {
 	return &generator.Event{
 		Envelope: generator.Envelope{
-			EventID:        "evt_loadgen_test_0001",
-			EventTimestamp: time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC),
-			TenantID:       "tenant-alpha",
+			OccurredAt:     time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC),
 			CustomerID:     "cust-001",
-			SubscriptionID: "sub-001",
 			ProductType:    "API",
-			MetricID:       "metric-api-calls",
-			Body:           map[string]any{"endpoint": "/v1/whoami", "method": "GET", "status_code": 200},
+			MetricName:     "metric-api-calls",
+			Quantity:       1.0,
+			IdempotencyKey: "evt_loadgen_test_0001",
+			Metadata:       map[string]any{"endpoint": "/v1/whoami", "method": "GET", "status_code": 200},
 		},
+		TenantID:      "tenant-alpha",
+		EventID:       "evt_loadgen_test_0001",
 		IngestionPath: "rest_direct",
 		Archetype:     "test-archetype",
 		Auth: generator.EventAuth{
@@ -145,16 +146,17 @@ func TestSDKDrivers_AllSendCanonicalEnvelope(t *testing.T) {
 			if got := captured.Header.Get("X-SDK-Version"); got != tc.expectVer {
 				t.Errorf("X-SDK-Version: got %q want %q", got, tc.expectVer)
 			}
-			// Body must be the envelope JSON.
+			// Body must be the envelope JSON. Field-name contract verified
+			// against backend's IngestUsageEventRequest (camelCase).
 			var env generator.Envelope
 			if err := json.Unmarshal(capturedBody, &env); err != nil {
 				t.Fatalf("unmarshal envelope: %v", err)
 			}
-			if env.EventID != "evt_loadgen_test_0001" {
-				t.Errorf("envelope.event_id: got %q", env.EventID)
+			if env.IdempotencyKey != "evt_loadgen_test_0001" {
+				t.Errorf("envelope.idempotencyKey: got %q", env.IdempotencyKey)
 			}
-			if env.TenantID != "tenant-alpha" {
-				t.Errorf("envelope.tenant_id: got %q", env.TenantID)
+			if env.CustomerID == "" {
+				t.Errorf("envelope.customerId empty — driver should propagate from Event")
 			}
 			// Tenant + auth headers must be set.
 			if got := captured.Header.Get("Authorization"); got != "Bearer tk_test_secret" {

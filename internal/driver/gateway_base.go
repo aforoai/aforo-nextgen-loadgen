@@ -111,5 +111,5 @@ func genRequestID(e *generator.Event) string {
 	if e == nil {
 		return ""
 	}
-	return e.Envelope.EventID
+	return e.EventID
 }

@@ -129,13 +129,13 @@ func TestCSVUpload_PerTenantIsolation(t *testing.T) {
 	// Tenant A: 3 events → 1 upload
 	for i := 0; i < 3; i++ {
 		e := newTestEvent()
-		e.Envelope.TenantID = "tenant-A"
+		e.TenantID = "tenant-A"
 		d.Submit(context.Background(), e)
 	}
 	// Tenant B: 3 events → 1 upload (independent)
 	for i := 0; i < 3; i++ {
 		e := newTestEvent()
-		e.Envelope.TenantID = "tenant-B"
+		e.TenantID = "tenant-B"
 		d.Submit(context.Background(), e)
 	}
 	if got := uploads.Load(); got != 2 {

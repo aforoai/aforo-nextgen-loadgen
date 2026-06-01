@@ -96,15 +96,29 @@ func agenticAPITemplate(rng *rand.Rand) map[string]any {
 }
 
 // Envelope is the canonical event-shaped wrapper that callers POST to
-// /v1/ingest. Body is the per-product-type fields from a Template; the rest
-// is metadata required by the platform's UsageEventValidator.
+// /v1/ingest. Field names MUST match the backend's IngestUsageEventRequest
+// (verified against aforo-nextgen-usage-ingestor-service/.../dto/
+// IngestUsageEventRequest.java) — every field uses camelCase, three are
+// @NotNull/@NotBlank server-side and MUST be present on every event:
+// customerId, metricName, quantity, occurredAt, idempotencyKey.
+//
+// In-memory routing fields (TenantID, SubscriptionID) carry on Event
+// rather than Envelope because they're not part of the request body —
+// X-Tenant-Id flows through an HTTP header instead.
+//
+// Drift-fix 2026-06-01: the prior shape used snake_case field names
+// (event_id, event_timestamp, tenant_id, product_type, metric_id) and
+// emitted a `body` wrapper with per-template fields. Every event 400'd
+// on AWS staging because none of those names match the deployed
+// contract and quantity/idempotencyKey/occurredAt were absent. The new
+// shape sends template fields as `metadata` and uses MetricName (not
+// metric UUID) so backend's name-based metric lookup succeeds.
 type Envelope struct {
-	EventID        string         `json:"event_id"`
-	EventTimestamp time.Time      `json:"event_timestamp"`
-	TenantID       string         `json:"tenant_id"`
-	CustomerID     string         `json:"customer_id"`
-	SubscriptionID string         `json:"subscription_id"`
-	ProductType    string         `json:"product_type"`
-	MetricID       string         `json:"metric_id,omitempty"`
-	Body           map[string]any `json:"body"`
+	CustomerID     string         `json:"customerId"`
+	MetricName     string         `json:"metricName"`
+	Quantity       float64        `json:"quantity"`
+	OccurredAt     time.Time      `json:"occurredAt"`
+	IdempotencyKey string         `json:"idempotencyKey"`
+	ProductType    string         `json:"productType,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
 }

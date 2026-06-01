@@ -19,17 +19,27 @@ import (
 // enough to pass by value where convenient but we use pointers everywhere
 // so the negative-path injectors can mutate fields cheaply.
 type Event struct {
-	Envelope            Envelope
-	IngestionPath       string           // e.g. "rest_direct"
-	Archetype           string           // tenant archetype name
-	PayloadSize         PayloadSize      // small/medium/large
-	NegativePath        NegativePathKind // "" or one of 6
-	Auth                EventAuth        // bearer/clientid for the driver
-	RawBody             []byte           // when set (malformed), driver sends as-is
-	StaleReason         string           // populated only for stale_key
-	StaleSince          *time.Time       // populated only for stale_key
-	StaleSubscriptionID string           // populated only for stale_key
-	GeneratedAt         time.Time        // wall-clock at generation
+	Envelope      Envelope
+	IngestionPath string           // e.g. "rest_direct"
+	Archetype     string           // tenant archetype name
+	PayloadSize   PayloadSize      // small/medium/large
+	NegativePath  NegativePathKind // "" or one of 6
+	Auth          EventAuth        // bearer/clientid for the driver
+	RawBody       []byte           // when set (malformed), driver sends as-is
+	StaleReason   string           // populated only for stale_key
+	StaleSince    *time.Time       // populated only for stale_key
+	GeneratedAt   time.Time        // wall-clock at generation
+	// In-memory routing fields — used by the driver to set HTTP headers
+	// but NOT serialized into the request body. The backend's
+	// IngestUsageEventRequest has no tenant_id/subscription_id/event_id
+	// fields; tenant flows via X-Tenant-Id header, subscription is looked
+	// up by customer+metric+timestamp at billing time, and event id is
+	// only used for cross-correlating loadgen logs with server-side
+	// traces (X-Loadgen-Event-Id header).
+	TenantID            string
+	SubscriptionID      string
+	EventID             string
+	StaleSubscriptionID string // populated only for stale_key
 }
 
 // EventAuth tells the driver which credential to send. For BEARER_TOKEN
@@ -117,10 +127,14 @@ type Generator struct {
 // Every event one of these is sampled, then a customer/sub/key triple is
 // drawn from inside it.
 type indexedTenant struct {
-	manifestIdx  int // index into manifest.Tenants
-	tenant       *seed.ManifestTenant
-	activeIdx    []customerSubKeyTriple            // subscriptions in non-stale states
-	productTypes map[scenario.ProductType][]string // metric IDs for fast lookup
+	manifestIdx int // index into manifest.Tenants
+	tenant      *seed.ManifestTenant
+	activeIdx   []customerSubKeyTriple // subscriptions in non-stale states
+	// productTypes maps ProductType → metrics on every product of that
+	// type in this tenant. We store both the ID (for back-compat) and
+	// the Name (required by IngestUsageEventRequest.metricName). The
+	// emit path uses Name. Drift-fix 2026-06-01.
+	productTypes map[scenario.ProductType][]seed.ManifestMetric
 }
 
 // customerSubKeyTriple is one (customer, subscription, key) — used to drive
@@ -294,17 +308,35 @@ func (g *Generator) produce(eventTime time.Time) (*Event, error) {
 	size := g.payloadPicker.Pick(g.rng)
 	ApplyPayloadSize(body, size, g.rng)
 
-	envelope := Envelope{
-		EventID:        genEventID(g.rng),
-		EventTimestamp: eventTime,
-		TenantID:       t.tenant.TenantID,
-		CustomerID:     triple.customer.CustomerID,
-		SubscriptionID: triple.subscription.SubscriptionID,
-		ProductType:    string(productKind),
-		Body:           body,
+	// Pick a metric NAME for this event. Backend's IngestUsageEventRequest
+	// looks up the metric by name (not id). When the tenant carries no
+	// metric for the chosen productType (rare — archetype mismatch), we
+	// drop the event because there's nothing for the backend to attribute
+	// usage to. The same logic applied to metric IDs in the prior shape.
+	metricName := ""
+	if metrics := t.productTypes[productKind]; len(metrics) > 0 {
+		metricName = metrics[g.rng.Intn(len(metrics))].Name
 	}
-	if metricIDs := t.productTypes[productKind]; len(metricIDs) > 0 {
-		envelope.MetricID = metricIDs[g.rng.Intn(len(metricIDs))]
+	if metricName == "" {
+		return nil, nil
+	}
+
+	eventID := genEventID(g.rng)
+	envelope := Envelope{
+		CustomerID: triple.customer.CustomerID,
+		MetricName: metricName,
+		// Quantity defaults to 1 — one event = one unit of the metric.
+		// Per-metric scaling (e.g. token counts for LLM products) would
+		// require enriching this from the template body; out of MVP scope.
+		// Backend enforces @Positive so 1.0 is the safe floor.
+		Quantity:       1.0,
+		OccurredAt:     eventTime,
+		IdempotencyKey: eventID,
+		ProductType:    string(productKind),
+		// Per-template fields move from the prior `body` wrapper to
+		// `metadata`. Backend stores this as JSONB for downstream
+		// dimension matching + per-event reporting.
+		Metadata: body,
 	}
 
 	evt := &Event{
@@ -317,6 +349,11 @@ func (g *Generator) produce(eventTime time.Time) (*Event, error) {
 			ClientID: triple.key.ClientID,
 		},
 		GeneratedAt: g.now(),
+		// In-memory routing fields — propagated to HTTP headers by the
+		// driver but not into the serialized body.
+		TenantID:       t.tenant.TenantID,
+		SubscriptionID: triple.subscription.SubscriptionID,
+		EventID:        eventID,
 	}
 
 	// Roll for negative-path injection. The planner mutates the event in
@@ -394,11 +431,22 @@ func indexTenants(m *seed.Manifest, _ *scenario.Scenario) ([]indexedTenant, erro
 		idx := indexedTenant{
 			manifestIdx:  ti,
 			tenant:       t,
-			productTypes: map[scenario.ProductType][]string{},
+			productTypes: map[scenario.ProductType][]seed.ManifestMetric{},
 		}
-		// Map products → product type → metric ids
+		// Map products → product type → metrics (ID+Name pairs).
+		// Prefer the new Metrics field; fall back to MetricIDs (with empty
+		// names) for manifests written before this drift-fix landed.
 		for _, p := range t.Products {
-			idx.productTypes[p.ProductType] = append(idx.productTypes[p.ProductType], p.MetricIDs...)
+			if len(p.Metrics) > 0 {
+				idx.productTypes[p.ProductType] = append(idx.productTypes[p.ProductType], p.Metrics...)
+				continue
+			}
+			for _, id := range p.MetricIDs {
+				idx.productTypes[p.ProductType] = append(
+					idx.productTypes[p.ProductType],
+					seed.ManifestMetric{ID: id},
+				)
+			}
 		}
 		// Walk subscriptions; collect happy-path triples.
 		productTypes := make([]scenario.ProductType, 0, len(idx.productTypes))

@@ -411,7 +411,7 @@ func (r *Runner) onResult(res driver.Result) {
 		r.histMu.Unlock()
 		// Per-tenant fairness — Session 8.
 		if r.perTenantStore != nil {
-			r.perTenantStore.Record(res.Event.Envelope.TenantID, ipath, pt, res.Latency)
+			r.perTenantStore.Record(res.Event.TenantID, ipath, pt, res.Latency)
 		}
 	} else {
 		switch {
@@ -432,7 +432,7 @@ func (r *Runner) onResult(res driver.Result) {
 	}
 
 	// Per-tenant + per-product-type + per-path counters.
-	atomic64Inc(&r.perTenant, res.Event.Envelope.TenantID)
+	atomic64Inc(&r.perTenant, res.Event.TenantID)
 	atomic64Inc(&r.perProductType, pt)
 	atomic64Inc(&r.perPath, ipath)
 
@@ -459,8 +459,8 @@ func (r *Runner) onResult(res driver.Result) {
 		BytesSent           int                        `json:"bytes_sent"`
 		EventTimestamp      time.Time                  `json:"event_timestamp"`
 	}{
-		EventID:        res.Event.Envelope.EventID,
-		TenantID:       res.Event.Envelope.TenantID,
+		EventID:        res.Event.EventID,
+		TenantID:       res.Event.TenantID,
 		Archetype:      arch,
 		ProductType:    pt,
 		IngestionPath:  ipath,
@@ -471,7 +471,7 @@ func (r *Runner) onResult(res driver.Result) {
 		Status:         res.Status,
 		LatencyMs:      float64(res.Latency.Microseconds()) / 1000.0,
 		BytesSent:      res.BytesSent,
-		EventTimestamp: res.Event.Envelope.EventTimestamp,
+		EventTimestamp: res.Event.Envelope.OccurredAt,
 	}
 	if res.Event.NegativePath == generator.NPStaleKey {
 		rec.StaleSubscriptionID = res.Event.StaleSubscriptionID

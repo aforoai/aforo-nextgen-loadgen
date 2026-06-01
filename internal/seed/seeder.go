@@ -187,6 +187,7 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		for _, m := range metrics {
 			metricIDs = append(metricIDs, m.ID)
 			mProd.MetricIDs = append(mProd.MetricIDs, m.ID)
+			mProd.Metrics = append(mProd.Metrics, ManifestMetric{ID: m.ID, Name: m.Name})
 		}
 		mt.Products = append(mt.Products, mProd)
 	}

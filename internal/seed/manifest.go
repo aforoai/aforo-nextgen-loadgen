@@ -68,7 +68,21 @@ type ManifestProduct struct {
 	Name        string               `json:"name"`
 	SeedKey     string               `json:"seed_key"`
 	ProductType scenario.ProductType `json:"product_type"`
-	MetricIDs   []string             `json:"metric_ids,omitempty"`
+	// MetricIDs preserved for back-compat. New consumers should iterate
+	// Metrics for the (ID, Name) pair — the run engine needs the NAME
+	// on every ingest event (backend's IngestUsageEventRequest.metricName
+	// is the lookup key), not the UUID. Drift-fix 2026-06-01.
+	MetricIDs []string         `json:"metric_ids,omitempty"`
+	Metrics   []ManifestMetric `json:"metrics,omitempty"`
+}
+
+// ManifestMetric is one billable unit on a product. Carries BOTH the
+// backend-assigned ID (for cross-tenant references on the rate plan
+// junction tables) AND the human-friendly Name (for usage events, which
+// the platform's IngestUsageEventRequest looks up by name).
+type ManifestMetric struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // ManifestRatePlan mirrors a created rate plan.
