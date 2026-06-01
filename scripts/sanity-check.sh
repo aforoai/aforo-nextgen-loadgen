@@ -212,12 +212,15 @@ layer_seed() {
   seed_out=$("$BIN" seed --scenario "$SCENARIO" --target "$TARGET" \
       --out "$MANIFEST" 2>&1) || true
   echo "$seed_out" >> "$LOG_FILE"
-  echo "$seed_out" | grep -E "^seed complete|^manifest|^by archetype|^  |error" | head -20
+  # Show summary lines + ANY line mentioning a per-archetype failure.
+  # `[ci-smoke-baseline/001] ...` is the canonical loadgen failure prefix.
+  echo "$seed_out" | grep -E "^seed complete|^manifest|^by archetype|^  |error|^\[[^]]+/[0-9]+\]" \
+    | head -25
 
   test -s "$MANIFEST" || { echo "  $(red "✗") manifest not written"; return 1; }
-  # Detect "errors=N" where N>0 in the summary line.
   if echo "$seed_out" | grep -qE "^seed complete:.*errors=[1-9]"; then
-    echo "  $(red "✗") seed reported one or more errors — see log for the API response body"
+    echo "  $(red "✗") seed reported one or more errors — full detail in:"
+    echo "    $LOG_FILE"
     return 1
   fi
 }
