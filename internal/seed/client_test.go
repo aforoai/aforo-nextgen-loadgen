@@ -182,6 +182,136 @@ func TestClient_RateLimit_RespectsMinInterval(t *testing.T) {
 	}
 }
 
+// TestUnmarshalAforoResponse_EnvelopeShape locks in the contract that the
+// standard Aforo {success, data, meta} envelope unwraps into the target
+// struct's fields. Regression guard for the 2026-06-01 bug where a prior
+// version's "try direct unmarshal first" branch silently zero-valued the
+// target when the body was an envelope. See unmarshalAforoResponse history.
+func TestUnmarshalAforoResponse_EnvelopeShape(t *testing.T) {
+	type entity struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	body := []byte(`{"success":true,"data":{"id":"t-1","name":"Acme"},"meta":{}}`)
+	var got entity
+	if err := unmarshalAforoResponse(body, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.ID != "t-1" || got.Name != "Acme" {
+		t.Errorf("envelope not unwrapped: got %+v", got)
+	}
+}
+
+// TestUnmarshalAforoResponse_PlainEntity covers internal admin endpoints
+// (e.g. LoadgenInternalTenantController) that writeJson the entity directly,
+// without the envelope.
+func TestUnmarshalAforoResponse_PlainEntity(t *testing.T) {
+	type entity struct {
+		ID         string `json:"id"`
+		ExternalID string `json:"externalId"`
+	}
+	body := []byte(`{"id":"t-2","externalId":"loadgen-x"}`)
+	var got entity
+	if err := unmarshalAforoResponse(body, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.ID != "t-2" || got.ExternalID != "loadgen-x" {
+		t.Errorf("plain entity decode wrong: got %+v", got)
+	}
+}
+
+// TestUnmarshalAforoResponse_PlainArray covers list endpoints that return
+// bare arrays (some legacy internal endpoints).
+func TestUnmarshalAforoResponse_PlainArray(t *testing.T) {
+	body := []byte(`[{"id":"a"},{"id":"b"}]`)
+	var got []map[string]string
+	if err := unmarshalAforoResponse(body, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got) != 2 || got[0]["id"] != "a" || got[1]["id"] != "b" {
+		t.Errorf("plain array decode wrong: got %+v", got)
+	}
+}
+
+// TestUnmarshalAforoResponse_DataOnlyEnvelope covers list responses like the
+// loadgen tenant lookup (LoadgenTenantListResponse: {"data":[...]} with no
+// success/meta keys). isEnvelopeResponse requires BOTH success AND data, so
+// these MUST fall through to the direct-unmarshal path. If this regresses,
+// lookupTenantByExternalID will silently return zero hits.
+func TestUnmarshalAforoResponse_DataOnlyEnvelope(t *testing.T) {
+	type item struct {
+		ID string `json:"id"`
+	}
+	var got struct {
+		Data []item `json:"data"`
+	}
+	body := []byte(`{"data":[{"id":"t-3"}]}`)
+	if err := unmarshalAforoResponse(body, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Data) != 1 || got.Data[0].ID != "t-3" {
+		t.Errorf("data-only envelope decode wrong: got %+v", got)
+	}
+}
+
+// TestUnmarshalAforoResponse_EnvelopeNullData covers a 2xx with success:true
+// but data:null (e.g. successful no-op endpoints). Must leave out untouched
+// and return no error.
+func TestUnmarshalAforoResponse_EnvelopeNullData(t *testing.T) {
+	type entity struct {
+		ID string `json:"id"`
+	}
+	got := entity{ID: "pre"}
+	body := []byte(`{"success":true,"data":null,"meta":{}}`)
+	if err := unmarshalAforoResponse(body, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.ID != "pre" {
+		t.Errorf("expected out untouched, got %+v", got)
+	}
+}
+
+// TestClient_UnwrapsEnvelopeEndToEnd is the canonical regression test for the
+// developer-reported bug: a backend that returns the {success,data,meta}
+// envelope must produce a populated entity at the Do() call site. Prior to
+// the fix this returned (err=nil, ID=""), which let the seeder log success
+// while the manifest recorded empty IDs and downstream provisioners ran
+// against an empty tenant context.
+func TestClient_UnwrapsEnvelopeEndToEnd(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"success":true,"data":{"id":"tnt-42","externalId":"loadgen-foo","name":"Foo"},"meta":{"requestId":"r-1"}}`)
+	}))
+	defer server.Close()
+
+	c, err := NewClient(ClientConfig{
+		Target:      singleHostTarget(server.URL),
+		BearerToken: "test",
+		MinInterval: 1 * time.Microsecond,
+		Logger:      log.New(io.Discard, "", 0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	var resp struct {
+		ID         string `json:"id"`
+		ExternalID string `json:"externalId"`
+		Name       string `json:"name"`
+	}
+	if err := c.Do(context.Background(), http.MethodPost, server.URL+"/create", map[string]string{"name": "Foo"}, &resp, RequestOptions{}); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if resp.ID == "" {
+		t.Fatalf("envelope was not unwrapped: resp=%+v (this is the developer-reported bug)", resp)
+	}
+	if resp.ID != "tnt-42" || resp.ExternalID != "loadgen-foo" || resp.Name != "Foo" {
+		t.Errorf("decoded wrong fields: %+v", resp)
+	}
+}
+
 func TestClient_DryRunRecordsRequests(t *testing.T) {
 	c, err := NewClient(ClientConfig{
 		Target:      aforo.LocalTarget,

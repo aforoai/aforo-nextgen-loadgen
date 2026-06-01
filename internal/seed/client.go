@@ -293,20 +293,68 @@ func (c *Client) doOnce(ctx context.Context, method, fullURL string, body []byte
 	return nil
 }
 
+// unmarshalAforoResponse decodes a backend response into out. Aforo services
+// return one of these shapes:
+//
+//  1. ApiResponseAdvice envelope: {"success":true,"data":<inner>,"meta":...}
+//     — most controllers, including everything that goes through the standard
+//     ResponseEntity advice.
+//  2. Plain entity / plain list  — a handful of internal admin endpoints
+//     (e.g. LoadgenInternalTenantController) writeJson the body directly
+//     and bypass the envelope. List responses sometimes carry their own
+//     {"data":[...]} key without the success/meta fields.
+//
+// History note (do not regress): a prior version tried `json.Unmarshal(body,
+// out)` first and only fell through to the envelope path on error. That
+// silently dropped data on every enveloped response — Go's json package
+// ignores unknown fields, so unmarshalling {"success":true,"data":{...}}
+// into a typed entity struct like tenantResponse{ID,Name,...} succeeded with
+// err==nil and every field zero-valued. Loadgen would then record blank IDs
+// in the manifest, log "created" success, and the backend either had no row
+// or had a row the lookup couldn't find again. See README + this file's
+// commit history for the symptoms (developer report 2026-06-01).
+//
+// New behavior: probe for the standard envelope by checking both `success`
+// and `data` keys. If present, unmarshal data into out. Otherwise fall back
+// to a direct unmarshal so unwrapped/list shapes still work.
 func unmarshalAforoResponse(respBody []byte, out any) error {
-	if err := json.Unmarshal(respBody, out); err == nil {
-		return nil
+	if isEnvelopeResponse(respBody) {
+		var env struct {
+			Data json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(respBody, &env); err != nil {
+			// Body claimed to be an envelope but is malformed — surface the
+			// error rather than silently zeroing out.
+			return err
+		}
+		if len(env.Data) == 0 || string(env.Data) == "null" {
+			// Envelope present but data is empty/null. Leave out untouched
+			// (its zero value); a missing payload is not an error.
+			return nil
+		}
+		return json.Unmarshal(env.Data, out)
 	}
-	var wrapped struct {
-		Data json.RawMessage `json:"data"`
+	return json.Unmarshal(respBody, out)
+}
+
+// isEnvelopeResponse reports whether respBody looks like Aforo's standard
+// {success, data, meta} envelope. We require BOTH `success` and `data` to
+// be present at the top level — checking only `data` is risky because some
+// entities legitimately carry a `data` field on the wire (e.g. webhook
+// payload bodies). The combination is unique enough to be unambiguous.
+func isEnvelopeResponse(respBody []byte) bool {
+	// Cheap shape filter: envelopes are JSON objects, not arrays/strings.
+	trimmed := bytes.TrimLeft(respBody, " \t\r\n")
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return false
 	}
-	if err := json.Unmarshal(respBody, &wrapped); err != nil {
-		return err
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(respBody, &probe); err != nil {
+		return false
 	}
-	if len(wrapped.Data) == 0 || string(wrapped.Data) == "null" {
-		return json.Unmarshal([]byte(`{}`), out)
-	}
-	return json.Unmarshal(wrapped.Data, out)
+	_, hasSuccess := probe["success"]
+	_, hasData := probe["data"]
+	return hasSuccess && hasData
 }
 
 func (c *Client) recordDryRun(method, fullURL string, body []byte, opts RequestOptions, out any) error {

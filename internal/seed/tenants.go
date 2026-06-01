@@ -93,6 +93,14 @@ func lookupTenantByExternalID(ctx context.Context, c *Client, externalID string)
 	}
 	q := url.Values{}
 	q.Set("externalId", externalID)
+	// Backend (LoadgenInternalTenantController.list) returns
+	// LoadgenTenantListResponse, shape `{"data":[...]}`. The unmarshal layer
+	// in client.go strips the standard ApiResponse envelope ({success,data,
+	// meta}) when present but does NOT strip this list-only envelope, so we
+	// keep the {Data:[]} wrapper struct here. If the controller ever moves
+	// behind ResponseEntity advice (gaining the success/meta keys), the
+	// envelope stripper will surface `[...]` directly and this struct will
+	// fail to decode — at which point fall back to plain `[]tenantResponse`.
 	var page struct {
 		Data []tenantResponse `json:"data"`
 	}
