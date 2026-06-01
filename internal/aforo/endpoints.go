@@ -291,8 +291,16 @@ const (
 	PathCustomerByID = "/api/v1/customers/%s"
 
 	// pricing-service
-	PathRatePlans          = "/api/v1/rate-plans"
-	PathRatePlanByID       = "/api/v1/rate-plans/%s"
+	// NOTE: backend uses unhyphenated "rateplans" for the main controller.
+	// A separate, hyphenated "/api/v1/rate-plans/{id}/rate-limit" controller
+	// exists for the rate-limit sub-feature (loadgen doesn't call that one).
+	// Drift-fix 2026-06-01: the constants previously used the hyphenated
+	// form, which 500'd with NoResourceFoundException on every rate plan
+	// call against staging. Verified against
+	// aforo-nextgen-pricing-service/.../RatePlanController.java:27
+	// (`@RequestMapping("/api/v1/rateplans")`).
+	PathRatePlans          = "/api/v1/rateplans"
+	PathRatePlanByID       = "/api/v1/rateplans/%s"
 	PathOfferings          = "/api/v1/offerings"
 	PathOfferingByID       = "/api/v1/offerings/%s"
 	PathSubscriptions      = "/api/v1/subscriptions"

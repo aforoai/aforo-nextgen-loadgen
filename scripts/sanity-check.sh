@@ -295,12 +295,13 @@ layer_clean() {
     echo "skipped (--skip-clean)"
     return 0
   fi
-  # seed --clean-from still requires --scenario today (the CLI doesn't
-  # short-circuit the scenario load even when only clean is requested).
-  # Passing the same scenario the manifest was generated from makes the
-  # call self-consistent.
-  "$BIN" seed --scenario "$SCENARIO" --target "$TARGET" \
-      --clean-from "$MANIFEST" 2>&1 | tee -a "$LOG_FILE" | tail -10
+  # `seed --clean-from <path>` alone runs a normal seed — the trigger to
+  # ACTUALLY clean is the bare `--clean` flag. Without it, the CLI ignores
+  # --clean-from and re-seeds. Also: the CLI still wants --scenario even
+  # in clean mode (it loads it before short-circuiting). Pass both.
+  "$BIN" seed --clean --clean-from "$MANIFEST" \
+      --scenario "$SCENARIO" --target "$TARGET" \
+      2>&1 | tee -a "$LOG_FILE" | tail -10
 }
 
 # ─── orchestration ────────────────────────────────────────────────────────────

@@ -167,7 +167,7 @@ func TestSeederWithFakeBackend(t *testing.T) {
 	// MUST see a POST to each of the major entity collections.
 	requirePOST(t, calls, "/api/v1/internal/tenants")
 	requirePOST(t, calls, "/api/v1/products")
-	requirePOST(t, calls, "/api/v1/rate-plans")
+	requirePOST(t, calls, "/api/v1/rateplans")
 	requirePOST(t, calls, "/api/v1/offerings")
 	requirePOST(t, calls, "/api/v1/customers")
 	requirePOST(t, calls, "/api/v1/subscriptions")
