@@ -350,11 +350,18 @@ func PathWalletByCustomer(customerID string) string {
 }
 
 // PathPaymentMethodsByCustomer is the URL for billing-service's
-// GET /api/v1/payment-methods/customer/{customerId} dedicated endpoint that
-// returns the list of payment methods for a customer. Used in place of the
-// previous broken `?externalId=` filter on the list root, which doesn't
-// exist server-side (the list root is not exposed at all; only the
-// per-customer subroute is).
+// GET /api/v1/payment-methods/by-customer/{customerId} dedicated endpoint
+// that returns the list of payment methods for a customer.
+//
+// Drift-fix 2026-06-01: the previous form was `/customer/{customerId}`
+// (no `by-`) which 500'd on staging with NoResourceFoundException
+// surfacing as a bare "An unexpected error occurred" because
+// billing-service's exception advice swallows the underlying class.
+// Verified against PaymentMethodController.java:57
+// (`@GetMapping("/by-customer/{customerId}")`).
+//
+// Note: the wallet sibling endpoint is also `/by-customer/...`, so the
+// `by-` prefix is the consistent backend convention.
 func PathPaymentMethodsByCustomer(customerID string) string {
-	return "/api/v1/payment-methods/customer/" + customerID
+	return "/api/v1/payment-methods/by-customer/" + customerID
 }
