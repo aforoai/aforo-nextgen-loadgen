@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/aforo"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/scenario"
@@ -32,10 +33,19 @@ import (
 // provisionProduct), and (b) lookupProductByName which queries by the
 // real `name` column.
 type productCreateRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	ProductType string `json:"type"`
-	Status      string `json:"status,omitempty"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	ProductType string                 `json:"type"`
+	Status      string                 `json:"status,omitempty"`
+	// Metadata carries per-type required fields. Catalog-service's
+	// ProductServiceImpl.validateStandardApiMetadata REQUIRES non-blank
+	// metadata.base_path AND metadata.api_version when type=API and
+	// rejects with HTTP 422 "Base Path is required for Standard API
+	// products" / "API Version is required". The other 3 product types
+	// (AI_AGENT, MCP_SERVER, AGENTIC_API) have no required-metadata
+	// validation today, so we populate Metadata only for API. Drift-fix
+	// 2026-06-01 (developer-reported AWS staging seed failure).
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // productResponse mirrors the fields of catalog-service's ProductResponse
@@ -100,6 +110,7 @@ func provisionProduct(ctx context.Context, c *Client, tenantID, seedKey string, 
 		Description: fmt.Sprintf("Auto-provisioned by aforo-loadgen for archetype=%s", archetype),
 		ProductType: string(pt),
 		Status:      "ACTIVE",
+		Metadata:    productMetadataFor(pt, archetype),
 	}
 	createURL, err := c.Target().Path(aforo.ServiceCatalog, aforo.PathProducts)
 	if err != nil {
@@ -125,6 +136,25 @@ func provisionProduct(ctx context.Context, c *Client, tenantID, seedKey string, 
 		resp.Type = string(pt)
 	}
 	return resp, nil
+}
+
+// productMetadataFor returns the per-type required metadata for a product
+// create. Catalog-service enforces base_path + api_version on type=API; the
+// other 3 product types currently have no required-metadata validation, so
+// we return nil for those (the field is `omitempty`). The slugified
+// archetype keeps base paths URL-safe per catalog-service's gateway-mapping
+// expectations — operators can override these in real deployments, but
+// loadgen owns these synthetic products end-to-end so deterministic
+// defaults are fine.
+func productMetadataFor(pt scenario.ProductType, archetype string) map[string]any {
+	if pt != scenario.ProductAPI {
+		return nil
+	}
+	slug := strings.ToLower(strings.ReplaceAll(archetype, "_", "-"))
+	return map[string]any{
+		"base_path":   "/v1/" + slug,
+		"api_version": "v1",
+	}
 }
 
 // lookupProductByName queries catalog-service's GET /api/v1/products with

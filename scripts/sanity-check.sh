@@ -202,12 +202,24 @@ layer_doctor() {
 
 # ─── layer 7: live seed ───────────────────────────────────────────────────────
 layer_seed() {
-  "$BIN" seed --scenario "$SCENARIO" --target "$TARGET" \
-      --out "$MANIFEST" 2>&1 \
-    | tee -a "$LOG_FILE" \
-    | grep -E "^seed complete|^manifest|^by archetype|^  |error" \
-    | head -20
-  test -s "$MANIFEST"
+  # Capture full output so we can both stream it and inspect for errors.
+  # The seed CLI exits 0 even when individual provisioners fail (errors=N
+  # in the summary line) and the partial manifest still gets written. We
+  # MUST detect that and fail the layer, otherwise verify silently runs
+  # against an empty manifest and reports "envelope-decode regression"
+  # when the real culprit is upstream.
+  local seed_out
+  seed_out=$("$BIN" seed --scenario "$SCENARIO" --target "$TARGET" \
+      --out "$MANIFEST" 2>&1) || true
+  echo "$seed_out" >> "$LOG_FILE"
+  echo "$seed_out" | grep -E "^seed complete|^manifest|^by archetype|^  |error" | head -20
+
+  test -s "$MANIFEST" || { echo "  $(red "✗") manifest not written"; return 1; }
+  # Detect "errors=N" where N>0 in the summary line.
+  if echo "$seed_out" | grep -qE "^seed complete:.*errors=[1-9]"; then
+    echo "  $(red "✗") seed reported one or more errors — see log for the API response body"
+    return 1
+  fi
 }
 
 # ─── layer 8: verify — re-fetch entities by ID and confirm they exist ────────
@@ -283,7 +295,12 @@ layer_clean() {
     echo "skipped (--skip-clean)"
     return 0
   fi
-  "$BIN" seed --target "$TARGET" --clean-from "$MANIFEST" 2>&1 | tee -a "$LOG_FILE" | tail -10
+  # seed --clean-from still requires --scenario today (the CLI doesn't
+  # short-circuit the scenario load even when only clean is requested).
+  # Passing the same scenario the manifest was generated from makes the
+  # call self-consistent.
+  "$BIN" seed --scenario "$SCENARIO" --target "$TARGET" \
+      --clean-from "$MANIFEST" 2>&1 | tee -a "$LOG_FILE" | tail -10
 }
 
 # ─── orchestration ────────────────────────────────────────────────────────────
