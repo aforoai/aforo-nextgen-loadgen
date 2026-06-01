@@ -24,10 +24,20 @@ import (
 //   - JSON field is "ovBehavior" (NOT "overageBehavior") with allowed values
 //     "CHARGE" | "BLOCK" | "IGNORE". The legacy value "ALLOW" is rejected.
 type metricConfigRequest struct {
-	MetricID      string                `json:"metricId"`
-	Model         scenario.PricingModel `json:"model"`
-	Rate          float64               `json:"rate,omitempty"`
-	IncludedFree  int64                 `json:"includedFree,omitempty"`
+	MetricID string                `json:"metricId"`
+	Model    scenario.PricingModel `json:"model"`
+	// Rate is a pointer so the JSON encoder distinguishes "absent" from
+	// "intentionally zero". Pricing-service enforces `@NotNull` on the
+	// metric-config rate field for every pricing model, including
+	// FLAT_RATE where loadgen sets a placeholder 0 (the actual flat
+	// charge lives on ratePlanCreateRequest.BaseFee, but the metric
+	// config still has to carry a numeric rate). The previous form
+	// `float64 \`json:"rate,omitempty"\`` silently dropped the field
+	// for FLAT_RATE archetypes, and staging rejected with 400
+	// "Rate is required for pricing model 'FLAT_RATE' on metric X".
+	// Drift-fix 2026-06-01.
+	Rate          *float64 `json:"rate,omitempty"`
+	IncludedFree  int64    `json:"includedFree,omitempty"`
 	BlockSize     int64                 `json:"blockSize,omitempty"`
 	MinFee        float64               `json:"minFee,omitempty"`
 	BillingTiming string                `json:"billingTiming,omitempty"`
@@ -188,20 +198,20 @@ func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metri
 			// FLAT_RATE has no per-metric pricing — but the platform requires
 			// at least one metric on every plan for usage attribution. Set
 			// rate to 0 so the metric exists but contributes nothing to the bill.
-			mc.Rate = 0
+			mc.Rate = floatPtr(0)
 		case scenario.PricingPerUnit:
-			mc.Rate = rc.PerUnitRateUSD
+			mc.Rate = floatPtr(rc.PerUnitRateUSD)
 			if rc.IncludedFreeUnits > 0 {
 				mc.IncludedFree = rc.IncludedFreeUnits
 			}
 		case scenario.PricingPercentage:
-			mc.Rate = rc.PercentageRate
+			mc.Rate = floatPtr(rc.PercentageRate)
 			if rc.MinFeeUSD > 0 {
 				mc.MinFee = rc.MinFeeUSD
 			}
 		case scenario.PricingIncludedQuota:
 			mc.IncludedFree = rc.IncludedFreeUnits
-			mc.Rate = rc.PerUnitRateUSD
+			mc.Rate = floatPtr(rc.PerUnitRateUSD)
 			if rc.BlockSizeUnits > 0 {
 				mc.BlockSize = rc.BlockSizeUnits
 			}
@@ -336,3 +346,9 @@ func tierBandsAsMaps(bands []scenario.TierBand) []map[string]any {
 	}
 	return out
 }
+
+// floatPtr returns a pointer to the given float64. Used to populate
+// metricConfigRequest.Rate so the JSON encoder emits "rate":0 for
+// FLAT_RATE archetypes instead of omitting the field via omitempty
+// (which causes pricing-service to reject with 400 "Rate is required").
+func floatPtr(v float64) *float64 { return &v }

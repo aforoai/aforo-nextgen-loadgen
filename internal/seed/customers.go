@@ -2,11 +2,36 @@ package seed
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/aforo"
 )
+
+// customerEmailFor returns a deterministic, RFC 5321-compliant email
+// derived from a seedKey. The previous form `${seedKey}@loadgen.aforo.test`
+// blew through the 64-char local-part limit for longer archetype names
+// (e.g. seedKey `loadgen-customer-ci-billing-percentage-seed-2026-06-01-
+// xxxxxx-1001` is 65 chars before @), which customer-service's
+// @Email Bean Validation rejected with HTTP 400 fieldErrors.email
+// "Email must be a valid email address". Drift-fix 2026-06-01.
+//
+// Format: `lg-{12 hex chars of sha256(seedKey)}@loadgen.aforo.test`.
+// Local part = 3 ("lg-") + 12 (hash prefix) = 15 chars. Well under
+// the 64-char RFC limit and uniqueness collision odds are negligible
+// at loadgen's tenant count (12 hex chars = 48 bits = 2^48 namespace).
+// Email is deterministic per seedKey so cross-day lookupCustomerByEmail
+// still works as the cross-DB-reset identity key.
+//
+// We DO keep the seedKey on the Idempotency-Key header so 24h-window
+// dedup still works against the same response. The seedKey just no
+// longer leaks into the email's local part.
+func customerEmailFor(seedKey string) string {
+	sum := sha256.Sum256([]byte(seedKey))
+	return "lg-" + hex.EncodeToString(sum[:6]) + "@loadgen.aforo.test"
+}
 
 // customerCreateRequest mirrors customer-service's CreateCustomerRequest.
 //
@@ -65,7 +90,7 @@ type customerResponse struct {
 //     deterministic cross-day identity key (driven by lookupCustomerByEmail).
 //     See CONVENTIONS.md for the seedKey + Idempotency-Key contract.
 func provisionCustomer(ctx context.Context, c *Client, tenantID, seedKey, currency string, archetype string, seq int) (customerResponse, error) {
-	email := fmt.Sprintf("%s@loadgen.aforo.test", seedKey)
+	email := customerEmailFor(seedKey)
 
 	if existing, ok, err := lookupCustomerByEmail(ctx, c, tenantID, email); err != nil {
 		return customerResponse{}, fmt.Errorf("lookup customer %q: %w", email, err)
