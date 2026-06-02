@@ -33,10 +33,10 @@ import (
 // provisionProduct), and (b) lookupProductByName which queries by the
 // real `name` column.
 type productCreateRequest struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	ProductType string                 `json:"type"`
-	Status      string                 `json:"status,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	ProductType string `json:"type"`
+	Status      string `json:"status,omitempty"`
 	// Metadata carries per-type required fields. Catalog-service's
 	// ProductServiceImpl.validateStandardApiMetadata REQUIRES non-blank
 	// metadata.base_path AND metadata.api_version when type=API and

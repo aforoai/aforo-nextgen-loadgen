@@ -2,6 +2,7 @@ package seed
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -309,6 +310,64 @@ func TestClient_UnwrapsEnvelopeEndToEnd(t *testing.T) {
 	}
 	if resp.ID != "tnt-42" || resp.ExternalID != "loadgen-foo" || resp.Name != "Foo" {
 		t.Errorf("decoded wrong fields: %+v", resp)
+	}
+}
+
+// TestClient_DecodesBodyLargerThanTruncateCap is a regression test for the
+// developer-reported "unmarshal: unexpected end of JSON input" on GET
+// /api/v1/customers (2026-06-02). doOnce previously read the response through
+// io.LimitReader(resp.Body, defaultBodyTruncate*4), capping the bytes it
+// decoded at 16 KiB. The customer-service list endpoint has no server-side
+// filter and returns every customer, so once a tenant had more than a handful
+// of rows the JSON exceeded 16 KiB and got cut mid-stream — while a direct
+// curl (no cap) worked fine. The full body must be read for decoding;
+// defaultBodyTruncate is for capping error bodies shown to users only.
+func TestClient_DecodesBodyLargerThanTruncateCap(t *testing.T) {
+	// Build a list response well past the old 16 KiB read cap.
+	const n = 500
+	items := make([]map[string]string, 0, n)
+	for i := 0; i < n; i++ {
+		items = append(items, map[string]string{
+			"id":    "cus-" + string(rune('a'+i%26)) + string(rune('0'+i%10)),
+			"email": "lg-padding-padding-padding-padding@loadgen.aforo.test",
+		})
+	}
+	payload := struct {
+		Success bool                `json:"success"`
+		Data    []map[string]string `json:"data"`
+	}{Success: true, Data: items}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) <= defaultBodyTruncate*4 {
+		t.Fatalf("test payload (%d bytes) must exceed the old 16 KiB read cap to be a valid regression", len(body))
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	c, err := NewClient(ClientConfig{
+		Target:      singleHostTarget(server.URL),
+		BearerToken: "test",
+		MinInterval: 1 * time.Microsecond,
+		Logger:      log.New(io.Discard, "", 0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	var got []map[string]string
+	if err := c.Do(context.Background(), http.MethodGet, server.URL+"/api/v1/customers", nil, &got, RequestOptions{}); err != nil {
+		t.Fatalf("Do: %v (this is the truncated-body bug regressing)", err)
+	}
+	if len(got) != n {
+		t.Fatalf("decoded %d items, want %d — body was truncated", len(got), n)
 	}
 }
 
