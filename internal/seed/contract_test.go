@@ -23,13 +23,13 @@ import (
 // contractEntries is the authoritative loadgen-struct ↔ backend-schema map.
 //
 // Adding a new entry:
-//   1. Add a row here citing the Go struct type, backend service name
-//      (matches openapi/<svc>.json), and OpenAPI schema name (the Java
-//      DTO class name as it appears in components.schemas).
-//   2. Run `go test ./internal/seed/... -run TestBackendContract`. Failures
-//      are field tags that don't appear in the schema. Either fix the
-//      loadgen struct, or refresh the snapshot via `make sync-openapi` if
-//      backend changed.
+//  1. Add a row here citing the Go struct type, backend service name
+//     (matches openapi/<svc>.json), and OpenAPI schema name (the Java
+//     DTO class name as it appears in components.schemas).
+//  2. Run `go test ./internal/seed/... -run TestBackendContract`. Failures
+//     are field tags that don't appear in the schema. Either fix the
+//     loadgen struct, or refresh the snapshot via `make sync-openapi` if
+//     backend changed.
 //
 // Direction (Request vs Response) drives expectation severity:
 //   - Request: server silently drops unknown fields (Jackson default).
