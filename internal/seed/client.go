@@ -23,7 +23,8 @@ const (
 	defaultMaxRetries     = 3
 	defaultBaseBackoff    = 250 * time.Millisecond
 	defaultRequestTimeout = 30 * time.Second
-	defaultBodyTruncate   = 4 << 10 // 4 KiB — caps APIError.Body length
+	defaultBodyTruncate   = 4 << 10  // 4 KiB — caps APIError.Body length for display only
+	maxResponseBody       = 64 << 20 // 64 MiB — safety cap on the full body we read+decode
 )
 
 // ClientConfig configures HTTP transport. Zero values fall back to the
@@ -272,7 +273,16 @@ func (c *Client) doOnce(ctx context.Context, method, fullURL string, body []byte
 	}
 	defer resp.Body.Close()
 
-	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, defaultBodyTruncate*4))
+	// Read the FULL body — it is decoded in its entirety below. The earlier
+	// defaultBodyTruncate*4 cap here silently cut large successful responses
+	// mid-JSON: list endpoints with no server-side filter (notably GET
+	// /api/v1/customers, which returns every customer) exceed 16 KiB once a
+	// tenant has more than a handful of rows, and json.Unmarshal then failed
+	// with "unexpected end of JSON input" while a direct curl worked fine.
+	// defaultBodyTruncate is for capping the error body shown to users only
+	// (see below) — never the bytes we decode. maxResponseBody is a generous
+	// safety bound against a pathologically large/unbounded response.
+	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if readErr != nil && !errors.Is(readErr, io.EOF) {
 		return &aforo.APIError{Method: method, URL: fullURL, Status: resp.StatusCode, UnderlyingErr: readErr}
 	}
