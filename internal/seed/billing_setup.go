@@ -2,7 +2,6 @@ package seed
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
