@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -272,8 +271,8 @@ func (c *Client) doOnce(ctx context.Context, method, fullURL string, body []byte
 	}
 	defer resp.Body.Close()
 
-	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, defaultBodyTruncate*4))
-	if readErr != nil && !errors.Is(readErr, io.EOF) {
+	respBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
 		return &aforo.APIError{Method: method, URL: fullURL, Status: resp.StatusCode, UnderlyingErr: readErr}
 	}
 
@@ -318,6 +317,14 @@ func (c *Client) doOnce(ctx context.Context, method, fullURL string, body []byte
 // and `data` keys. If present, unmarshal data into out. Otherwise fall back
 // to a direct unmarshal so unwrapped/list shapes still work.
 func unmarshalAforoResponse(respBody []byte, out any) error {
+	// Special case: if out is *json.RawMessage, caller wants the raw bytes
+	// without unwrapping. This is used by listAll which needs to inspect
+	// the shape before deciding how to decode.
+	if raw, ok := out.(*json.RawMessage); ok {
+		*raw = append((*raw)[:0], respBody...)
+		return nil
+	}
+
 	if isEnvelopeResponse(respBody) {
 		var env struct {
 			Data json.RawMessage `json:"data"`

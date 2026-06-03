@@ -2,7 +2,6 @@ package seed
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -51,11 +50,11 @@ const (
 // billingEntityRequest mirrors billing-service's ProvisionDefaultEntityRequest.
 // Address fields cap at the @Size limits enforced server-side.
 type billingEntityRequest struct {
-	TenantID     string             `json:"tenantId"`
-	DisplayName  string             `json:"displayName"`
-	BaseCurrency string             `json:"baseCurrency"`
-	CountryCode  string             `json:"countryCode"`
-	Address      billingEntityAddr  `json:"address"`
+	TenantID     string            `json:"tenantId"`
+	DisplayName  string            `json:"displayName"`
+	BaseCurrency string            `json:"baseCurrency"`
+	CountryCode  string            `json:"countryCode"`
+	Address      billingEntityAddr `json:"address"`
 }
 
 type billingEntityAddr struct {
@@ -218,8 +217,3 @@ func missingStripeCredsError(mode scenario.BillingMode, missingVar string) error
 		mode, missingVar,
 	)
 }
-
-// errNoStripeCredentials is exported for tests so they can verify the
-// "skip gracefully when configured to" path without coupling to the
-// exact error message string.
-var errNoStripeCredentials = errors.New("AFORO_LOADGEN_STRIPE_API_KEY not set")

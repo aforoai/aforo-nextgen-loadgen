@@ -35,7 +35,7 @@ func TestBuildRatePlanRequest_PerPricingModel(t *testing.T) {
 				if len(req.MetricConfigs) != 1 {
 					t.Fatalf("want 1 metric, got %d", len(req.MetricConfigs))
 				}
-				if (req.MetricConfigs[0].Rate == nil || *req.MetricConfigs[0].Rate != 0) {
+				if req.MetricConfigs[0].Rate == nil || *req.MetricConfigs[0].Rate != 0 {
 					t.Errorf("FLAT_RATE metric rate should be 0, got %v", req.MetricConfigs[0].Rate)
 				}
 				if req.MetricConfigs[0].Model != scenario.PricingFlatRate {
@@ -61,7 +61,7 @@ func TestBuildRatePlanRequest_PerPricingModel(t *testing.T) {
 				if req.BaseFee != 0 {
 					t.Errorf("PER_UNIT BaseFee should be 0, got %v", req.BaseFee)
 				}
-				if (req.MetricConfigs[0].Rate == nil || *req.MetricConfigs[0].Rate != 0.001) {
+				if req.MetricConfigs[0].Rate == nil || *req.MetricConfigs[0].Rate != 0.001 {
 					t.Errorf("rate = %v, want 0.001", req.MetricConfigs[0].Rate)
 				}
 			},
@@ -76,7 +76,7 @@ func TestBuildRatePlanRequest_PerPricingModel(t *testing.T) {
 			},
 			assert: func(t *testing.T, req ratePlanCreateRequest) {
 				m := req.MetricConfigs[0]
-				if (m.Rate == nil || *m.Rate != 0.025) {
+				if m.Rate == nil || *m.Rate != 0.025 {
 					t.Errorf("rate = %v, want 0.025", m.Rate)
 				}
 				if m.MinFee != 5.0 {
@@ -104,7 +104,7 @@ func TestBuildRatePlanRequest_PerPricingModel(t *testing.T) {
 				if m.BlockSize != 100 {
 					t.Errorf("blockSize = %d, want 100", m.BlockSize)
 				}
-				if (m.Rate == nil || *m.Rate != 0.001) {
+				if m.Rate == nil || *m.Rate != 0.001 {
 					t.Errorf("rate = %v, want 0.001", m.Rate)
 				}
 				// INCLUDED_QUOTA MUST set ovBehavior=CHARGE (the legacy

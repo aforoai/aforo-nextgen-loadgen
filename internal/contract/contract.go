@@ -103,8 +103,8 @@ const (
 // enforces. Service + SchemaName identify which OpenAPI snapshot to load
 // and which named schema to compare against.
 type Entry struct {
-	Service     string      // e.g. "customer", matches openapi/<service>.json
-	SchemaName  string      // e.g. "CustomerResponse", appears in components.schemas
+	Service     string       // e.g. "customer", matches openapi/<service>.json
+	SchemaName  string       // e.g. "CustomerResponse", appears in components.schemas
 	StructType  reflect.Type // reflect.TypeOf(yourStruct{})
 	Direction   Direction
 	Expectation Expectation

@@ -136,10 +136,6 @@ type discountApplyRequest struct {
 	Value          float64 `json:"value"`
 }
 
-type discountResponse struct {
-	ID string `json:"id"`
-}
-
 // applyDiscount is a NO-OP today — see the package doc above for why
 // (`/api/v1/discounts` no longer exists; Coupon Engine replaced it).
 // The Manifest's ManifestDiscount type is the source of truth for

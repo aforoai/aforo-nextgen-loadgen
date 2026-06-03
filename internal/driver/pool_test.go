@@ -44,7 +44,7 @@ func TestPoolDispatchesAllEvents(t *testing.T) {
 		ch <- &generator.Event{
 			Envelope: generator.Envelope{
 				ProductType: "API",
-				},
+			},
 		}
 	}
 	close(ch)
