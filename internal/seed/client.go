@@ -324,7 +324,7 @@ func unmarshalAforoResponse(respBody []byte, out any) error {
 		*raw = append((*raw)[:0], respBody...)
 		return nil
 	}
-	
+
 	if isEnvelopeResponse(respBody) {
 		var env struct {
 			Data json.RawMessage `json:"data"`
