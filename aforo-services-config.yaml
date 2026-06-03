@@ -1,0 +1,18 @@
+# Aforo Production Service URLs Configuration
+services:
+  storefront: https://storefront.aforo.ai
+  catalog: https://catalog.aforo.ai
+  metric: http://metric.aforo.ai
+  pricing: https://pricing.aforo.ai
+  usage-ingestor: https://usage-ingestor.aforo.ai
+  customer: https://customer.aforo.ai
+  organization: https://org.aforo.ai
+  ingestion: https://ingestion.aforo.ai:8087
+  analytics: https://analytics.aforo.ai
+  billing: https://billing.aforo.ai
+  eureka: https://eureka.aforo.ai:8761
+  export: https://export.aforo.ai
+  
+frontend:
+  main: https://www.aforo.ai
+  dev_portal: https://dev.aforo.ai

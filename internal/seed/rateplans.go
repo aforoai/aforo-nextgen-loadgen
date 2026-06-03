@@ -36,13 +36,13 @@ type metricConfigRequest struct {
 	// for FLAT_RATE archetypes, and staging rejected with 400
 	// "Rate is required for pricing model 'FLAT_RATE' on metric X".
 	// Drift-fix 2026-06-01.
-	Rate          *float64 `json:"rate,omitempty"`
-	IncludedFree  int64    `json:"includedFree,omitempty"`
-	BlockSize     int64                 `json:"blockSize,omitempty"`
-	MinFee        float64               `json:"minFee,omitempty"`
-	BillingTiming string                `json:"billingTiming,omitempty"`
-	Tiers         []rateTierRequest     `json:"tiers,omitempty"`
-	OvBehavior    string                `json:"ovBehavior,omitempty"`
+	Rate          *float64          `json:"rate,omitempty"`
+	IncludedFree  int64             `json:"includedFree,omitempty"`
+	BlockSize     int64             `json:"blockSize,omitempty"`
+	MinFee        float64           `json:"minFee,omitempty"`
+	BillingTiming string            `json:"billingTiming,omitempty"`
+	Tiers         []rateTierRequest `json:"tiers,omitempty"`
+	OvBehavior    string            `json:"ovBehavior,omitempty"`
 }
 
 type rateTierRequest struct {

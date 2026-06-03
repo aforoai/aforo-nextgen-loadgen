@@ -195,12 +195,12 @@ func TestVerify_SkipReturnsOKWithoutChecking(t *testing.T) {
 
 func TestExtractJSONFieldNames_HandlesDashAndOmitempty(t *testing.T) {
 	type sample struct {
-		Kept       string `json:"kept"`
-		KeptOmit   string `json:"keptOmit,omitempty"`
-		Dropped    string `json:"-"`
-		NoTag      string
-		EmptyTag   string `json:""`
-		FieldOpts  string `json:",string"` // tag without name — should be skipped
+		Kept      string `json:"kept"`
+		KeptOmit  string `json:"keptOmit,omitempty"`
+		Dropped   string `json:"-"`
+		NoTag     string
+		EmptyTag  string `json:""`
+		FieldOpts string `json:",string"` // tag without name — should be skipped
 	}
 	got := extractJSONFieldNames(reflect.TypeOf(sample{}))
 	want := []string{"kept", "keptOmit"}

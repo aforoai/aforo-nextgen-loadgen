@@ -2,13 +2,13 @@
 // responses into a flat []T. Centralizes the two-layer envelope handling that
 // every lookup function needs:
 //
-//   1. ApiResponseAdvice envelope: {"success":true,"data":<inner>,"meta":...}
-//      — already partially handled by client.go's unmarshalAforoResponse
-//      but only at the top level.
-//   2. Spring Page envelope:        {"content":[...], "totalElements":N, ...}
-//      — used by controllers that return Page<T>.
-//   3. Plain array:                  [{...}, ...]
-//      — used by controllers that return List<T> (e.g. wallet listAll).
+//  1. ApiResponseAdvice envelope: {"success":true,"data":<inner>,"meta":...}
+//     — already partially handled by client.go's unmarshalAforoResponse
+//     but only at the top level.
+//  2. Spring Page envelope:        {"content":[...], "totalElements":N, ...}
+//     — used by controllers that return Page<T>.
+//  3. Plain array:                  [{...}, ...]
+//     — used by controllers that return List<T> (e.g. wallet listAll).
 //
 // listAll handles all three shapes. Callers pass a target slice pointer and
 // the helper populates it. Returns the total element count for the caller's
