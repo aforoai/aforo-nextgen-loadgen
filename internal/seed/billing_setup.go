@@ -217,4 +217,3 @@ func missingStripeCredsError(mode scenario.BillingMode, missingVar string) error
 		mode, missingVar,
 	)
 }
-
