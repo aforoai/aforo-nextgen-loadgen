@@ -219,7 +219,3 @@ func missingStripeCredsError(mode scenario.BillingMode, missingVar string) error
 	)
 }
 
-// errNoStripeCredentials is exported for tests so they can verify the
-// "skip gracefully when configured to" path without coupling to the
-// exact error message string.
-var errNoStripeCredentials = errors.New("AFORO_LOADGEN_STRIPE_API_KEY not set")
