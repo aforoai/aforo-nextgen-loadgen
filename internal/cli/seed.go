@@ -34,6 +34,7 @@ type seedFlags struct {
 	minIntervalMS     int
 	tokenEnv          string
 	provisionWebhooks bool
+	reuseTenantID     string
 }
 
 // newSeedCommand wires `aforo-loadgen seed`. The body is intentionally thin —
@@ -73,6 +74,12 @@ Examples:
 	cmd.Flags().IntVar(&f.minIntervalMS, "min-interval-ms", 200, "minimum interval between any two HTTP requests")
 	cmd.Flags().StringVar(&f.tokenEnv, "token-env", "AFORO_ADMIN_TOKEN", "env var holding the bearer token")
 	cmd.Flags().BoolVar(&f.provisionWebhooks, "provision-webhooks", false, "create one webhook ingest source per tenant via /api/v1/webhook-sources and write the bundle alongside the manifest (Session 8)")
+	cmd.Flags().StringVar(&f.reuseTenantID, "reuse-tenant-id", "",
+		"reuse an existing tenant id instead of minting a fresh `loadgen-tenant-...` per run. "+
+			"Use this when the seeded products / customers / events need to be visible to "+
+			"an operator UI session already authenticated as that tenant (e.g. `aforo_dev`). "+
+			"Requires a single-tenant scenario; multi-tenant scenarios are rejected because "+
+			"the workers would race on the same tenant id. Env: AFORO_LOADGEN_REUSE_TENANT_ID.")
 	return cmd
 }
 
@@ -132,12 +139,33 @@ func runSeed(ctx context.Context, out, errOut io.Writer, f *seedFlags) error {
 		manifestPath = "manifest.json"
 	}
 
+	// --reuse-tenant-id: prefer flag, fall back to env. Reject when the
+	// scenario allocates more than one tenant slot — multi-archetype runs
+	// would race workers on the same tenant id, producing nonsense.
+	reuseTenantID := f.reuseTenantID
+	if reuseTenantID == "" {
+		reuseTenantID = os.Getenv("AFORO_LOADGEN_REUSE_TENANT_ID")
+	}
+	if reuseTenantID != "" {
+		// Single-tenant guard. Scenario.Tenants is a struct with .Count
+		// (total) + .Archetypes (per-archetype distribution); reuse mode
+		// is only safe when the total is 1, otherwise the goroutines in
+		// Seeder.Run would race on the same tenant id.
+		if doc.Scenario.Tenants.Count > 1 {
+			return fmt.Errorf("--reuse-tenant-id requires a single-tenant scenario (got tenants.count=%d in %q); "+
+				"multi-tenant runs would race on the same tenant id. Use a scenario with tenants.count=1.",
+				doc.Scenario.Tenants.Count, f.scenarioFlag)
+		}
+		fmt.Fprintf(out, "reusing existing tenant id: %s (skipping tenant provisioning)\n", reuseTenantID)
+	}
+
 	seeder, err := seed.NewSeeder(seed.SeederConfig{
 		Client:         c,
 		Scenario:       doc.Scenario,
 		OnlyArchetypes: f.archetypesOnly,
 		ManifestPath:   manifestPath,
 		Concurrency:    f.concurrency,
+		ReuseTenantID:  reuseTenantID,
 	})
 	if err != nil {
 		return err

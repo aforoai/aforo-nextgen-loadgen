@@ -25,6 +25,26 @@ type SeederConfig struct {
 	Concurrency    int    // archetype-level worker count; 0 → 4
 	Logger         *log.Logger
 	Now            func() time.Time
+
+	// ReuseTenantID, when non-empty, causes the seeder to SKIP tenant
+	// provisioning and use this tenant ID directly for every archetype slot.
+	// Products / metrics / customers / subscriptions are still created
+	// fresh per run under this tenant. Intended for CI smoke runs that
+	// need the seeded entities to be visible to an operator UI session
+	// already authenticated as a specific tenant (e.g. `aforo_dev`).
+	//
+	// Constraint: only valid when the scenario allocates exactly one
+	// tenant slot (count: 1) — otherwise multiple archetype workers would
+	// race on the same tenant ID. The CLI enforces this; bare API callers
+	// MUST verify allocation themselves.
+	//
+	// Filed 2026-06-11 to close the "loadgen records invisible in
+	// frontend" symptom: loadgen would mint a synthetic tenant id per run
+	// (`loadgen-tenant-<archetype>-seed-<date>-<hash>-001`), but the
+	// Aforo Product UI is scoped to whatever tenant the operator's
+	// VITE_TENANT_ID points at (default `aforo_dev`). Records landed
+	// correctly but were filtered out at the tenant boundary.
+	ReuseTenantID string
 }
 
 // Seeder is the per-run orchestrator. Exposed as a struct (rather than a free
@@ -135,9 +155,29 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 	// (LoadgenTenantResponse on /internal/admin). Other entities use
 	// seedKey only as the Idempotency-Key header value. See CONVENTIONS.md.
 	tenantExternalID := seedKey("tenant", a.Name, s.cfg.RunID, seq)
-	tenant, err := provisionTenant(ctx, c, tenantExternalID, fmt.Sprintf("Loadgen Tenant [%s] %03d", a.Name, seq), a.Name)
-	if err != nil {
-		return err
+
+	var tenant tenantResponse
+	if s.cfg.ReuseTenantID != "" {
+		// --reuse-tenant-id path (2026-06-11): skip provisioning and use the
+		// supplied tenant ID directly. Downstream provisioners (products,
+		// metrics, customers, subscriptions) still create fresh entities
+		// scoped to this tenant. The first downstream call surfaces a clear
+		// 404 if the tenant does not actually exist at the backend; we
+		// deliberately do NOT pre-validate here to avoid a dependency on
+		// the LoadgenInternalTenantController lookup-by-id endpoint.
+		tenant = tenantResponse{
+			ID:         s.cfg.ReuseTenantID,
+			ExternalID: s.cfg.ReuseTenantID,
+			Name:       fmt.Sprintf("Reused Tenant [%s]", s.cfg.ReuseTenantID),
+		}
+		tenantExternalID = s.cfg.ReuseTenantID
+		s.cfg.Logger.Printf("[%s/%03d] reusing existing tenant id=%s (skipping provisionTenant)", a.Name, seq, tenant.ID)
+	} else {
+		var err error
+		tenant, err = provisionTenant(ctx, c, tenantExternalID, fmt.Sprintf("Loadgen Tenant [%s] %03d", a.Name, seq), a.Name)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Per-tenant billing prerequisites that organization-service's normal

@@ -90,6 +90,113 @@ func TestRESTDirectSubmitHappyPath(t *testing.T) {
 	}
 }
 
+// TestRESTDirectCapturesBodyOn4xx — Pattern #18 fix 2026-06-11.
+// Pre-fix, the driver drained the response body and discarded it, making
+// 4xx storms (e.g. UnknownMetricException → 422) undiagnosable without
+// backend log access. With body capture, the runner can persist excerpts
+// to events.jsonl. This test asserts the excerpt is populated on 422 with
+// a representative ProblemDetail body, NOT populated on 2xx, and that
+// truncation kicks in at BodyExcerptMax bytes.
+func TestRESTDirectCapturesBodyOn4xx(t *testing.T) {
+	const problemDetail = `{"type":"about:blank","title":"Unprocessable Entity","status":422,"detail":"Unknown metric 'API Calls' for tenant aforo_dev"}`
+
+	cases := []struct {
+		name        string
+		status      int
+		body        string
+		wantExcerpt bool
+		wantPrefix  string
+	}{
+		{"422 captured", 422, problemDetail, true, `{"type":"about:blank"`},
+		{"500 captured", 500, `{"error":"boom"}`, true, `{"error":"boom"}`},
+		{"200 skipped", 200, `{"ok":true}`, false, ""},
+		{"202 skipped", 202, `{"accepted":true}`, false, ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer ts.Close()
+
+			d, err := NewRESTDirect(RESTDirectConfig{Target: newTestTarget(ts.URL)})
+			if err != nil {
+				t.Fatalf("NewRESTDirect: %v", err)
+			}
+			defer d.Close()
+
+			e := &generator.Event{
+				Envelope: generator.Envelope{
+					CustomerID:     "c",
+					MetricName:     "API Calls",
+					Quantity:       1,
+					OccurredAt:     time.Now().UTC(),
+					IdempotencyKey: "k",
+					ProductType:    "API",
+				},
+				TenantID: "aforo_dev",
+				Auth:     generator.EventAuth{Token: "t"},
+			}
+			res := d.Submit(context.Background(), e)
+			if res.Status != tc.status {
+				t.Fatalf("status = %d, want %d", res.Status, tc.status)
+			}
+
+			if tc.wantExcerpt {
+				if res.BodyExcerpt == "" {
+					t.Errorf("BodyExcerpt empty; want excerpt with prefix %q", tc.wantPrefix)
+				} else if !strings.HasPrefix(res.BodyExcerpt, tc.wantPrefix) {
+					t.Errorf("BodyExcerpt prefix = %q, want %q", res.BodyExcerpt[:min(len(res.BodyExcerpt), len(tc.wantPrefix))], tc.wantPrefix)
+				}
+			} else {
+				if res.BodyExcerpt != "" {
+					t.Errorf("BodyExcerpt = %q on 2xx; want empty (only non-2xx should carry an excerpt)", res.BodyExcerpt)
+				}
+			}
+		})
+	}
+}
+
+// TestRESTDirectBodyExcerptTruncation — verifies BodyExcerptMax cap kicks
+// in for oversized error bodies (e.g. a Java stack trace) so events.jsonl
+// can't be DoS'd by a server that floods kilobyte responses per event.
+func TestRESTDirectBodyExcerptTruncation(t *testing.T) {
+	// 5 KB of 'A' — well above BodyExcerptMax (2 KB).
+	huge := strings.Repeat("A", 5000)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(422)
+		_, _ = w.Write([]byte(huge))
+	}))
+	defer ts.Close()
+
+	d, err := NewRESTDirect(RESTDirectConfig{Target: newTestTarget(ts.URL)})
+	if err != nil {
+		t.Fatalf("NewRESTDirect: %v", err)
+	}
+	defer d.Close()
+
+	e := &generator.Event{
+		Envelope: generator.Envelope{},
+		Auth:     generator.EventAuth{Token: "t"},
+	}
+	res := d.Submit(context.Background(), e)
+	// rest_direct also caps the read at maxRead (4 KB) before the excerpt
+	// cap (2 KB), so the excerpt should be 2KB + truncation marker (no
+	// trailing AAA bleed). The trailing "…" proves truncation kicked in.
+	if !strings.HasSuffix(res.BodyExcerpt, "…") {
+		t.Errorf("expected truncation marker '…' at end of BodyExcerpt; got len=%d, last 10 = %q",
+			len(res.BodyExcerpt), res.BodyExcerpt[max(0, len(res.BodyExcerpt)-10):])
+	}
+	// Strip the marker before length check.
+	core := strings.TrimSuffix(res.BodyExcerpt, "…")
+	if len(core) > BodyExcerptMax {
+		t.Errorf("BodyExcerpt core length = %d, want <= %d", len(core), BodyExcerptMax)
+	}
+}
+
 // TestRESTDirectMalformedSendsRawBody — when RawBody is set the driver
 // sends the corrupt bytes, not a re-marshaled envelope.
 func TestRESTDirectMalformedSendsRawBody(t *testing.T) {

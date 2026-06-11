@@ -157,17 +157,27 @@ func (d *RESTDirect) Submit(ctx context.Context, e *generator.Event) Result {
 	defer func() { _, _ = io.Copy(io.Discard, resp.Body); _ = resp.Body.Close() }()
 
 	res.Status = resp.StatusCode
-	// Drain a small prefix to count bytes; we don't need the response body.
+	// Drain up to maxRead bytes to count net I/O AND capture a body excerpt
+	// for non-2xx responses (Pattern #18 fix 2026-06-11). Pre-fix, the body
+	// was drained + discarded, making it impossible to diagnose 4xx storms
+	// (e.g. UnknownMetricException → 422) from the run-output directory alone.
 	const maxRead = 4 << 10
 	limited := io.LimitReader(resp.Body, maxRead)
 	body, _ := io.ReadAll(limited)
 	res.BytesRecv = len(body)
 	res.Latency = time.Since(startedAt)
 
-	// Coerce a 401/403 from the platform's validator output to consistent
-	// shape if the server responded with a JSON body that includes an
-	// "error" key — only used for runs that want to tag retry semantics.
-	_ = body
+	// Capture a body excerpt only on non-2xx. Success paths skip this to keep
+	// events.jsonl small under high-TPS runs. The excerpt is truncated at
+	// BodyExcerptMax bytes; the trailing "…" marker makes truncation visible
+	// in any log viewer that doesn't decode the JSON.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if len(body) > BodyExcerptMax {
+			res.BodyExcerpt = string(body[:BodyExcerptMax]) + "…"
+		} else {
+			res.BodyExcerpt = string(body)
+		}
+	}
 	return res
 }
 

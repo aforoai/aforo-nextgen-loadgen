@@ -28,7 +28,20 @@ type Result struct {
 	BytesSent    int           // body bytes sent (counter for net I/O)
 	BytesRecv    int           // body bytes received
 	TransportErr error         // non-nil when Status==0 (DNS, dial, EOF, etc.)
+	// BodyExcerpt is a truncated copy of the response body, populated by
+	// drivers ONLY when Status is non-2xx. Empty on success and on transport
+	// failures. Capped at BodyExcerptMax bytes. Pattern #18 fix (2026-06-11):
+	// pre-fix the driver drained + discarded response bodies, making 4xx/5xx
+	// debugging impossible without backend log access. With body capture, the
+	// runner can persist excerpts into events.jsonl so the root cause of a
+	// failed loadgen run is visible from the run-output directory alone.
+	BodyExcerpt string
 }
+
+// BodyExcerptMax bounds the per-result response body capture. 2KB is enough
+// to carry the typical RFC 7807 ProblemDetail JSON or a stack trace head
+// without bloating events.jsonl for high-volume runs.
+const BodyExcerptMax = 2048
 
 // IsSuccess returns true for 2xx responses.
 func (r Result) IsSuccess() bool { return r.Status >= 200 && r.Status < 300 }

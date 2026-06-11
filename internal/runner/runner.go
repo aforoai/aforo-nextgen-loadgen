@@ -458,6 +458,12 @@ func (r *Runner) onResult(res driver.Result) {
 		LatencyMs           float64                    `json:"latency_ms"`
 		BytesSent           int                        `json:"bytes_sent"`
 		EventTimestamp      time.Time                  `json:"event_timestamp"`
+		// ErrorBody carries a truncated copy of the HTTP response body for
+		// non-2xx events. Pattern #18 fix 2026-06-11: pre-fix the driver
+		// silently discarded response bodies, so a 422 storm (e.g. unknown
+		// metric in the ingestor) was undiagnosable without backend log
+		// access. omitempty so 2xx events don't carry a noisy empty field.
+		ErrorBody string `json:"error_body,omitempty"`
 	}{
 		EventID:        res.Event.EventID,
 		TenantID:       res.Event.TenantID,
@@ -472,6 +478,7 @@ func (r *Runner) onResult(res driver.Result) {
 		LatencyMs:      float64(res.Latency.Microseconds()) / 1000.0,
 		BytesSent:      res.BytesSent,
 		EventTimestamp: res.Event.Envelope.OccurredAt,
+		ErrorBody:      res.BodyExcerpt,
 	}
 	if res.Event.NegativePath == generator.NPStaleKey {
 		rec.StaleSubscriptionID = res.Event.StaleSubscriptionID

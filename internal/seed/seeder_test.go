@@ -344,6 +344,70 @@ func TestSeederFiltersByArchetype(t *testing.T) {
 	}
 }
 
+// TestSeederReuseTenantID — 2026-06-11 closure of the "loadgen records
+// invisible in frontend" symptom. When SeederConfig.ReuseTenantID is set,
+// the seeder MUST skip the tenant-provisioning POST (no traffic to
+// /api/v1/internal/tenants), and downstream provisioners MUST receive
+// the supplied tenant id as the X-Tenant-Id header.
+func TestSeederReuseTenantID(t *testing.T) {
+	stubFakeBackendStripeEnv(t)
+	server, calls := newFakeAforoServer(t)
+	defer server.Close()
+
+	target := singleHostTarget(server.URL)
+	c, err := NewClient(ClientConfig{
+		Target:      target,
+		BearerToken: "test-token",
+		MinInterval: 1 * time.Microsecond,
+		Logger:      log.New(io.Discard, "", 0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	const reusedID = "aforo_dev"
+
+	s := simpleScenario(t)
+	seeder, _ := NewSeeder(SeederConfig{
+		Client:        c,
+		Scenario:      s,
+		Concurrency:   1,
+		ReuseTenantID: reusedID,
+		Logger:        log.New(io.Discard, "", 0),
+	})
+
+	res, err := seeder.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Errors) > 0 {
+		t.Fatalf("seed errors: %v", res.Errors)
+	}
+
+	// Assertion 1: NO POST to /api/v1/internal/tenants — provisioning skipped.
+	for _, call := range calls.snapshot() {
+		if call.method == "POST" && call.path == "/api/v1/internal/tenants" {
+			t.Fatalf("--reuse-tenant-id MUST skip tenant provisioning; saw POST to %s", call.path)
+		}
+	}
+
+	// Assertion 2: downstream entities use the reused tenant id in the manifest.
+	for _, tenant := range res.Manifest.Tenants {
+		if tenant.TenantID != reusedID {
+			t.Errorf("manifest tenant.TenantID = %q, want %q", tenant.TenantID, reusedID)
+		}
+		if tenant.ExternalID != reusedID {
+			t.Errorf("manifest tenant.ExternalID = %q, want %q", tenant.ExternalID, reusedID)
+		}
+	}
+
+	// Assertion 3: customers/products/etc. were still POSTed (only tenant skipped).
+	requirePOST(t, calls, "/api/v1/products")
+	requirePOST(t, calls, "/api/v1/customers")
+	requirePOST(t, calls, "/api/v1/subscriptions")
+}
+
 // --- helpers -------------------------------------------------------------
 
 type recordedCall struct {
