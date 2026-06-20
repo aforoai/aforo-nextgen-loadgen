@@ -40,18 +40,18 @@ type BillRunResponse struct {
 
 func newBillRunCmd() *cobra.Command {
 	var (
-		target             string
-		tenantID           string
-		periodStart        string
-		periodEnd          string
-		periodLabel        string
-		targetScope        string
-		autoFinalize       bool
-		environment        string
-		notes              string
-		tokenEnv           string
-		pollInterval       int
-		maxWaitSeconds     int
+		target         string
+		tenantID       string
+		periodStart    string
+		periodEnd      string
+		periodLabel    string
+		targetScope    string
+		autoFinalize   bool
+		environment    string
+		notes          string
+		tokenEnv       string
+		pollInterval   int
+		maxWaitSeconds int
 	)
 
 	cmd := &cobra.Command{
@@ -83,7 +83,7 @@ Examples:
 			if token == "" {
 				return fmt.Errorf("env var %s is not set", tokenEnv)
 			}
-			
+
 			targetURL, err := aforo.ResolveTarget(target)
 			if err != nil {
 				return fmt.Errorf("resolve target: %w", err)
@@ -166,18 +166,24 @@ Examples:
 	cmd.Flags().IntVar(&pollInterval, "poll-interval", 2, "seconds between status polls")
 	cmd.Flags().IntVar(&maxWaitSeconds, "max-wait", 300, "maximum seconds to wait for completion")
 
-	cmd.MarkFlagRequired("tenant-id")
-	cmd.MarkFlagRequired("period-start")
-	cmd.MarkFlagRequired("period-end")
+	_ = cmd.MarkFlagRequired("tenant-id")
+	_ = cmd.MarkFlagRequired("period-start")
+	_ = cmd.MarkFlagRequired("period-end")
 
 	return cmd
 }
 
 func createBillRun(baseURL, token, tenantID string, req BillRunRequest) (string, error) {
 	url := fmt.Sprintf("%s/api/v1/bill-runs", baseURL)
-	body, _ := json.Marshal(req)
+	body, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
 
-	httpReq, _ := http.NewRequest("POST", url, bytes.NewReader(body))
+	httpReq, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 	httpReq.Header.Set("X-Tenant-Id", tenantID)
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -188,7 +194,10 @@ func createBillRun(baseURL, token, tenantID string, req BillRunRequest) (string,
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
 	if resp.StatusCode != 201 {
 		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
@@ -204,7 +213,10 @@ func createBillRun(baseURL, token, tenantID string, req BillRunRequest) (string,
 func executeBillRun(baseURL, token, tenantID, billRunID string) error {
 	url := fmt.Sprintf("%s/api/v1/bill-runs/%s/execute", baseURL, billRunID)
 
-	httpReq, _ := http.NewRequest("POST", url, nil)
+	httpReq, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 	httpReq.Header.Set("X-Tenant-Id", tenantID)
 
@@ -215,7 +227,10 @@ func executeBillRun(baseURL, token, tenantID, billRunID string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 202 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("HTTP %d (failed to read body: %w)", resp.StatusCode, err)
+		}
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -236,7 +251,10 @@ func pollBillRun(baseURL, token, tenantID, billRunID string, intervalSec, maxWai
 		case <-timeout:
 			return nil, fmt.Errorf("timeout after %ds", maxWaitSec)
 		case <-ticker.C:
-			httpReq, _ := http.NewRequest("GET", url, nil)
+			httpReq, err := http.NewRequest("GET", url, nil)
+			if err != nil {
+				return nil, fmt.Errorf("create request: %w", err)
+			}
 			httpReq.Header.Set("Authorization", "Bearer "+token)
 			httpReq.Header.Set("X-Tenant-Id", tenantID)
 
@@ -250,8 +268,12 @@ func pollBillRun(baseURL, token, tenantID, billRunID string, intervalSec, maxWai
 				continue
 			}
 
-			respBody, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				_ = resp.Body.Close()
+				return nil, fmt.Errorf("read response: %w", err)
+			}
+			_ = resp.Body.Close()
 
 			// Workaround for billing service controller mapping bug (same as ingestor had)
 			// The GET endpoint sometimes returns 500 "No static resource" error
