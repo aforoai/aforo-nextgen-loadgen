@@ -1,0 +1,38 @@
+schema_version: 1
+name: demo123-complete
+description: Complete demo123 tenant with loadgen - seed + run + invoices
+target_tps: 50
+duration: 60s
+seed: 123
+
+tenants:
+  count: 1
+  distribution: uniform
+  archetypes:
+    - name: demo123-prepaid
+      weight: 1.0
+      pricing_model: PER_UNIT
+      billing_mode: PREPAID
+      product_types: [API, AI_AGENT]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.01
+        wallet_initial_balance_usd: 10000.00
+
+time_pattern: constant
+
+product_mix:
+  API: 0.7
+  AI_AGENT: 0.3
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 0.8
+  medium_pct: 0.2
+  large_pct: 0.0
