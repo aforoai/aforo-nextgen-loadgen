@@ -1,6 +1,6 @@
 schema_version: 1
-name: demo123-complete
-description: Complete demo123 tenant with loadgen - seed + run + invoices
+name: demo-complete-test
+description: Complete demo tenant with loadgen - seed + run + invoices
 target_tps: 50
 duration: 60s
 seed: 123
