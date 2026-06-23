@@ -13,7 +13,7 @@ import (
 
 func TestBuildRatePlanRequest_PerPricingModel(t *testing.T) {
 	productIDs := []string{"prod-1"}
-	metricIDs := []string{"metric-1"}
+	metrics := []ManifestMetric{{ID: "metric-1", Name: "API Calls"}}
 
 	tests := []struct {
 		name   string
@@ -179,13 +179,26 @@ func TestBuildRatePlanRequest_PerPricingModel(t *testing.T) {
 			// The deterministic backend identity for cross-day idempotency
 			// is now Name; the Idempotency-Key header is set by
 			// provisionRatePlan via the caller's seedKey, not by this builder.
-			req := buildRatePlanRequest(tc.a, productIDs, metricIDs)
+			req := buildRatePlanRequest(tc.a, productIDs, metrics)
 			if len(req.ProductIDs) != 1 || req.ProductIDs[0] != "prod-1" {
 				t.Errorf("ProductIDs = %v", req.ProductIDs)
 			}
 			wantName := "Loadgen Rate Plan " + tc.a.Name
 			if req.Name != wantName {
 				t.Errorf("Name = %q, want %q", req.Name, wantName)
+			}
+			// V57: non-flat plans must carry metricName alongside metricId so the
+			// rate plan persists the canonical name (billing name-fallback).
+			if tc.a.PricingModel != scenario.PricingFlatRate {
+				if len(req.MetricConfigs) == 0 {
+					t.Fatalf("expected at least one metric config for %s", tc.a.PricingModel)
+				}
+				if req.MetricConfigs[0].MetricID != "metric-1" {
+					t.Errorf("MetricID = %q, want metric-1", req.MetricConfigs[0].MetricID)
+				}
+				if req.MetricConfigs[0].MetricName != "API Calls" {
+					t.Errorf("MetricName = %q, want \"API Calls\"", req.MetricConfigs[0].MetricName)
+				}
 			}
 			tc.assert(t, req)
 		})

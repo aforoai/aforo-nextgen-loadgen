@@ -24,8 +24,16 @@ import (
 //   - JSON field is "ovBehavior" (NOT "overageBehavior") with allowed values
 //     "CHARGE" | "BLOCK" | "IGNORE". The legacy value "ALLOW" is rejected.
 type metricConfigRequest struct {
-	MetricID string                `json:"metricId"`
-	Model    scenario.PricingModel `json:"model"`
+	MetricID string `json:"metricId"`
+	// MetricName is sent ALONGSIDE metricId so the rate plan persists the
+	// canonical catalog name (pricing-service V57: rate_plan_metrics.metric_name).
+	// Without it, the pricing resolver takes its id-only branch and leaves
+	// metric_name NULL, which leaves the version snapshot nameless and disables
+	// billing's metricName-fallback safety net for seeded data. Loadgen already
+	// has the name from the bulk-create response, so sending it is free and makes
+	// seeded usage bill end-to-end even if the event→catalog id resolution drifts.
+	MetricName string                `json:"metricName,omitempty"`
+	Model      scenario.PricingModel `json:"model"`
 	// Rate is a pointer so the JSON encoder distinguishes "absent" from
 	// "intentionally zero". Pricing-service enforces `@NotNull` on the
 	// metric-config rate field for every pricing model, including
@@ -118,7 +126,7 @@ type ratePlanResponse struct {
 // Parameters:
 //   - seedKey: loadgen-internal opaque deterministic string sent as the
 //     HTTP Idempotency-Key header. See CONVENTIONS.md.
-func provisionRatePlan(ctx context.Context, c *Client, tenantID string, a scenario.TenantArchetype, productIDs []string, metricIDs []string, seedKey string) (ratePlanResponse, error) {
+func provisionRatePlan(ctx context.Context, c *Client, tenantID string, a scenario.TenantArchetype, productIDs []string, metrics []ManifestMetric, seedKey string) (ratePlanResponse, error) {
 	name := fmt.Sprintf("Loadgen Rate Plan %s", a.Name)
 
 	if existing, ok, err := lookupRatePlanByName(ctx, c, tenantID, name); err != nil {
@@ -127,7 +135,7 @@ func provisionRatePlan(ctx context.Context, c *Client, tenantID string, a scenar
 		return existing, nil
 	}
 
-	body := buildRatePlanRequest(a, productIDs, metricIDs)
+	body := buildRatePlanRequest(a, productIDs, metrics)
 	createURL, err := c.Target().Path(aforo.ServicePricing, aforo.PathRatePlans)
 	if err != nil {
 		return ratePlanResponse{}, err
@@ -163,7 +171,7 @@ func provisionRatePlan(ctx context.Context, c *Client, tenantID string, a scenar
 // ratePlanCreateRequest. Tests that previously asserted on req.ExternalID
 // should pivot to req.Name (the real backend identity key) or assert on
 // the HTTP Idempotency-Key header via DryRunRecord.Headers.
-func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metricIDs []string) ratePlanCreateRequest {
+func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metrics []ManifestMetric) ratePlanCreateRequest {
 	rc := a.RateConfig
 	// Name MUST NOT contain square brackets — even though pricing-service
 	// today only checks @NotBlank on rate-plan names, the platform-wide
@@ -180,16 +188,19 @@ func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metri
 		body.BaseFee = rc.FlatFeeUSD
 	}
 
-	if len(metricIDs) == 0 && a.PricingModel != scenario.PricingFlatRate {
+	if len(metrics) == 0 && a.PricingModel != scenario.PricingFlatRate {
 		// Fallback: every non-flat plan needs at least one metric. We synthesize
 		// a placeholder metric ID — the integration test will fail loudly if
 		// the catalog didn't return one, which is the intended signal.
-		metricIDs = []string{"missing-metric"}
+		metrics = []ManifestMetric{{ID: "missing-metric"}}
 	}
 
-	for _, mid := range metricIDs {
+	for _, m := range metrics {
 		mc := metricConfigRequest{
-			MetricID:      mid,
+			MetricID: m.ID,
+			// Send the canonical catalog name so the rate plan persists
+			// metric_name (pricing V57) — see metricConfigRequest doc.
+			MetricName:    m.Name,
 			Model:         a.PricingModel,
 			BillingTiming: "ARREARS",
 		}

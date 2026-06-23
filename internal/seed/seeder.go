@@ -204,7 +204,9 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 
 	// One product per product type in the archetype.
 	productIDs := make([]string, 0, len(a.ProductTypes))
-	metricIDs := make([]string, 0, 4)
+	// Carry BOTH id + name: the rate plan needs the name persisted (pricing V57)
+	// so billing's metricName-fallback works for seeded usage.
+	rateMetrics := make([]ManifestMetric, 0, 4)
 	for _, pt := range a.ProductTypes {
 		prodSeedKey := seedKey(fmt.Sprintf("product-%s", pt), a.Name, s.cfg.RunID, seq)
 		prod, err := provisionProduct(ctx, c, tenant.ID, prodSeedKey, a.Name, pt)
@@ -225,7 +227,7 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 			ProductType: pt,
 		}
 		for _, m := range metrics {
-			metricIDs = append(metricIDs, m.ID)
+			rateMetrics = append(rateMetrics, ManifestMetric{ID: m.ID, Name: m.Name})
 			mProd.MetricIDs = append(mProd.MetricIDs, m.ID)
 			mProd.Metrics = append(mProd.Metrics, ManifestMetric{ID: m.ID, Name: m.Name})
 		}
@@ -234,7 +236,7 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 
 	// One rate plan covering all products + their metrics.
 	rpSeedKey := seedKey("rateplan", a.Name, s.cfg.RunID, seq)
-	rp, err := provisionRatePlan(ctx, c, tenant.ID, a, productIDs, metricIDs, rpSeedKey)
+	rp, err := provisionRatePlan(ctx, c, tenant.ID, a, productIDs, rateMetrics, rpSeedKey)
 	if err != nil {
 		return err
 	}
