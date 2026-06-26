@@ -25,7 +25,10 @@ type Config struct {
 	Storage      ManifestStore
 	Runner       *LocalRunner
 	ScenarioCat  ScenarioCatalog
-	GrafanaURLFn func(runID string) string
+	// GrafanaURLFn computes a run's dashboard deep-link scoped to its time
+	// window. from is the run start; to is the run end, or nil while the
+	// run is still in flight (dashboard tracks to "now").
+	GrafanaURLFn func(runID string, from time.Time, to *time.Time) string
 
 	// ManifestPath is the absolute or relative path the worker reads
 	// when materialising the seed bundle. The HTTP API does not
@@ -337,7 +340,8 @@ func (s *Server) handleTriggerRun(w http.ResponseWriter, r *http.Request) {
 		StartedAt:   now,
 	}
 	if s.cfg.GrafanaURLFn != nil {
-		row.GrafanaURL = s.cfg.GrafanaURLFn(runID)
+		// Queued/running: scope from the start to "now" (live, to == nil).
+		row.GrafanaURL = s.cfg.GrafanaURLFn(runID, now, nil)
 	}
 	if err := s.cfg.Index.Insert(r.Context(), row); err != nil {
 		writeErr(w, http.StatusInternalServerError, "index insert: "+err.Error())
@@ -450,6 +454,12 @@ func (s *Server) observeRun(st *runState, row Run) {
 		} else {
 			s.logger.Warn("manifest store put", "run_id", runID, "err", err)
 		}
+	}
+
+	// Re-stamp the Grafana deep-link now that the run has ended, locking the
+	// dashboard to the exact [start, end] window instead of "now".
+	if s.cfg.GrafanaURLFn != nil {
+		row.GrafanaURL = s.cfg.GrafanaURLFn(runID, row.StartedAt, row.EndedAt)
 	}
 
 	if err := s.cfg.Index.Update(ctx, row); err != nil {

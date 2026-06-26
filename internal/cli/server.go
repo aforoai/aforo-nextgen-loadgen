@@ -9,8 +9,10 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -188,17 +190,37 @@ func buildStorage(f *serverFlags, logger *slog.Logger) (server.ManifestStore, er
 	return server.NewLocalStore(f.manifestsDir)
 }
 
-// buildGrafanaURLFn returns a function that, given a runID, computes
-// the Grafana dashboard deep-link. Empty base URL → nil function →
-// Run rows omit the grafana_url field.
-func buildGrafanaURLFn(base string) func(string) string {
-	base = strings.TrimRight(base, "/")
+// grafanaWindowMargin pads the deep-link's time window a little on each
+// side so the dashboard shows the run's ramp-up/down, not just steady state.
+const grafanaWindowMargin = 30 * time.Second
+
+// buildGrafanaURLFn returns a function that computes the Grafana dashboard
+// deep-link for a run, scoped to that run's time window. Empty base URL →
+// nil function → Run rows omit the grafana_url field.
+//
+// Scoping is by time range (from/to), which is the real per-run isolation:
+// the var-runId template variable is decorative until the loadgen metrics
+// carry a run_id label (tracked as a follow-up). `to == nil` means the run
+// is still in flight, so the dashboard tracks to "now" (live).
+func buildGrafanaURLFn(base string) func(runID string, from time.Time, to *time.Time) string {
+	// Trim whitespace before slashes so a misconfigured/blank flag value
+	// ("  ") disables the deep-link instead of emitting a broken URL.
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
 	if base == "" {
 		return nil
 	}
-	return func(runID string) string {
-		// var-runId is the templated variable in dashboards/loadgen-run.json.
+	return func(runID string, from time.Time, to *time.Time) string {
 		v := url.Values{"var-runId": {runID}}
+		if !from.IsZero() {
+			ms := from.Add(-grafanaWindowMargin).UnixMilli()
+			v.Set("from", strconv.FormatInt(ms, 10))
+		}
+		if to != nil && !to.IsZero() {
+			ms := to.Add(grafanaWindowMargin).UnixMilli()
+			v.Set("to", strconv.FormatInt(ms, 10))
+		} else {
+			v.Set("to", "now") // live run — let Grafana track the present
+		}
 		return base + "/d/loadgen-run/loadgen-run?" + v.Encode()
 	}
 }
