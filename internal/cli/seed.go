@@ -35,6 +35,7 @@ type seedFlags struct {
 	tokenEnv          string
 	provisionWebhooks bool
 	reuseTenantID     string
+	catalog           string
 }
 
 // newSeedCommand wires `aforo-loadgen seed`. The body is intentionally thin —
@@ -80,6 +81,11 @@ Examples:
 			"an operator UI session already authenticated as that tenant (e.g. `aforo_dev`). "+
 			"Requires a single-tenant scenario; multi-tenant scenarios are rejected because "+
 			"the workers would race on the same tenant id. Env: AFORO_LOADGEN_REUSE_TENANT_ID.")
+	cmd.Flags().StringVar(&f.catalog, "catalog", "",
+		"DEMO catalog-mode: path to demo-seed-catalog.json. Instead of the archetype "+
+			"generator's synthetic \"Loadgen …\" names, seed EXACTLY the human, real-world "+
+			"entities in the catalog (Req #1) into ONE golden tenant. Requires --reuse-tenant-id "+
+			"(the golden tenant id). --scenario is not needed. Env: AFORO_LOADGEN_DEMO_CATALOG.")
 	return cmd
 }
 
@@ -112,6 +118,22 @@ func runSeed(ctx context.Context, out, errOut io.Writer, f *seedFlags) error {
 		return runCleanFlow(ctx, out, errOut, c, f)
 	}
 
+	// --reuse-tenant-id / --catalog: prefer flag, fall back to env.
+	reuseTenantID := f.reuseTenantID
+	if reuseTenantID == "" {
+		reuseTenantID = os.Getenv("AFORO_LOADGEN_REUSE_TENANT_ID")
+	}
+	catalogPath := f.catalog
+	if catalogPath == "" {
+		catalogPath = os.Getenv("AFORO_LOADGEN_DEMO_CATALOG")
+	}
+
+	// DEMO catalog-mode short-circuits the archetype/scenario path entirely:
+	// it seeds the human, real-world Northwind AI dataset into one golden tenant.
+	if catalogPath != "" {
+		return runCatalogSeed(ctx, out, errOut, c, f, catalogPath, reuseTenantID)
+	}
+
 	if f.scenarioFlag == "" {
 		return errors.New("--scenario is required (path or built-in name)")
 	}
@@ -139,13 +161,9 @@ func runSeed(ctx context.Context, out, errOut io.Writer, f *seedFlags) error {
 		manifestPath = "manifest.json"
 	}
 
-	// --reuse-tenant-id: prefer flag, fall back to env. Reject when the
-	// scenario allocates more than one tenant slot — multi-archetype runs
-	// would race workers on the same tenant id, producing nonsense.
-	reuseTenantID := f.reuseTenantID
-	if reuseTenantID == "" {
-		reuseTenantID = os.Getenv("AFORO_LOADGEN_REUSE_TENANT_ID")
-	}
+	// --reuse-tenant-id (computed above): reject when the scenario allocates
+	// more than one tenant slot — multi-archetype runs would race workers on
+	// the same tenant id, producing nonsense.
 	if reuseTenantID != "" {
 		// Single-tenant guard. Scenario.Tenants is a struct with .Count
 		// (total) + .Archetypes (per-archetype distribution); reuse mode
@@ -198,6 +216,64 @@ func runSeed(ctx context.Context, out, errOut io.Writer, f *seedFlags) error {
 			fmt.Fprintln(errOut, e.Error())
 		}
 		return fmt.Errorf("seed completed with %d error(s)", len(res.Errors))
+	}
+	return nil
+}
+
+// runCatalogSeed handles DEMO catalog-mode: seed the human, real-world golden
+// dataset (demo-seed-catalog.json) into one fixed tenant. Ignores the archetype
+// scenario entirely.
+func runCatalogSeed(ctx context.Context, out, errOut io.Writer, c *seed.Client, f *seedFlags, catalogPath, reuseTenantID string) error {
+	if reuseTenantID == "" {
+		return errors.New("--catalog requires --reuse-tenant-id (the golden tenant id) — catalog-mode seeds one fixed tenant")
+	}
+	cat, err := seed.LoadCatalog(catalogPath)
+	if err != nil {
+		return fmt.Errorf("load demo catalog %q: %w", catalogPath, err)
+	}
+	manifestPath := f.out
+	if manifestPath == "" {
+		manifestPath = "manifest.json"
+	}
+
+	fmt.Fprintf(out, "DEMO catalog-mode: %q → golden tenant %q\n", catalogPath, reuseTenantID)
+	fmt.Fprintf(out, "  company=%q products=%d ratePlans=%d offerings=%d customers=%d subscriptions=%d\n",
+		cat.Company.Name, len(cat.Products), len(cat.RatePlans), len(cat.Offerings), len(cat.Customers), len(cat.Subscriptions))
+	if f.dryRun {
+		fmt.Fprintln(out, "(dry run — no API calls sent)")
+	}
+
+	// Catalog-mode ignores archetype allocation, but NewSeeder still needs a
+	// Scenario for the Client + manifest name plumbing — synthesize a minimal one.
+	sc := &scenario.Scenario{
+		SchemaVersion: 1,
+		Name:          "demo-golden",
+		Tenants:       scenario.Tenants{Count: 1},
+	}
+
+	seeder, err := seed.NewSeeder(seed.SeederConfig{
+		Client:        c,
+		Scenario:      sc,
+		Catalog:       cat,
+		ReuseTenantID: reuseTenantID,
+		ManifestPath:  manifestPath,
+	})
+	if err != nil {
+		return err
+	}
+
+	res, err := seeder.Run(ctx)
+	if err != nil {
+		return err
+	}
+	if res != nil && res.Manifest != nil {
+		printSummary(out, res.Manifest, manifestPath, len(res.Errors))
+	}
+	if len(res.Errors) > 0 {
+		for _, e := range res.Errors {
+			fmt.Fprintln(errOut, e.Error())
+		}
+		return fmt.Errorf("catalog seed completed with %d error(s)", len(res.Errors))
 	}
 	return nil
 }

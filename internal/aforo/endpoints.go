@@ -159,6 +159,25 @@ var ProdTarget = Target{
 	},
 }
 
+// DemoTarget points every service at its demo-stack HOST port on localhost
+// (docker-compose.demo.yml maps the demo containers to 580xx host ports, offset
+// from the local-dev 80xx defaults so both stacks co-run on one host). This is
+// the target build-golden.sh uses to seed the golden demo tenant from the host.
+var DemoTarget = Target{
+	Name: "demo",
+	URLs: map[Service]string{
+		ServiceOrganization:  "http://localhost:58086",
+		ServiceCatalog:       "http://localhost:58081",
+		ServicePricing:       "http://localhost:58083",
+		ServiceCustomer:      "http://localhost:58085",
+		ServiceBilling:       "http://localhost:58090",
+		ServiceUsageIngestor: "http://localhost:58084",
+		ServiceAnalytics:     "http://localhost:58088",
+		ServiceStorefront:    "http://localhost:58089",
+		ServiceAIService:     "http://localhost:59091",
+	},
+}
+
 // PredefinedTargets is the lookup table used by ResolveTarget.
 //
 // Note: "ci" is intentionally absent here because its URL map is computed at
@@ -168,6 +187,7 @@ var PredefinedTargets = map[string]Target{
 	LocalTarget.Name:   LocalTarget,
 	StagingTarget.Name: StagingTarget,
 	ProdTarget.Name:    ProdTarget,
+	DemoTarget.Name:    DemoTarget,
 }
 
 // CITargetName is the literal flag value `--target ci`. Kept as a const so

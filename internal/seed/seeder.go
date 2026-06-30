@@ -45,6 +45,20 @@ type SeederConfig struct {
 	// VITE_TENANT_ID points at (default `aforo_dev`). Records landed
 	// correctly but were filtered out at the tenant boundary.
 	ReuseTenantID string
+
+	// Catalog, when non-nil, switches the seeder into DEMO catalog-mode
+	// (DEMO-P1, strategy §6.6 / Req #1): instead of the archetype generator's
+	// synthetic "Loadgen …" names, the seeder creates EXACTLY the human,
+	// real-world Northwind AI entities described by demo-seed-catalog.json,
+	// through the same typed API clients + idempotent lookups. This produces
+	// the golden tenant that the demo orchestrator (DEMO-P2) clones per
+	// visitor.
+	//
+	// Constraint: catalog-mode targets ONE fixed tenant, so ReuseTenantID MUST
+	// be set (NewSeeder enforces this). The Scenario is still required (the
+	// Client + name + manifest plumbing reuse it) but its archetype allocation
+	// is ignored in catalog-mode.
+	Catalog *DemoCatalog
 }
 
 // Seeder is the per-run orchestrator. Exposed as a struct (rather than a free
@@ -61,6 +75,9 @@ func NewSeeder(cfg SeederConfig) (*Seeder, error) {
 	}
 	if cfg.Scenario == nil {
 		return nil, errors.New("seeder: Scenario is nil")
+	}
+	if cfg.Catalog != nil && cfg.ReuseTenantID == "" {
+		return nil, errors.New("seeder: catalog-mode requires ReuseTenantID (the golden demo tenant id) — catalog-mode targets one fixed tenant")
 	}
 	if cfg.RunID == "" {
 		cfg.RunID = newRunID(cfg.Now)
@@ -94,6 +111,24 @@ type RunResult struct {
 func (s *Seeder) Run(ctx context.Context) (*RunResult, error) {
 	start := s.cfg.Now()
 	manifest := NewManifest(s.cfg.RunID, s.cfg.Client.Target().String(), s.cfg.Scenario.Name, start)
+
+	// DEMO catalog-mode: one fixed golden tenant, driven entirely by the
+	// real-named catalog. Bypasses the archetype allocator + goroutine fan-out
+	// (there is exactly one tenant) and returns early with its own manifest.
+	if s.cfg.Catalog != nil {
+		res := &RunResult{Manifest: manifest}
+		if err := s.seedCatalogTenant(ctx, manifest); err != nil {
+			res.Errors = append(res.Errors, err)
+		}
+		manifest.Finalize()
+		res.Duration = s.cfg.Now().Sub(start)
+		if s.cfg.ManifestPath != "" {
+			if _, err := manifest.Save(s.cfg.ManifestPath); err != nil {
+				res.Errors = append(res.Errors, fmt.Errorf("save manifest: %w", err))
+			}
+		}
+		return res, nil
+	}
 
 	allocs := AllocateTenants(s.cfg.Scenario)
 	if len(s.cfg.OnlyArchetypes) > 0 {

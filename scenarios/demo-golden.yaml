@@ -1,0 +1,73 @@
+# demo-golden — usage trickle for the public demo's golden tenant (DEMO-P1)
+#
+# Purpose: generate believable, recent usage across the golden "Northwind AI"
+# tenant's real subscriptions so the analytics / Home / revenue surfaces show
+# live time-series instead of zeros. The generator drives events from the
+# catalog-seeded MANIFEST (its real subscriptions, API keys, and metrics) — this
+# scenario only sets the pacing (modest TPS, short duration) and the product-type
+# mix. It is NOT an archetype generator for catalog-mode (catalog-mode owns the
+# entity creation); it is the usage step of build-golden.sh:
+#
+#   aforo-loadgen run --scenario demo-golden \
+#     --manifest demo-golden-manifest.json --target demo
+#
+# Keep TPS gentle: the demo stack is a laptop-sized single host shared with
+# visitor traffic, not a load-test rig.
+
+schema_version: 1
+name: demo-golden
+description: Gentle usage trickle across the golden demo tenant's real subscriptions.
+target_tps: 20
+duration: 120s
+seed: 7
+
+tenants:
+  count: 1
+  distribution: uniform
+  archetypes:
+    # Single representative archetype — pacing + state only. The generator emits
+    # events for whatever product types the manifest tenant actually has (all 4),
+    # using its real keys + metrics, so this archetype's pricing_model does not
+    # constrain what gets billed.
+    - name: demo-golden-usage
+      weight: 1.0
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API, AI_AGENT, MCP_SERVER, AGENTIC_API]
+      customer_count: 12
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.002
+
+time_pattern: constant
+
+# Spread usage across all four monetized product types so every catalog product
+# shows traffic on the analytics surfaces.
+product_mix:
+  API: 0.40
+  AI_AGENT: 0.25
+  MCP_SERVER: 0.20
+  AGENTIC_API: 0.15
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 0.7
+  medium_pct: 0.25
+  large_pct: 0.05
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.05
+  p99_latency_ms_max: 2000
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: false
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: demo
+  notes: Usage trickle for the golden demo tenant — not a CI gate.
