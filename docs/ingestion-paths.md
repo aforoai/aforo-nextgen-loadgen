@@ -1,7 +1,7 @@
 # Ingestion Paths — Driver Reference
 
 Aforo's usage-ingestor exposes one canonical event endpoint, but customer
-traffic reaches it through 17 distinct paths. Each path has different
+traffic reaches it through 18 distinct paths. Each path has different
 authentication, headers, request shape, and failure modes. The walk-tier
 load test exercises every path so regressions in any one of them surface
 during a 30-minute smoke run, not in a customer escalation.
@@ -30,6 +30,7 @@ component, and what the on-wire request looks like.
 | `webhook_receiver` | `Webhook` | `POST /v1/ingest/webhook/{sourceId}` | Envelope JSON | HMAC-SHA256 | `X-Hub-Signature-256: sha256=<hex>` |
 | `csv_upload` | `CSVUpload` | `POST /v1/ingest/upload` | multipart/form-data CSV | Bearer | `Content-Type: multipart/form-data` + `defaultMetricName`, `defaultCustomerId` form fields |
 | `mcp_jsonrpc` | `MCPJsonRPC` | `POST` at `AFORO_LOADGEN_MCP_URL` (**not** `/v1/ingest`) | JSON-RPC 2.0 `tools/call` envelope | Bearer (forwarded — target is a real MCP server, not the ingest endpoint) | `Mcp-Session-Id` header echoed from event `session_id` metadata |
+| `ai_agent_rest` | `AIAgentREST` | `POST` at `AFORO_LOADGEN_INGEST_URL` | Envelope JSON (metadata carries `capability_name` + `agent_id` + `session_id` + `execution_status` + `execution_duration_ms`) | Bearer | `X-Aforo-Session-Id` echoed from event `session_id` metadata; non-AI_AGENT events rejected at the driver so `product_mix` + `ingestion_paths` mis-pairings surface on the first batch |
 
 **mcp_jsonrpc is structurally different from every other path.** All 16
 other paths post an already-cooked metering event to `/v1/ingest`,

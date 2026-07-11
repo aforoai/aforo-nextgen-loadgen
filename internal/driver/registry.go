@@ -85,6 +85,7 @@ func AllNames() []string {
 		"gateway_apisix", "gateway_tyk", "gateway_gravitee", "gateway_envoy",
 		"webhook_receiver", "csv_upload",
 		"mcp_jsonrpc",
+		"ai_agent_rest",
 	}
 }
 
@@ -172,6 +173,10 @@ func (r *Registry) construct(name string) (Driver, error) {
 		})
 	case "mcp_jsonrpc":
 		return NewMCPJsonRPC(MCPJsonRPCConfig{
+			RequestTimeout: hb.RequestTimeout,
+		})
+	case "ai_agent_rest":
+		return NewAIAgentREST(AIAgentRESTConfig{
 			RequestTimeout: hb.RequestTimeout,
 		})
 	}

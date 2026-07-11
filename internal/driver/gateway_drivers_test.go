@@ -127,6 +127,10 @@ func TestRegistry_KnownPaths(t *testing.T) {
 	// stub server so the driver can be constructed. The test only checks
 	// that Get() succeeds, not that Submit() reaches a real MCP server.
 	t.Setenv(MCPJsonRPCEnvURL, srv.URL)
+	// ai_agent_rest requires an ingest endpoint URL for the same reason —
+	// the driver refuses to construct without one so a scenario that
+	// silently 404's is impossible to configure.
+	t.Setenv(AIAgentRESTEnvURL, srv.URL)
 	reg, err := NewRegistry(RegistryConfig{Target: targetForServer(srv)})
 	if err != nil {
 		t.Fatalf("registry: %v", err)

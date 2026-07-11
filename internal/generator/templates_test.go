@@ -20,7 +20,11 @@ func TestEachProductTemplate(t *testing.T) {
 	}
 
 	ai := aiAgentTemplate(rng)
-	for _, k := range []string{"agent_id", "model", "input_tokens", "output_tokens", "trace_id", "session_id"} {
+	for _, k := range []string{
+		"agent_id", "model", "input_tokens", "output_tokens",
+		"trace_id", "session_id",
+		"capability_name", "execution_status", "execution_duration_ms",
+	} {
 		if _, ok := ai[k]; !ok {
 			t.Errorf("AI_AGENT template missing %q", k)
 		}
@@ -60,6 +64,37 @@ func TestTemplateForProductTypeSelectsCorrectShape(t *testing.T) {
 	body = TemplateForProductType(scenario.ProductType("UNKNOWN"))(rng)
 	if _, ok := body["endpoint"]; !ok {
 		t.Errorf("Unknown product type should fall back to API template")
+	}
+}
+
+// TestAIAgentCapabilityNameFromRegistry — every capability_name emitted by
+// aiAgentTemplate MUST come from defaultAgentCapabilities. Guards against
+// drift where a future rewrite injects free-form strings that
+// ProductTypeEventExtractor's descriptor-driven per-capability path can't
+// recognize — silently degrades AI_AGENT billing to metric-level per the
+// contract in P8's context section.
+func TestAIAgentCapabilityNameFromRegistry(t *testing.T) {
+	rng := rand.New(rand.NewSource(42))
+	allowed := make(map[string]bool, len(defaultAgentCapabilities))
+	for _, c := range defaultAgentCapabilities {
+		allowed[c] = true
+	}
+	seen := make(map[string]bool)
+	for i := 0; i < 500; i++ {
+		ev := aiAgentTemplate(rng)
+		cap, ok := ev["capability_name"].(string)
+		if !ok || cap == "" {
+			t.Fatalf("iter %d: capability_name absent or non-string: %v", i, ev["capability_name"])
+		}
+		if !allowed[cap] {
+			t.Errorf("iter %d: capability_name %q not in defaultAgentCapabilities", i, cap)
+		}
+		seen[cap] = true
+	}
+	// Over 500 rotations we should see decent coverage of the 10-entry registry.
+	if len(seen) < len(defaultAgentCapabilities)/2 {
+		t.Errorf("expected rotation to cover at least half of %d capabilities; saw %d distinct",
+			len(defaultAgentCapabilities), len(seen))
 	}
 }
 

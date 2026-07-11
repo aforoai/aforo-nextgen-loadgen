@@ -288,6 +288,14 @@ type IngestionPaths struct {
 	// proxy, neither of which exercises the plugin's tools/call
 	// detection logic. Pair with product_mix.MCP_SERVER=1.0.
 	MCPJsonRPC float64 `yaml:"mcp_jsonrpc,omitempty"`
+	// AIAgentREST posts AI_AGENT usage events to a configurable ingest
+	// endpoint (AFORO_LOADGEN_INGEST_URL). Same wire contract as
+	// rest_direct but scoped to AI_AGENT events so a scenario can point
+	// AI_AGENT traffic at a distinct URL and reject non-AI_AGENT events
+	// loudly at the driver rather than discover the mis-pairing later
+	// in the analytics stack. Closes the per-capability anomaly + dimension
+	// pricing coverage gap noted in P8. Pair with product_mix.AI_AGENT=1.0.
+	AIAgentREST float64 `yaml:"ai_agent_rest,omitempty"`
 }
 
 // Sum is the weight total — used by the validator.
@@ -295,7 +303,8 @@ func (p IngestionPaths) Sum() float64 {
 	return p.RestDirect + p.SDKNode + p.SDKPython + p.SDKJava + p.SDKGo +
 		p.GatewayKong + p.GatewayApigee + p.GatewayAWS + p.GatewayAzure +
 		p.GatewayMuleSoft + p.GatewayAPISIX + p.GatewayTyk + p.GatewayGravitee +
-		p.GatewayEnvoy + p.WebhookReceiver + p.CSVUpload + p.MCPJsonRPC
+		p.GatewayEnvoy + p.WebhookReceiver + p.CSVUpload + p.MCPJsonRPC +
+		p.AIAgentREST
 }
 
 // PayloadVariation chooses the size mix of generated event bodies.

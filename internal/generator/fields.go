@@ -63,6 +63,21 @@ var defaultMCPTools = []string{
 	"extract_entities", "translate", "classify", "moderate",
 }
 
+// AI_AGENT capability registry — names mirror the canonical capability set
+// used across AI agent frameworks (LangChain / CrewAI / AutoGen). Emitted as
+// metadata.capability_name (snake_case), which
+// ProductTypeEventExtractor.extractAiAgentFields at
+// usage-ingestor bridges to event.toolName so the descriptor-driven
+// per-capability dimension pricing + anomaly baseline paths get exercised.
+//
+// Rotation is deterministic per rng — matches how mcpServerTemplate picks
+// from defaultMCPTools.
+var defaultAgentCapabilities = []string{
+	"summarize_email", "translate_document", "answer_question",
+	"classify_intent", "extract_entities", "generate_response",
+	"search_knowledge", "plan_actions", "execute_tool", "verify_output",
+}
+
 // MCP transports — matches what gateway plugins detect.
 var mcpTransportPicker = NewWeightedPicker(map[string]float64{
 	"http":      0.65,

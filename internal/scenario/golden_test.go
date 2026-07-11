@@ -20,7 +20,7 @@ func TestGolden_BuiltInScenariosLoadAndValidate(t *testing.T) {
 	// is updated when a session ships new ones. The hard contract is the
 	// `expectedNames` list below — anything in it MUST exist; new entries
 	// can be added without breaking older tests.
-	const expectedCount = 17
+	const expectedCount = 18
 	if len(names) != expectedCount {
 		t.Errorf("catalog has %d scenarios; expected %d (%v)",
 			len(names), expectedCount, names)
@@ -47,6 +47,8 @@ func TestGolden_BuiltInScenariosLoadAndValidate(t *testing.T) {
 		"ci-billing",
 		"ci-payments-mock",
 		"ci-stale-keys",
+		// P8 (AI_AGENT descriptor per-capability coverage):
+		"ci-ai-agent-rest",
 		// DEMO-P1 (golden demo tenant usage trickle):
 		"demo-golden",
 	}

@@ -13,7 +13,8 @@ import (
 // The shape mirrors Aforo's MetricTemplateRegistry per CLAUDE.md:
 //
 //	API:          endpoint, method, status_code, latency_ms, request_bytes, response_bytes
-//	AI_AGENT:     agent_id, model, input_tokens, output_tokens, trace_id, session_id
+//	AI_AGENT:     agent_id, model, input_tokens, output_tokens, trace_id, session_id,
+//	              capability_name, execution_status, execution_duration_ms
 //	MCP_SERVER:   agent_id, tool_name, execution_status, execution_duration_ms,
 //	              session_id, transport
 //	AGENTIC_API:  trace_id, agent_id, endpoint, latency_ms
@@ -58,13 +59,27 @@ func apiTemplate(rng *rand.Rand) map[string]any {
 
 func aiAgentTemplate(rng *rand.Rand) map[string]any {
 	in, out := genTokens(rng)
+	capability := defaultAgentCapabilities[rng.Intn(len(defaultAgentCapabilities))]
+	status := mcpExecStatusPicker.Pick(rng)
+	// Capability execution durations: quick classification / extraction, longer
+	// for generation / search / planning. Mirrors mcpServerTemplate's tool
+	// duration shaping so per-capability latency distributions look realistic.
+	dur := genLatencyMs(rng)
+	if capability == "generate_response" || capability == "search_knowledge" ||
+		capability == "plan_actions" || capability == "translate_document" ||
+		capability == "summarize_email" {
+		dur += 200 + rng.Intn(800)
+	}
 	return map[string]any{
-		"agent_id":      genAgentID(rng, 32),
-		"model":         defaultModelPicker.Pick(rng),
-		"input_tokens":  in,
-		"output_tokens": out,
-		"trace_id":      genTraceID(rng),
-		"session_id":    genSessionID(rng, 256),
+		"agent_id":              genAgentID(rng, 32),
+		"model":                 defaultModelPicker.Pick(rng),
+		"input_tokens":          in,
+		"output_tokens":         out,
+		"trace_id":              genTraceID(rng),
+		"session_id":            genSessionID(rng, 256),
+		"capability_name":       capability,
+		"execution_status":      status,
+		"execution_duration_ms": dur,
 	}
 }
 
