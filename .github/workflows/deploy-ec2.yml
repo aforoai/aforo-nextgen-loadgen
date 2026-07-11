@@ -1,8 +1,9 @@
 name: deploy-ec2
 
-# Builds the Linux amd64 binary on every push to main and uploads it to S3.
-# EC2 instances pull from s3://aforo-loadgen-artifacts/aforo-loadgen to get the latest.
-# Each commit is also stored with its SHA for rollback.
+# Builds the Linux amd64 binary on every push to main, uploads it to S3, then
+# SSHes into the aforo-loadgen EC2 box to install the new binary and restart
+# the aforo-loadgen.service systemd unit. Each commit is also stored in S3
+# under its own SHA for rollback (see "rollback" note on the deploy job).
 
 on:
   push:
@@ -26,12 +27,15 @@ jobs:
       - name: go mod download
         run: go mod download
 
+      # `make build` bakes commit/version/build-date via ldflags (see
+      # Makefile) so `aforo-loadgen version` on the box reflects what's
+      # actually deployed instead of the zero-value "v0.0.0-dev / unknown".
       - name: build Linux amd64 binary
         env:
           GOOS: linux
           GOARCH: amd64
           CGO_ENABLED: '0'
-        run: go build -o ./bin/aforo-loadgen ./cmd/aforo-loadgen
+        run: make build
 
       - name: upload to S3
         env:
@@ -51,3 +55,33 @@ jobs:
           echo "Uploaded:"
           echo "  latest  → s3://aforo-loadgen-artifacts/aforo-loadgen"
           echo "  version → s3://aforo-loadgen-artifacts/aforo-loadgen-${{ github.sha }}"
+
+  deploy:
+    name: deploy to aforo-loadgen EC2
+    needs: build-and-upload
+    runs-on: ubuntu-latest
+    steps:
+      # Rollback: re-run this job manually against an older commit, or SSH in
+      # and `aws s3 cp s3://aforo-loadgen-artifacts/aforo-loadgen-<sha> ...`
+      # then repeat the install+restart steps below by hand.
+      - name: pull latest + restart aforo-loadgen.service
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.LOADGEN_EC2_HOST }}
+          username: ${{ secrets.LOADGEN_EC2_USERNAME }}
+          key: ${{ secrets.LOADGEN_EC2_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            aws s3 cp s3://aforo-loadgen-artifacts/aforo-loadgen /tmp/aforo-loadgen.new
+            sudo install -m 755 /tmp/aforo-loadgen.new /usr/local/bin/aforo-loadgen
+            rm -f /tmp/aforo-loadgen.new
+            sudo systemctl restart aforo-loadgen
+            sleep 2
+            if sudo systemctl is-active --quiet aforo-loadgen; then
+              echo "aforo-loadgen restarted OK"
+              /usr/local/bin/aforo-loadgen version
+            else
+              echo "aforo-loadgen failed to start — last 50 log lines:"
+              sudo journalctl -u aforo-loadgen -n 50 --no-pager
+              exit 1
+            fi
