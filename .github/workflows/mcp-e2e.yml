@@ -1,0 +1,173 @@
+name: mcp e2e (nightly)
+
+# End-to-end MCP metering test.
+#
+#   loadgen ──► Kong (with aforo-metering plugin) ──► mcp-test-server
+#                       │
+#                       └── extracts tools/call → emits event → mock-ingest
+#
+# The assertion script proves the Kong plugin's detect_mcp_tool_call
+# function correctly extracted tool_name and agent_id from the JSON-RPC
+# payloads emitted by loadgen's mcp_jsonrpc driver. If Kong's handler.lua
+# regresses, this workflow fails.
+#
+# This complements — does NOT replace — the existing loadgen-smoke gate
+# on aforo-nextgen-usage-ingestor-service (which runs ci-mcp-only and
+# only exercises the /v1/ingest endpoint side).
+#
+# Triggers:
+#   - schedule: nightly at 04:00 UTC (~ 9pm PT / 6am CET)
+#   - workflow_dispatch: manual runs for debugging or when a
+#     Kong plugin PR needs the full stack verified.
+#   - pull_request: when a PR touches the mcp_jsonrpc driver, the
+#     scenario, or this workflow itself. Keeps the PR blast-radius bounded.
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Scenario name (default ci-mcp-jsonrpc)'
+        required: false
+        default: 'ci-mcp-jsonrpc'
+  pull_request:
+    paths:
+      - 'internal/driver/mcp_jsonrpc.go'
+      - 'internal/driver/mcp_jsonrpc_test.go'
+      - 'scenarios/ci-mcp-jsonrpc.yaml'
+      - '.github/workflows/mcp-e2e.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  mcp-e2e:
+    name: mcp end-to-end (loadgen → kong → mcp-test-server → mock-ingest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ── Multi-repo checkout ─────────────────────────────────────────────
+      # AFORO_LOADGEN_PAT is a PAT with repo scope on all four
+      # dependencies. If any repo needs an org invite, the checkout
+      # step below fails with a clear error.
+      - name: checkout loadgen
+        uses: actions/checkout@v4
+        with:
+          path: aforo-nextgen-loadgen
+
+      - name: checkout aforo-metering-sdks (for mcp-test-server source)
+        uses: actions/checkout@v4
+        with:
+          repository: jayaforo/aforo-metering-sdks
+          path: aforo-metering-sdks
+          token: ${{ secrets.AFORO_LOADGEN_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: checkout aforo-gateway-plugins (for Kong plugin source)
+        uses: actions/checkout@v4
+        with:
+          repository: jayaforo/aforo-gateway-plugins
+          path: aforo-gateway-plugins
+          token: ${{ secrets.AFORO_LOADGEN_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: checkout aforo-nextgen-docker (for compose stack)
+        uses: actions/checkout@v4
+        with:
+          repository: aforoai/aforo-nextgen-docker
+          path: aforo-nextgen-docker
+          token: ${{ secrets.AFORO_LOADGEN_PAT || secrets.GITHUB_TOKEN }}
+
+      # ── Prep host tools ────────────────────────────────────────────────
+      - name: set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+          cache-dependency-path: aforo-nextgen-loadgen/go.sum
+
+      - name: install jq (assertion script dependency)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # ── Build loadgen ──────────────────────────────────────────────────
+      - name: build loadgen
+        working-directory: aforo-nextgen-loadgen
+        run: make build
+
+      # ── Bring up the stack ─────────────────────────────────────────────
+      # Compose contexts point at siblings via env vars — we're a level
+      # deeper than the standard workspace so we set absolute paths.
+      - name: docker compose up
+        working-directory: aforo-nextgen-docker/mcp-e2e
+        env:
+          MCP_TEST_SERVER_CONTEXT: ${{ github.workspace }}/aforo-metering-sdks/mcp-test-server
+          GATEWAY_PLUGINS_CONTEXT: ${{ github.workspace }}/aforo-gateway-plugins
+        run: |
+          docker compose up -d --build
+          echo "waiting for services to report healthy..."
+          for i in $(seq 1 60); do
+            unhealthy=$(docker compose ps --format json | jq -r '.[] | select(.Health != "healthy") | .Service' | wc -l | tr -d ' ')
+            if [ "$unhealthy" = "0" ]; then
+              echo "all services healthy after ${i}s"
+              docker compose ps
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "services did not become healthy in 60s"
+          docker compose ps
+          docker compose logs
+          exit 1
+
+      # ── Sanity check: mcp-test-server reachable through Kong ───────────
+      - name: sanity — Kong routes /mcp to mcp-test-server
+        run: |
+          echo "hitting kong at 8000/mcp with a tools/list JSON-RPC..."
+          curl -sS -X POST http://localhost:8000/mcp \
+            -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            | tee /tmp/tools-list.json
+          jq -e '.result.tools | length >= 10' /tmp/tools-list.json \
+            || { echo "expected >= 10 tools in response"; exit 1; }
+
+      # ── Run the loadgen scenario ───────────────────────────────────────
+      # The scenario expects AFORO_LOADGEN_MCP_URL to point at the MCP
+      # endpoint under test. Point it at Kong so the plugin sees every
+      # request.
+      - name: reset capture, run ci-mcp-jsonrpc scenario
+        working-directory: aforo-nextgen-loadgen
+        env:
+          AFORO_LOADGEN_MCP_URL: http://localhost:8000/mcp
+          SCENARIO: ${{ github.event.inputs.scenario || 'ci-mcp-jsonrpc' }}
+        run: |
+          curl -sS -X POST http://localhost:8090/reset
+          ./bin/aforo-loadgen run --scenario "${SCENARIO}"
+
+      # ── Assert ─────────────────────────────────────────────────────────
+      - name: assert Kong plugin extracted tool_name + agent_id
+        run: |
+          MOCK_INGEST_URL=http://localhost:8090 \
+            bash aforo-nextgen-docker/mcp-e2e/assert-events.sh
+
+      # ── Diagnostics on failure ─────────────────────────────────────────
+      - name: dump compose logs on failure
+        if: failure()
+        working-directory: aforo-nextgen-docker/mcp-e2e
+        run: |
+          echo "=== docker compose ps ==="
+          docker compose ps
+          echo "=== kong logs (last 200) ==="
+          docker compose logs --tail=200 kong || true
+          echo "=== mcp-test-server logs (last 100) ==="
+          docker compose logs --tail=100 mcp-test-server || true
+          echo "=== mock-ingest logs (last 100) ==="
+          docker compose logs --tail=100 mock-ingest || true
+          echo "=== last 20 captured events ==="
+          curl -sS http://localhost:8090/events 2>/dev/null | jq '.events[-20:]' || true
+
+      # ── Tear down ──────────────────────────────────────────────────────
+      # Always runs — leaks a running stack on the runner if we don't.
+      - name: docker compose down
+        if: always()
+        working-directory: aforo-nextgen-docker/mcp-e2e
+        run: docker compose down -v --remove-orphans

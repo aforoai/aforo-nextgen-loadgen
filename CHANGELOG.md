@@ -11,6 +11,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-07-11 (nightly MCP e2e workflow)
+
+- **`.github/workflows/mcp-e2e.yml`** — scheduled + PR-touch workflow
+  that brings up the full `aforo-nextgen-docker/mcp-e2e/` compose
+  stack (Kong with `aforo-metering` plugin + `@aforo/mcp-test-server`
+  + `mock-ingest` capture sidecar), runs `ci-mcp-jsonrpc.yaml`
+  against Kong, and asserts the plugin's `detect_mcp_tool_call`
+  extracted `tool_name` and `_meta.agent_id` correctly. This is the
+  first CI path in the workspace that catches regressions in the
+  Kong plugin's MCP detection code — before now, only the
+  `ci-mcp-only` gate on `aforo-nextgen-usage-ingestor-service`
+  covered any MCP surface, and it only tested the `/v1/ingest`
+  endpoint side.
+- **Triggers**: `schedule: cron '0 4 * * *'` (nightly at 04:00 UTC),
+  `workflow_dispatch` (manual with scenario override), and
+  `pull_request` when the mcp_jsonrpc driver, its scenario, or the
+  workflow itself is touched.
+- **Compose stack lives in aforo-nextgen-docker/mcp-e2e/** — see the
+  README there for local dev usage. Includes a Node-based
+  `mock-ingest` server that captures every event the Kong plugin
+  emits and exposes `GET /events/summary` for the shared
+  `assert-events.sh` script (5 fail modes: total below floor,
+  missing tool_name, missing agent_id, wrong productType, <3
+  distinct tools).
+- **Complements Eswar's nightly regression pipeline**, doesn't
+  replace it — the compose stack is designed to be plug-in-ready
+  if the fleet-wide nightly wants to include MCP e2e.
+
 ### Added — 2026-07-11 (MCP testing infrastructure closure)
 
 - **`mcp_jsonrpc` ingestion path.** New driver at

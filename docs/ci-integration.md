@@ -20,6 +20,38 @@ The four ingestion-path repos already ship with this gate:
 
 Follow the steps below to add the gate to a fifth, sixth, etc. repo.
 
+## Also see: nightly MCP e2e stack (this repo, 2026-07-11)
+
+Separate from the per-PR gate above, this repo also ships a **scheduled
+end-to-end workflow** that exercises the whole loadgen → Kong-with-plugin
+→ mcp-test-server → capture chain:
+
+- Workflow: [`.github/workflows/mcp-e2e.yml`](../.github/workflows/mcp-e2e.yml)
+- Compose stack: [`aforo-nextgen-docker/mcp-e2e/`](https://github.com/aforoai/aforo-nextgen-docker/tree/main/mcp-e2e)
+- Scenario: [`scenarios/ci-mcp-jsonrpc.yaml`](../scenarios/ci-mcp-jsonrpc.yaml)
+- Driver: `mcp_jsonrpc` (real JSON-RPC 2.0 `tools/call` emission)
+- Toy MCP server: [`@aforo/mcp-test-server`](https://github.com/jayaforo/aforo-metering-sdks/tree/main/mcp-test-server)
+
+Runs on:
+- `schedule: cron: '0 4 * * *'` — nightly at 04:00 UTC
+- `workflow_dispatch` — manual trigger with optional scenario override
+- `pull_request` on this repo when the mcp_jsonrpc driver, its scenario,
+  or the workflow file itself is touched
+
+Fails if the Kong `aforo-metering` plugin's `detect_mcp_tool_call`
+regresses (missing `tool_name` extraction, missing `_meta.agent_id`
+extraction, wrong `productType`, or fewer than 3 distinct tools across
+a 60s × 50-TPS run). Signals a real regression, not a flake — the
+`MIN_EVENTS` floor is deliberately generous to absorb the plugin's
+log-phase batch flush timing.
+
+**Coordination note.** This workflow is a per-repo nightly, not the
+full multi-service nightly regression pipeline owned by Eswar
+(`eswarprasad@aforo.ai`). If Eswar's pipeline wants to include the
+MCP e2e path, the `aforo-nextgen-docker/mcp-e2e/docker-compose.yml`
+stack is ready to plug in — same three services, same assertion
+script, same env vars.
+
 ---
 
 ## What you need before starting
