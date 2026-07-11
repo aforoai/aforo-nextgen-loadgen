@@ -41,6 +41,14 @@ on:
 permissions:
   contents: read
 
+# Cancel an in-flight PR run when a new push lands on the same PR
+# — the docker images take a while to build, and the older run is
+# stale as soon as new code is pushed. Nightly cron and manual
+# dispatch use unique group keys so they never cancel each other.
+concurrency:
+  group: mcp-e2e-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   mcp-e2e:
     name: mcp end-to-end (loadgen → kong → mcp-test-server → mock-ingest)
@@ -120,15 +128,27 @@ jobs:
           exit 1
 
       # ── Sanity check: mcp-test-server reachable through Kong ───────────
+      # Kong reports healthy as soon as its workers are up, but declarative
+      # config load happens on nginx worker init and can lag. Retry the
+      # tools/list POST for up to 20s before giving up.
       - name: sanity — Kong routes /mcp to mcp-test-server
         run: |
-          echo "hitting kong at 8000/mcp with a tools/list JSON-RPC..."
-          curl -sS -X POST http://localhost:8000/mcp \
-            -H 'Content-Type: application/json' \
-            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
-            | tee /tmp/tools-list.json
-          jq -e '.result.tools | length >= 10' /tmp/tools-list.json \
-            || { echo "expected >= 10 tools in response"; exit 1; }
+          for i in $(seq 1 20); do
+            echo "attempt ${i}: POST /mcp tools/list..."
+            if curl -sS --fail --max-time 5 -X POST http://localhost:8000/mcp \
+                -H 'Content-Type: application/json' \
+                -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' > /tmp/tools-list.json; then
+              if jq -e '.result.tools | length >= 10' /tmp/tools-list.json > /dev/null; then
+                echo "sanity ok — $(jq -r '.result.tools | length' /tmp/tools-list.json) tools reachable via kong"
+                exit 0
+              fi
+              echo "response reached but tools missing/short:"
+              cat /tmp/tools-list.json
+            fi
+            sleep 1
+          done
+          echo "sanity failed after 20 attempts"
+          exit 1
 
       # ── Run the loadgen scenario ───────────────────────────────────────
       # The scenario expects AFORO_LOADGEN_MCP_URL to point at the MCP
