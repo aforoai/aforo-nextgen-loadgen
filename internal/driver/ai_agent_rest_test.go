@@ -27,12 +27,18 @@ func aiAgentEvent(capability, agent, session string) *generator.Event {
 			Quantity:       1.0,
 			IdempotencyKey: "evt_ai_1",
 			ProductType:    "AI_AGENT",
+			// Metadata shape mirrors aiAgentTemplate: camelCase keys for
+			// agentId/executionStatus/executionDurationMs (extractor reads
+			// these camelCase from metadata as fallback for the top-level
+			// DTO fields), snake_case for capability_name (extractor reads
+			// this exact spelling). Session_id is not extracted — kept only
+			// as an operator convenience for X-Aforo-Session-Id.
 			Metadata: map[string]any{
-				"capability_name":       capability,
-				"agent_id":              agent,
-				"session_id":            session,
-				"execution_status":      "success",
-				"execution_duration_ms": 123,
+				"capability_name":     capability,
+				"agentId":             agent,
+				"session_id":          session,
+				"executionStatus":     "success",
+				"executionDurationMs": 123,
 			},
 		},
 	}
@@ -55,7 +61,7 @@ func TestAIAgentREST_EmitsWellFormedIngestEnvelope(t *testing.T) {
 		captured.authHdr = r.Header.Get("Authorization")
 		captured.tenantHdr = r.Header.Get("X-Tenant-Id")
 		captured.customerHdr = r.Header.Get("X-Customer-Id")
-		captured.sessionHdr = r.Header.Get("X-Aforo-Session-Id")
+		captured.sessionHdr = r.Header.Get("X-Loadgen-Session-Id")
 		captured.eventIDHdr = r.Header.Get("X-Loadgen-Event-Id")
 		captured.contentType = r.Header.Get("Content-Type")
 		b, _ := io.ReadAll(r.Body)
@@ -95,7 +101,7 @@ func TestAIAgentREST_EmitsWellFormedIngestEnvelope(t *testing.T) {
 		t.Errorf("X-Customer-Id: expected cust_1, got %q", captured.customerHdr)
 	}
 	if captured.sessionHdr != "sess-99" {
-		t.Errorf("X-Aforo-Session-Id: expected sess-99, got %q", captured.sessionHdr)
+		t.Errorf("X-Loadgen-Session-Id: expected sess-99, got %q", captured.sessionHdr)
 	}
 	if captured.eventIDHdr != "evt_ai_1" {
 		t.Errorf("X-Loadgen-Event-Id: expected evt_ai_1, got %q", captured.eventIDHdr)
@@ -124,18 +130,25 @@ func TestAIAgentREST_EmitsWellFormedIngestEnvelope(t *testing.T) {
 	if metadata["capability_name"] != "summarize_email" {
 		t.Errorf("metadata.capability_name: expected summarize_email, got %v", metadata["capability_name"])
 	}
-	if metadata["agent_id"] != "agent-42" {
-		t.Errorf("metadata.agent_id: expected agent-42, got %v", metadata["agent_id"])
+	if metadata["agentId"] != "agent-42" {
+		t.Errorf("metadata.agentId: expected agent-42, got %v", metadata["agentId"])
 	}
 	if metadata["session_id"] != "sess-99" {
 		t.Errorf("metadata.session_id: expected sess-99, got %v", metadata["session_id"])
 	}
-	if metadata["execution_status"] != "success" {
-		t.Errorf("metadata.execution_status: expected success, got %v", metadata["execution_status"])
+	if metadata["executionStatus"] != "success" {
+		t.Errorf("metadata.executionStatus: expected success, got %v", metadata["executionStatus"])
 	}
 	// Duration serializes as float64 through encoding/json.
-	if dur, ok := metadata["execution_duration_ms"].(float64); !ok || dur != 123 {
-		t.Errorf("metadata.execution_duration_ms: expected 123, got %v (%T)", metadata["execution_duration_ms"], metadata["execution_duration_ms"])
+	if dur, ok := metadata["executionDurationMs"].(float64); !ok || dur != 123 {
+		t.Errorf("metadata.executionDurationMs: expected 123, got %v (%T)", metadata["executionDurationMs"], metadata["executionDurationMs"])
+	}
+	// Regression lock: pre-fix snake_case keys for extractor-facing fields
+	// must not appear — extractAiAgentFields would silently drop them.
+	for _, k := range []string{"agent_id", "execution_status", "execution_duration_ms"} {
+		if _, present := metadata[k]; present {
+			t.Errorf("metadata must not contain %q — extractAiAgentFields reads camelCase, snake_case drops silently", k)
+		}
 	}
 }
 

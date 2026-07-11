@@ -13,11 +13,22 @@ import (
 // The shape mirrors Aforo's MetricTemplateRegistry per CLAUDE.md:
 //
 //	API:          endpoint, method, status_code, latency_ms, request_bytes, response_bytes
-//	AI_AGENT:     agent_id, model, input_tokens, output_tokens, trace_id, session_id,
-//	              capability_name, execution_status, execution_duration_ms
+//	AI_AGENT:     agentId, model, input_tokens, output_tokens, trace_id, session_id,
+//	              capability_name, executionStatus, executionDurationMs
 //	MCP_SERVER:   agent_id, tool_name, execution_status, execution_duration_ms,
 //	              session_id, transport
 //	AGENTIC_API:  trace_id, agent_id, endpoint, latency_ms
+//
+// AI_AGENT metadata key casing — CRITICAL: usage-ingestor's
+// ProductTypeEventExtractor.extractAiAgentFields reads specific keys with
+// specific casing. `capability_name` is read snake_case (bridge to
+// event.toolName for per-dimension pricing parity with MCP). `agentId`,
+// `executionStatus`, `executionDurationMs` are read camelCase (fallback
+// path when the top-level DTO fields are absent, which they are because
+// the loadgen Envelope struct only carries top-level DTO fields for the
+// @NotBlank ones). Emitting these under snake_case keys silently drops
+// them at the extractor — no 4xx, just missing analytics data. Regression-
+// locked by TestAIAgentTemplateEmitsCanonicalMetadataKeys.
 //
 // Every template returns a JSON-serializable map[string]any. The runner wraps
 // it in the canonical envelope (event_id, event_timestamp, tenant_id,
@@ -71,15 +82,21 @@ func aiAgentTemplate(rng *rand.Rand) map[string]any {
 		dur += 200 + rng.Intn(800)
 	}
 	return map[string]any{
-		"agent_id":              genAgentID(rng, 32),
-		"model":                 defaultModelPicker.Pick(rng),
-		"input_tokens":          in,
-		"output_tokens":         out,
-		"trace_id":              genTraceID(rng),
-		"session_id":            genSessionID(rng, 256),
-		"capability_name":       capability,
-		"execution_status":      status,
-		"execution_duration_ms": dur,
+		// camelCase keys — extractAiAgentFields reads these exact spellings.
+		"agentId":             genAgentID(rng, 32),
+		"executionStatus":     status,
+		"executionDurationMs": dur,
+		// snake_case keys — extractAiAgentFields reads capability_name
+		// exactly. session_id / trace_id / model / input_tokens /
+		// output_tokens are not extracted by the AI_AGENT path; they land
+		// on Envelope.Metadata as JSONB where the analytics MV reads them
+		// by descriptor-defined source paths (metadata.model_name etc.).
+		"capability_name": capability,
+		"model":           defaultModelPicker.Pick(rng),
+		"input_tokens":    in,
+		"output_tokens":   out,
+		"trace_id":        genTraceID(rng),
+		"session_id":      genSessionID(rng, 256),
 	}
 }
 

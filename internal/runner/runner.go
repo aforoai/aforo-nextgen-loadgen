@@ -269,6 +269,7 @@ func scenarioReferencedPaths(s *scenario.Scenario) []string {
 	add("webhook_receiver", p.WebhookReceiver)
 	add("csv_upload", p.CSVUpload)
 	add("mcp_jsonrpc", p.MCPJsonRPC)
+	add("ai_agent_rest", p.AIAgentREST)
 	if len(paths) == 0 {
 		paths = append(paths, "rest_direct")
 	}

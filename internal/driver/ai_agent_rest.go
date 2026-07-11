@@ -36,10 +36,21 @@ const AIAgentRESTEnvURL = "AFORO_LOADGEN_INGEST_URL"
 
 // AIAgentREST POSTs AI_AGENT usage events to a configurable ingest endpoint
 // so scenarios exercise the descriptor-driven per-capability path end-to-end.
-// The wire envelope matches usage-ingestor's IngestUsageEventRequest, with
-// capability_name / agent_id / session_id / execution_status /
-// execution_duration_ms carried on metadata (matching the extractor contract
-// at ProductTypeEventExtractor.extractAiAgentFields).
+// The wire envelope matches usage-ingestor's IngestUsageEventRequest with
+// two distinct casing conventions on metadata, mirroring the extractor
+// contract at ProductTypeEventExtractor.extractAiAgentFields:
+//
+//   - `capability_name` (snake_case) — extractor bridges to event.toolName
+//     for per-dimension pricing parity with MCP.
+//   - `agentId` / `executionStatus` / `executionDurationMs` (camelCase) —
+//     metadata fallback path the extractor consults when the top-level DTO
+//     fields are absent, which they are because the loadgen Envelope struct
+//     only carries the @NotBlank top-level fields. Emitting these under
+//     snake_case silently drops them at the extractor.
+//   - `session_id` (snake_case) — not extractor-facing; kept as an operator
+//     convenience for the X-Loadgen-Session-Id correlation header (loadgen-
+//     internal; the customer-facing X-Session-Id header documented at
+//     docs.aforo.ai/docs/agentic-apis is a separate public API contract).
 //
 // Non-AI_AGENT events (envelope.ProductType != "AI_AGENT") are rejected with
 // a transport-class error so a scenario writer catches a mis-paired
@@ -173,9 +184,13 @@ func (d *AIAgentREST) Submit(ctx context.Context, e *generator.Event) Result {
 	}
 	if sessionID := stringField(e, "session_id", ""); sessionID != "" {
 		// Not part of the ingest DTO — kept as an operator convenience so
-		// downstream logs can correlate a synthetic AI_AGENT session with
-		// its generated events. Mirrors mcp_jsonrpc's Mcp-Session-Id header.
-		req.Header.Set("X-Aforo-Session-Id", sessionID)
+		// loadgen run logs can correlate a synthetic AI_AGENT session with
+		// its generated events. Prefixed X-Loadgen-* to match the sibling
+		// X-Loadgen-Event-Id convention and to avoid drift with the
+		// customer-facing X-Session-Id header documented at
+		// docs.aforo.ai/docs/agentic-apis (which is a public API contract
+		// distinct from this loadgen-internal correlation aid).
+		req.Header.Set("X-Loadgen-Session-Id", sessionID)
 	}
 
 	resp, err := d.client.Do(req)

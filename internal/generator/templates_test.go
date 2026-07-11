@@ -21,12 +21,24 @@ func TestEachProductTemplate(t *testing.T) {
 
 	ai := aiAgentTemplate(rng)
 	for _, k := range []string{
-		"agent_id", "model", "input_tokens", "output_tokens",
+		// camelCase keys — extractAiAgentFields reads these exact spellings.
+		"agentId", "executionStatus", "executionDurationMs",
+		// snake_case keys — capability_name is bridged to event.toolName;
+		// the rest ride on metadata JSONB for analytics.
+		"capability_name", "model", "input_tokens", "output_tokens",
 		"trace_id", "session_id",
-		"capability_name", "execution_status", "execution_duration_ms",
 	} {
 		if _, ok := ai[k]; !ok {
 			t.Errorf("AI_AGENT template missing %q", k)
+		}
+	}
+	// Regression lock: the pre-fix template emitted the extractor-facing
+	// fields under snake_case keys, which silently dropped them at the
+	// server. Assert those snake_case forms are ABSENT so the drift can't
+	// re-enter without breaking the build.
+	for _, k := range []string{"agent_id", "execution_status", "execution_duration_ms"} {
+		if _, ok := ai[k]; ok {
+			t.Errorf("AI_AGENT template must not emit %q — extractAiAgentFields reads camelCase; snake_case keys drop silently", k)
 		}
 	}
 

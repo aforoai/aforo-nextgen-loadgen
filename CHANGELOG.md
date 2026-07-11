@@ -11,6 +11,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-07-11 (AI_AGENT descriptor per-capability coverage)
+
+- **`ai_agent_rest` ingestion path.** New driver at
+  `internal/driver/ai_agent_rest.go` — POSTs AI_AGENT usage events to a
+  configurable ingest endpoint (`AFORO_LOADGEN_INGEST_URL`, defaults to
+  the env var; missing URL is a loud startup failure). Rejects non-AI_AGENT
+  events with a transport-class error so a mis-paired `product_mix` +
+  `ingestion_paths` surfaces on the first batch. Registered in
+  `driver.AllNames()`, `driver.Registry.construct`, the runner's
+  `scenarioReferencedPaths`, `scenario.IngestionPaths.AIAgentREST`, and
+  `generator.ingestionWeightsFor`.
+- **`capability_name` on `aiAgentTemplate`.** Emits a canonical
+  `defaultAgentCapabilities` value (10-entry registry — `summarize_email`,
+  `translate_document`, `answer_question`, `classify_intent`,
+  `extract_entities`, `generate_response`, `search_knowledge`,
+  `plan_actions`, `execute_tool`, `verify_output`) rotated per-event. Now
+  finally exercises `ProductTypeEventExtractor.extractAiAgentFields`'s
+  bridge to `event.toolName`, and downstream the per-capability dimension
+  pricing + per-capability anomaly baseline paths.
+- **`ci-ai-agent-rest.yaml`.** New CI scenario — 50 TPS × 60 s smoke,
+  `product_mix.AI_AGENT: 1.0`, `ingestion_paths.ai_agent_rest: 1.0`.
+
+### Fixed — 2026-07-11 (AI_AGENT metadata key casing)
+
+- **aiAgentTemplate emits camelCase for extractor-facing metadata keys.**
+  The template previously emitted `agent_id`, `execution_status`,
+  `execution_duration_ms` under snake_case. But
+  `extractAiAgentFields` reads `agentId`, `executionStatus`,
+  `executionDurationMs` in camelCase as the metadata fallback path when
+  the top-level DTO fields are absent (the loadgen Envelope only carries
+  the `@NotBlank` top-level fields). Snake_case silently dropped those
+  three at the extractor — no 4xx, just missing analytics data.
+  `capability_name` stays snake_case because the extractor reads that
+  exact spelling. Regression-locked by
+  `TestEachProductTemplate` (asserts camelCase keys present and
+  snake_case forms absent), `TestAIAgentREST_EmitsWellFormedIngestEnvelope`
+  (asserts wire shape), and `TestAIAgentCapabilityNameFromRegistry`.
+
 ### Added — 2026-07-11 (nightly MCP e2e workflow)
 
 - **`.github/workflows/mcp-e2e.yml`** — scheduled + PR-touch workflow
