@@ -1,7 +1,7 @@
 # Ingestion Paths — Driver Reference
 
 Aforo's usage-ingestor exposes one canonical event endpoint, but customer
-traffic reaches it through 16 distinct paths. Each path has different
+traffic reaches it through 17 distinct paths. Each path has different
 authentication, headers, request shape, and failure modes. The walk-tier
 load test exercises every path so regressions in any one of them surface
 during a 30-minute smoke run, not in a customer escalation.
@@ -29,6 +29,34 @@ component, and what the on-wire request looks like.
 | `gateway_envoy` | `GatewayEnvoy` | `POST /v1/ingest` | Envelope JSON | Bearer | `X-Forwarded-By: envoy` + `X-Envoy-*` (stub) |
 | `webhook_receiver` | `Webhook` | `POST /v1/ingest/webhook/{sourceId}` | Envelope JSON | HMAC-SHA256 | `X-Hub-Signature-256: sha256=<hex>` |
 | `csv_upload` | `CSVUpload` | `POST /v1/ingest/upload` | multipart/form-data CSV | Bearer | `Content-Type: multipart/form-data` + `defaultMetricName`, `defaultCustomerId` form fields |
+| `mcp_jsonrpc` | `MCPJsonRPC` | `POST` at `AFORO_LOADGEN_MCP_URL` (**not** `/v1/ingest`) | JSON-RPC 2.0 `tools/call` envelope | Bearer (forwarded — target is a real MCP server, not the ingest endpoint) | `Mcp-Session-Id` header echoed from event `session_id` metadata |
+
+**mcp_jsonrpc is structurally different from every other path.** All 16
+other paths post an already-cooked metering event to `/v1/ingest`,
+either directly or through a reverse proxy. `mcp_jsonrpc` instead posts
+a **real MCP JSON-RPC 2.0 `tools/call` request** at a configurable MCP
+endpoint — usually a real MCP server (like [`@aforo/mcp-test-server`](https://github.com/aforoai/aforo-metering-sdks/tree/main/mcp-test-server))
+or a gateway sitting in front of one. This is the only path that exercises
+the *gateway plugin's* `tools/call` detection code (Kong `handler.lua`
+`detect_mcp_tool_call`, Apigee JS callout, AWS Lambda `detectMcpToolCall`,
+Azure APIM `<when>` branch, MuleSoft DataWeave). The other paths bypass
+plugin detection entirely because they're already the metering event.
+
+Configure with the `AFORO_LOADGEN_MCP_URL` env var:
+
+```bash
+# Bare test server — SDK / proxy path validation
+export AFORO_LOADGEN_MCP_URL=http://mcp-test-server:8080/mcp
+
+# Or gateway detection path
+export AFORO_LOADGEN_MCP_URL=http://kong:8000/mcp
+```
+
+Missing URL is a loud startup failure, not a silent 404 storm.
+Non-MCP events short-circuit with a transport-class error naming the
+event's product type so scenario writers catch mis-paired product_mix +
+ingestion_paths configurations on the first batch. Pair with
+`product_mix.MCP_SERVER=1.0` — see `scenarios/ci-mcp-jsonrpc.yaml`.
 
 ## Common envelope (JSON-bodied paths)
 

@@ -11,6 +11,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-07-11 (MCP testing infrastructure closure)
+
+- **`mcp_jsonrpc` ingestion path.** New driver at
+  `internal/driver/mcp_jsonrpc.go` — emits **real** JSON-RPC 2.0
+  `tools/call` payloads at a configurable MCP endpoint (env
+  `AFORO_LOADGEN_MCP_URL`). Closes the gateway-plugin-detection gap:
+  every other path posts a synthetic metering event to `/v1/ingest`
+  either directly or through a reverse proxy, none exercised the
+  `tools/call` extraction code in the aforo-metering gateway plugins
+  (Kong `handler.lua` `detect_mcp_tool_call`, AWS Lambda
+  `detectMcpToolCall`, Azure APIM `<when>` branch, Apigee JavaScript
+  callout, MuleSoft DataWeave). This driver does.
+  - Reads `mcpServerTemplate` metadata (`tool_name`, `agent_id`,
+    `session_id`) from `Envelope.Metadata` and builds the canonical
+    MCP shape (`params.name`, `params.arguments`,
+    `params._meta.{agent_id,session_id}`).
+  - Sets `Mcp-Session-Id` header from the event's `session_id`, per
+    MCP spec. Fresh monotonic JSON-RPC id per Submit (atomic counter).
+  - Non-MCP events short-circuit with a specific transport-class
+    error naming the event's product type. Missing URL is a loud
+    startup failure — no silent 404 storms.
+  - Registered as `mcp_jsonrpc` in `driver.AllNames()` and
+    `IngestionPaths.MCPJsonRPC`. Bumps documented path count from 16
+    to 17 (see `docs/ingestion-paths.md`).
+- **`scenarios/ci-mcp-jsonrpc.yaml`.** 50 TPS × 60s smoke that runs
+  against [`@aforo/mcp-test-server`](https://github.com/aforoai/aforo-metering-sdks/tree/main/mcp-test-server)
+  (bare) or a gateway fronting one (plugin detection). Companion to
+  `ci-mcp-only.yaml` which covers the ingest-endpoint side of MCP.
+- **6 driver tests** in `internal/driver/mcp_jsonrpc_test.go` covering
+  wire-shape assertion, non-MCP rejection, missing-URL loud failure,
+  env-var vs config precedence, monotonic id per Submit, and
+  registered-in-AllNames guard.
+
 ### Added — Session 12 (operator layer)
 
 - **`aforo-loadgen server`** subcommand: real implementation replacing
