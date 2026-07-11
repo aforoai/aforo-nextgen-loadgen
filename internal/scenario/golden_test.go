@@ -20,7 +20,7 @@ func TestGolden_BuiltInScenariosLoadAndValidate(t *testing.T) {
 	// is updated when a session ships new ones. The hard contract is the
 	// `expectedNames` list below — anything in it MUST exist; new entries
 	// can be added without breaking older tests.
-	const expectedCount = 16
+	const expectedCount = 17
 	if len(names) != expectedCount {
 		t.Errorf("catalog has %d scenarios; expected %d (%v)",
 			len(names), expectedCount, names)
@@ -43,6 +43,7 @@ func TestGolden_BuiltInScenariosLoadAndValidate(t *testing.T) {
 		"wallet-lifecycle",
 		// Session 10 (CI integration):
 		"ci-mcp-only",
+		"ci-mcp-jsonrpc",
 		"ci-billing",
 		"ci-payments-mock",
 		"ci-stale-keys",

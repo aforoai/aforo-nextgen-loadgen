@@ -84,6 +84,7 @@ func AllNames() []string {
 		"gateway_azure", "gateway_mulesoft",
 		"gateway_apisix", "gateway_tyk", "gateway_gravitee", "gateway_envoy",
 		"webhook_receiver", "csv_upload",
+		"mcp_jsonrpc",
 	}
 }
 
@@ -168,6 +169,10 @@ func (r *Registry) construct(name string) (Driver, error) {
 		return NewCSVUpload(CSVUploadConfig{
 			HTTPBaseConfig: hb,
 			BatchSize:      r.cfg.CSVBatchSize,
+		})
+	case "mcp_jsonrpc":
+		return NewMCPJsonRPC(MCPJsonRPCConfig{
+			RequestTimeout: hb.RequestTimeout,
 		})
 	}
 	return nil, fmt.Errorf("driver registry: unknown ingestion path %q", name)

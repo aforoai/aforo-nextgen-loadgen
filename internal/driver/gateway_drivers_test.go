@@ -123,6 +123,10 @@ func TestRegistry_KnownPaths(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer srv.Close()
+	// mcp_jsonrpc requires an MCP endpoint URL — point it at the same
+	// stub server so the driver can be constructed. The test only checks
+	// that Get() succeeds, not that Submit() reaches a real MCP server.
+	t.Setenv(MCPJsonRPCEnvURL, srv.URL)
 	reg, err := NewRegistry(RegistryConfig{Target: targetForServer(srv)})
 	if err != nil {
 		t.Fatalf("registry: %v", err)

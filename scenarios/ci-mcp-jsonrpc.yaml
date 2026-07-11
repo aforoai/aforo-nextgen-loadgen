@@ -1,0 +1,79 @@
+# ci-mcp-jsonrpc — MCP_SERVER end-to-end coverage via real JSON-RPC 2.0
+#
+# Purpose: exercise the gateway-plugin detection path that ci-mcp-only
+# structurally CANNOT reach. Every event this scenario emits is a real
+# {"jsonrpc":"2.0","method":"tools/call",...} POST that a gateway plugin
+# (Kong handler.lua detect_mcp_tool_call, AWS Lambda detectMcpToolCall,
+# Azure APIM <when>, Apigee callout, MuleSoft DataWeave) sees exactly the
+# same shape as a real MCP client would send.
+#
+# Wiring (docker-compose regression stack):
+#   loadgen → Kong (with aforo-metering plugin) → mcp-test-server
+#   ────────────────────────────────────────────────────────────
+#   The plugin extracts tool_name + agent_id from params/params._meta,
+#   generates the Aforo metering event, and forwards the request. The toy
+#   server responds with a stub result. Loadgen assertions on the platform
+#   side prove the plugin extracted correctly.
+#
+# Setup:
+#   export AFORO_LOADGEN_MCP_URL=http://mcp-test-server:8080/mcp
+#     — or, to test the gateway-plugin path:
+#   export AFORO_LOADGEN_MCP_URL=http://kong:8000/mcp
+#
+# Coverage: 1 tenant, PER_UNIT POSTPAID MCP_SERVER, mcp_jsonrpc only,
+# 50 TPS, 60s, no faults, no lifecycle.
+
+schema_version: 1
+name: ci-mcp-jsonrpc
+description: 60-second real JSON-RPC 2.0 tools/call smoke for gateway-plugin detection paths.
+target_tps: 50
+duration: 60s
+seed: 3
+
+tenants:
+  count: 1
+  distribution: uniform
+  archetypes:
+    - name: ci-mcp-jsonrpc-baseline
+      weight: 1.0
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [MCP_SERVER]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+time_pattern: constant
+
+product_mix:
+  MCP_SERVER: 1.0
+
+ingestion_paths:
+  mcp_jsonrpc: 1.0
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.001
+  p99_latency_ms_max: 750
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: ci
+  notes: |
+    Requires AFORO_LOADGEN_MCP_URL to point at a running mcp-test-server
+    (aforo-metering-sdks/mcp-test-server, `npm start:http`) or a gateway
+    fronting it. A failing run signals either a gateway plugin regression
+    (tool_name / agent_id no longer extracted) or a wire-shape drift in
+    the toy server. Companion to ci-mcp-only.yaml which covers the
+    ingest-endpoint path.

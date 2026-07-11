@@ -281,6 +281,13 @@ type IngestionPaths struct {
 	GatewayEnvoy    float64 `yaml:"gateway_envoy,omitempty"`
 	WebhookReceiver float64 `yaml:"webhook_receiver,omitempty"`
 	CSVUpload       float64 `yaml:"csv_upload,omitempty"`
+	// MCPJsonRPC emits real JSON-RPC 2.0 tools/call payloads to a
+	// configurable MCP endpoint (AFORO_LOADGEN_MCP_URL). Closes the
+	// gateway-plugin-detection gap — every other path either posts to
+	// /v1/ingest directly or relies on a gateway acting as a reverse
+	// proxy, neither of which exercises the plugin's tools/call
+	// detection logic. Pair with product_mix.MCP_SERVER=1.0.
+	MCPJsonRPC float64 `yaml:"mcp_jsonrpc,omitempty"`
 }
 
 // Sum is the weight total — used by the validator.
@@ -288,7 +295,7 @@ func (p IngestionPaths) Sum() float64 {
 	return p.RestDirect + p.SDKNode + p.SDKPython + p.SDKJava + p.SDKGo +
 		p.GatewayKong + p.GatewayApigee + p.GatewayAWS + p.GatewayAzure +
 		p.GatewayMuleSoft + p.GatewayAPISIX + p.GatewayTyk + p.GatewayGravitee +
-		p.GatewayEnvoy + p.WebhookReceiver + p.CSVUpload
+		p.GatewayEnvoy + p.WebhookReceiver + p.CSVUpload + p.MCPJsonRPC
 }
 
 // PayloadVariation chooses the size mix of generated event bodies.

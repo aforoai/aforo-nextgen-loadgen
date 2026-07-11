@@ -524,6 +524,7 @@ func ingestionWeightsFor(p scenario.IngestionPaths) map[string]float64 {
 		"gateway_envoy":    p.GatewayEnvoy,
 		"webhook_receiver": p.WebhookReceiver,
 		"csv_upload":       p.CSVUpload,
+		"mcp_jsonrpc":      p.MCPJsonRPC,
 	}
 }
 
