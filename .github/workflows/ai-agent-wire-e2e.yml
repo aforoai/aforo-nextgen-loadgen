@@ -1,0 +1,181 @@
+# ai_agent wire e2e (nightly) — RESERVED STUB, NOT YET ACTIVE
+#
+# Reserves the workflow slot for the wire-protocol AI_AGENT E2E:
+#
+#   loadgen (ai_agent_wire driver) ──► @aforo/agent-test-server ──► mock-ingest
+#
+# This complements ai-agent-e2e.yml (the REST-envelope path) by exercising
+# the FULL wire path a real Aforo customer's agent would take: driver
+# posts to /agent/session and /agent/invoke on the agent-test-server,
+# which the SDK/gateway plugin front-end meters and emits to ingest.
+#
+# Current ship status (2026-07-12):
+#   ✓ loadgen ai_agent_wire driver           (commits fa29109 + 1ba588a)
+#   ✓ loadgen ci-ai-agent-wire scenario      (fa29109)
+#   ✗ @aforo/agent-test-server               (P14 part 2 — not shipped)
+#   ✗ aforo-nextgen-docker/ai-agent-e2e/     (companion compose — not shipped)
+#
+# ACTIVATE AFTER P14 ships @aforo/agent-test-server:
+#
+#   1. In aforo-metering-sdks/, publish @aforo/agent-test-server with
+#      a Dockerfile + HEALTHCHECK on GET /health (mirrors mcp-test-server).
+#   2. In aforo-nextgen-docker/, add ai-agent-e2e/docker-compose.yml
+#      bringing up agent-test-server + mock-ingest (no Kong needed for
+#      the REST wire path; add Kong when a gateway plugin variant lands).
+#   3. Uncomment the workflow body below, remove this header comment,
+#      and rename the file (no rename needed if already ai-agent-wire-e2e.yml).
+#   4. Cron: pick a slot 15-30 min off ai-agent-e2e.yml's 04:15 UTC so
+#      the two AI_AGENT flows don't race for the same runner.
+#
+# Until then this file exists ONLY as a placeholder. GitHub Actions
+# refuses to load a workflow with no `on:` block, so if you actually
+# uncomment the stub below (against the guidance above) it becomes live
+# immediately — do NOT do that until step 1-3 are complete.
+#
+# ─────────────────────────────────────────────────────────────────────
+# name: ai_agent wire e2e (nightly)
+#
+# on:
+#   schedule:
+#     - cron: '30 4 * * *'  # stagger off ai-agent-e2e (04:15) and mcp-e2e (04:00)
+#   workflow_dispatch:
+#     inputs:
+#       scenario:
+#         description: 'Scenario name (default ci-ai-agent-wire)'
+#         required: false
+#         default: 'ci-ai-agent-wire'
+#   pull_request:
+#     paths:
+#       - 'internal/driver/ai_agent_wire.go'
+#       - 'internal/driver/ai_agent_wire_test.go'
+#       - 'scenarios/ci-ai-agent-wire.yaml'
+#       - '.github/workflows/ai-agent-wire-e2e.yml'
+#
+# permissions:
+#   contents: read
+#
+# concurrency:
+#   group: ai-agent-wire-e2e-${{ github.event.pull_request.number || github.run_id }}
+#   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+#
+# jobs:
+#   ai-agent-wire-e2e:
+#     name: ai_agent wire end-to-end (loadgen → agent-test-server → mock-ingest)
+#     runs-on: ubuntu-latest
+#     timeout-minutes: 15
+#     steps:
+#       - name: checkout loadgen
+#         uses: actions/checkout@v4
+#         with:
+#           path: aforo-nextgen-loadgen
+#
+#       - name: checkout aforo-metering-sdks (for agent-test-server source)
+#         uses: actions/checkout@v4
+#         with:
+#           repository: jayaforo/aforo-metering-sdks
+#           path: aforo-metering-sdks
+#           token: ${{ secrets.AFORO_LOADGEN_PAT || secrets.GITHUB_TOKEN }}
+#
+#       - name: checkout aforo-nextgen-docker (for compose stack)
+#         uses: actions/checkout@v4
+#         with:
+#           repository: aforoai/aforo-nextgen-docker
+#           path: aforo-nextgen-docker
+#           token: ${{ secrets.AFORO_LOADGEN_PAT || secrets.GITHUB_TOKEN }}
+#
+#       - name: set up Go
+#         uses: actions/setup-go@v5
+#         with:
+#           go-version: '1.22'
+#           cache: true
+#           cache-dependency-path: aforo-nextgen-loadgen/go.sum
+#
+#       - name: install jq
+#         run: sudo apt-get update && sudo apt-get install -y jq
+#
+#       - name: build loadgen
+#         working-directory: aforo-nextgen-loadgen
+#         run: make build
+#
+#       - name: docker compose up (agent-test-server + mock-ingest)
+#         working-directory: aforo-nextgen-docker/ai-agent-e2e
+#         env:
+#           AGENT_TEST_SERVER_CONTEXT: ${{ github.workspace }}/aforo-metering-sdks/agent-test-server
+#         run: |
+#           docker compose up -d --build
+#           # wait for healthy
+#           for i in $(seq 1 60); do
+#             unhealthy=$(docker compose ps --format json | jq -r '.[] | select(.Health != "healthy") | .Service' | wc -l | tr -d ' ')
+#             if [ "$unhealthy" = "0" ]; then
+#               echo "healthy after ${i}s"
+#               exit 0
+#             fi
+#             sleep 1
+#           done
+#           docker compose logs
+#           exit 1
+#
+#       - name: reset capture, run ci-ai-agent-wire scenario
+#         working-directory: aforo-nextgen-loadgen
+#         env:
+#           AFORO_LOADGEN_AGENT_URL: http://localhost:8080
+#           SCENARIO: ${{ github.event.inputs.scenario || 'ci-ai-agent-wire' }}
+#         run: |
+#           curl -sS -X POST http://localhost:8090/reset > /dev/null
+#           ./bin/aforo-loadgen run --scenario "${SCENARIO}"
+#
+#       - name: assert wire-path envelope shape captured
+#         id: assert
+#         run: |
+#           MOCK_INGEST_URL=http://localhost:8090 \
+#             bash aforo-nextgen-docker/ai-agent-e2e/assert-events-ai-agent-wire.sh
+#
+#       - name: emit JUnit XML
+#         if: always()
+#         env:
+#           OUTCOME: ${{ steps.assert.outcome }}
+#         run: |
+#           mkdir -p junit
+#           if [ "$OUTCOME" = "success" ]; then
+#             cat > junit/tier3-ai-agent-wire-e2e-junit.xml <<'XML'
+#           <?xml version="1.0" encoding="UTF-8"?>
+#           <testsuites name="ai-agent-wire-e2e" tests="1" failures="0" errors="0" skipped="0">
+#             <testsuite name="ci-ai-agent-wire" tests="1" failures="0" errors="0" skipped="0">
+#               <testcase name="assert-events-ai-agent-wire" classname="loadgen.e2e.ai_agent_wire"/>
+#             </testsuite>
+#           </testsuites>
+#           XML
+#           else
+#             cat > junit/tier3-ai-agent-wire-e2e-junit.xml <<'XML'
+#           <?xml version="1.0" encoding="UTF-8"?>
+#           <testsuites name="ai-agent-wire-e2e" tests="1" failures="1" errors="0" skipped="0">
+#             <testsuite name="ci-ai-agent-wire" tests="1" failures="1" errors="0" skipped="0">
+#               <testcase name="assert-events-ai-agent-wire" classname="loadgen.e2e.ai_agent_wire">
+#                 <failure message="assert failed">See workflow logs.</failure>
+#               </testcase>
+#             </testsuite>
+#           </testsuites>
+#           XML
+#           fi
+#
+#       - name: upload JUnit XML
+#         if: always()
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: tier3-ai-agent-wire-e2e-junit
+#           path: junit/tier3-ai-agent-wire-e2e-junit.xml
+#           if-no-files-found: error
+#
+#       - name: dump compose logs on failure
+#         if: failure()
+#         working-directory: aforo-nextgen-docker/ai-agent-e2e
+#         run: |
+#           docker compose ps
+#           docker compose logs --tail=200 agent-test-server || true
+#           docker compose logs --tail=200 mock-ingest || true
+#           curl -sS http://localhost:8090/events 2>/dev/null | jq '.events[-50:]' || true
+#
+#       - name: docker compose down
+#         if: always()
+#         working-directory: aforo-nextgen-docker/ai-agent-e2e
+#         run: docker compose down -v --remove-orphans
