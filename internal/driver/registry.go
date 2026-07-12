@@ -86,6 +86,7 @@ func AllNames() []string {
 		"webhook_receiver", "csv_upload",
 		"mcp_jsonrpc",
 		"ai_agent_rest",
+		"ai_agent_wire",
 	}
 }
 
@@ -177,6 +178,10 @@ func (r *Registry) construct(name string) (Driver, error) {
 		})
 	case "ai_agent_rest":
 		return NewAIAgentREST(AIAgentRESTConfig{
+			RequestTimeout: hb.RequestTimeout,
+		})
+	case "ai_agent_wire":
+		return NewAIAgentWire(AIAgentWireConfig{
 			RequestTimeout: hb.RequestTimeout,
 		})
 	}

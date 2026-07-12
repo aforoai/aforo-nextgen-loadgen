@@ -131,6 +131,10 @@ func TestRegistry_KnownPaths(t *testing.T) {
 	// the driver refuses to construct without one so a scenario that
 	// silently 404's is impossible to configure.
 	t.Setenv(AIAgentRESTEnvURL, srv.URL)
+	// ai_agent_wire has the same loud-failure-on-missing-URL contract as
+	// mcp_jsonrpc / ai_agent_rest — point it at the stub server so
+	// the registry can construct it during this smoke.
+	t.Setenv(AIAgentWireEnvURL, srv.URL)
 	reg, err := NewRegistry(RegistryConfig{Target: targetForServer(srv)})
 	if err != nil {
 		t.Fatalf("registry: %v", err)

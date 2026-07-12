@@ -270,6 +270,7 @@ func scenarioReferencedPaths(s *scenario.Scenario) []string {
 	add("csv_upload", p.CSVUpload)
 	add("mcp_jsonrpc", p.MCPJsonRPC)
 	add("ai_agent_rest", p.AIAgentREST)
+	add("ai_agent_wire", p.AIAgentWire)
 	if len(paths) == 0 {
 		paths = append(paths, "rest_direct")
 	}

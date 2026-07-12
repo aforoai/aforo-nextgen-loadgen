@@ -526,6 +526,7 @@ func ingestionWeightsFor(p scenario.IngestionPaths) map[string]float64 {
 		"csv_upload":       p.CSVUpload,
 		"mcp_jsonrpc":      p.MCPJsonRPC,
 		"ai_agent_rest":    p.AIAgentREST,
+		"ai_agent_wire":    p.AIAgentWire,
 	}
 }
 

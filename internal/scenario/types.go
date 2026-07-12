@@ -296,6 +296,16 @@ type IngestionPaths struct {
 	// in the analytics stack. Closes the per-capability anomaly + dimension
 	// pricing coverage gap noted in P8. Pair with product_mix.AI_AGENT=1.0.
 	AIAgentREST float64 `yaml:"ai_agent_rest,omitempty"`
+	// AIAgentWire POSTs AI_AGENT capability invocations against
+	// @aforo/agent-test-server's REST wire protocol
+	// (AFORO_LOADGEN_AGENT_URL). Closes the SDK → server → optional-gateway
+	// → usage-ingestor coverage gap that ai_agent_rest structurally cannot
+	// reach: ai_agent_rest posts the standard ingest envelope directly,
+	// bypassing the SDK. ai_agent_wire speaks what a real
+	// @aforoai/agent-metering / aforo-agent-metering client would send.
+	// Pair with product_mix.AI_AGENT=1.0 and a running instance of
+	// aforo-metering-sdks/agent-test-server.
+	AIAgentWire float64 `yaml:"ai_agent_wire,omitempty"`
 }
 
 // Sum is the weight total — used by the validator.
@@ -304,7 +314,7 @@ func (p IngestionPaths) Sum() float64 {
 		p.GatewayKong + p.GatewayApigee + p.GatewayAWS + p.GatewayAzure +
 		p.GatewayMuleSoft + p.GatewayAPISIX + p.GatewayTyk + p.GatewayGravitee +
 		p.GatewayEnvoy + p.WebhookReceiver + p.CSVUpload + p.MCPJsonRPC +
-		p.AIAgentREST
+		p.AIAgentREST + p.AIAgentWire
 }
 
 // PayloadVariation chooses the size mix of generated event bodies.

@@ -20,7 +20,7 @@ func TestGolden_BuiltInScenariosLoadAndValidate(t *testing.T) {
 	// is updated when a session ships new ones. The hard contract is the
 	// `expectedNames` list below — anything in it MUST exist; new entries
 	// can be added without breaking older tests.
-	const expectedCount = 18
+	const expectedCount = 19
 	if len(names) != expectedCount {
 		t.Errorf("catalog has %d scenarios; expected %d (%v)",
 			len(names), expectedCount, names)
@@ -49,6 +49,8 @@ func TestGolden_BuiltInScenariosLoadAndValidate(t *testing.T) {
 		"ci-stale-keys",
 		// P8 (AI_AGENT descriptor per-capability coverage):
 		"ci-ai-agent-rest",
+		// P14 (AI_AGENT wire protocol against @aforo/agent-test-server):
+		"ci-ai-agent-wire",
 		// DEMO-P1 (golden demo tenant usage trickle):
 		"demo-golden",
 	}
