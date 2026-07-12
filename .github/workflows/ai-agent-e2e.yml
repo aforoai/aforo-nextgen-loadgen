@@ -1,0 +1,229 @@
+name: ai_agent e2e (nightly)
+
+# End-to-end AI_AGENT metering test.
+#
+#   loadgen (ai_agent_rest driver) ──► mock-ingest (capture)
+#                                            │
+#                                            └── /events/summary + /events
+#                                                → assert-events-ai-agent.sh
+#
+# The assertion script proves loadgen's ai_agent_rest driver emitted the
+# canonical AI_AGENT envelope shape that usage-ingestor's
+# ProductTypeEventExtractor.extractAiAgentFields consumes:
+#   - metadata.capability_name (snake_case) → bridges to event.toolName
+#   - metadata.agentId         (camelCase)
+#   - metadata.executionStatus (camelCase)
+# If templates.go or ai_agent_rest.go regresses the key casing, this
+# workflow fails — same shape guarantee mcp-e2e enforces for tool_name
+# on the MCP side.
+#
+# Sibling of mcp-e2e.yml. Cron staggered 15 minutes later so the two
+# workflows never race for the same runner. Reuses the mcp-e2e/mock-ingest
+# service — AI_AGENT REST does NOT route through Kong, so the stack is
+# thinner (just mock-ingest, no Kong, no mcp-test-server, no gateway
+# plugins checkout).
+#
+# This complements — does NOT replace — the loadgen-smoke-ai-agent
+# PR-gate on aforo-nextgen-usage-ingestor-service (which runs
+# ci-ai-agent-rest against staging and only exercises the /v1/ingest side).
+#
+# Triggers:
+#   - schedule: nightly at 04:15 UTC (staggered off MCP's 04:00).
+#   - workflow_dispatch: manual runs for debugging.
+#   - pull_request: when a PR touches the ai_agent_rest driver, the
+#     aiAgentTemplate, the scenario, or this workflow itself.
+
+on:
+  schedule:
+    - cron: '15 4 * * *'
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Scenario name (default ci-ai-agent-rest)'
+        required: false
+        default: 'ci-ai-agent-rest'
+  pull_request:
+    paths:
+      - 'internal/driver/ai_agent_rest.go'
+      - 'internal/driver/ai_agent_rest_test.go'
+      - 'internal/generator/templates.go'
+      - 'internal/generator/fields.go'          # defaultAgentCapabilities + mcpExecStatusPicker
+      - 'scenarios/ci-ai-agent-rest.yaml'
+      - '.github/workflows/ai-agent-e2e.yml'
+
+permissions:
+  contents: read
+
+# Cancel an in-flight PR run when a new push lands on the same PR.
+# Nightly cron and manual dispatch use unique group keys so they never
+# cancel each other.
+concurrency:
+  group: ai-agent-e2e-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ai-agent-e2e:
+    name: ai_agent end-to-end (loadgen → mock-ingest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # ── Multi-repo checkout ─────────────────────────────────────────────
+      # AFORO_LOADGEN_PAT is a PAT with repo scope on aforo-nextgen-docker.
+      # We only need the docker repo (for the mcp-e2e compose stack we
+      # reuse the mock-ingest service from) — no Kong plugin, no
+      # mcp-test-server for the AI_AGENT path.
+      - name: checkout loadgen
+        uses: actions/checkout@v4
+        with:
+          path: aforo-nextgen-loadgen
+
+      - name: checkout aforo-nextgen-docker (for mock-ingest compose)
+        uses: actions/checkout@v4
+        with:
+          repository: aforoai/aforo-nextgen-docker
+          path: aforo-nextgen-docker
+          token: ${{ secrets.AFORO_LOADGEN_PAT || secrets.GITHUB_TOKEN }}
+
+      # ── Prep host tools ────────────────────────────────────────────────
+      - name: set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+          cache-dependency-path: aforo-nextgen-loadgen/go.sum
+
+      - name: install jq (assertion script dependency)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      # ── Build loadgen ──────────────────────────────────────────────────
+      - name: build loadgen
+        working-directory: aforo-nextgen-loadgen
+        run: make build
+
+      # ── Bring up ONLY mock-ingest ─────────────────────────────────────
+      # AI_AGENT REST does not route through Kong — the ai_agent_rest
+      # driver POSTs the standard IngestUsageEventRequest envelope directly
+      # to AFORO_LOADGEN_INGEST_URL. So we skip Kong + mcp-test-server
+      # from the mcp-e2e stack and bring up just the mock-ingest capture
+      # service.
+      - name: docker compose up mock-ingest
+        working-directory: aforo-nextgen-docker/mcp-e2e
+        run: |
+          docker compose up -d --build mock-ingest
+          echo "waiting for mock-ingest to report healthy..."
+          for i in $(seq 1 30); do
+            state=$(docker inspect --format='{{.State.Health.Status}}' mcp-e2e-mock-ingest 2>/dev/null || echo starting)
+            if [ "$state" = "healthy" ]; then
+              echo "mock-ingest healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "mock-ingest did not become healthy in 30s"
+          docker compose ps
+          docker compose logs mock-ingest
+          exit 1
+
+      # ── Sanity check: mock-ingest reachable + accepting ingest ─────────
+      - name: sanity — mock-ingest accepts POST /v1/ingest
+        run: |
+          for i in $(seq 1 15); do
+            echo "attempt ${i}: POST /v1/ingest smoke event..."
+            if curl -sS --fail --max-time 5 -X POST http://localhost:8090/v1/ingest \
+                -H 'Content-Type: application/json' \
+                -d '{"product_type":"AI_AGENT","metadata":{"capability_name":"__sanity__"}}' > /dev/null; then
+              # Confirm the smoke event landed, then reset.
+              summary=$(curl -sS --max-time 5 http://localhost:8090/events/summary)
+              if [ "$(echo "$summary" | jq -r '.totalEvents')" -ge 1 ]; then
+                echo "sanity ok — mock-ingest captured smoke event"
+                curl -sS -X POST http://localhost:8090/reset > /dev/null
+                exit 0
+              fi
+            fi
+            sleep 1
+          done
+          echo "sanity failed after 15 attempts"
+          exit 1
+
+      # ── Run the loadgen scenario ───────────────────────────────────────
+      # The scenario expects AFORO_LOADGEN_INGEST_URL to point at the
+      # target ingest endpoint. mock-ingest exposes /v1/ingest identically
+      # to the real usage-ingestor.
+      - name: reset capture, run ci-ai-agent-rest scenario
+        working-directory: aforo-nextgen-loadgen
+        env:
+          AFORO_LOADGEN_INGEST_URL: http://localhost:8090/v1/ingest
+          SCENARIO: ${{ github.event.inputs.scenario || 'ci-ai-agent-rest' }}
+        run: |
+          curl -sS -X POST http://localhost:8090/reset > /dev/null
+          ./bin/aforo-loadgen run --scenario "${SCENARIO}"
+
+      # ── Assert ─────────────────────────────────────────────────────────
+      # The AI_AGENT assert script lives alongside mcp-e2e's assert-events.sh
+      # in aforo-nextgen-docker/mcp-e2e/. It checks capability_name → toolName
+      # bridge shape, agentId presence, and productType=AI_AGENT on every
+      # captured event.
+      - name: assert AI_AGENT envelope shape captured
+        id: assert
+        run: |
+          MOCK_INGEST_URL=http://localhost:8090 \
+            bash aforo-nextgen-docker/mcp-e2e/assert-events-ai-agent.sh
+
+      # ── Emit JUnit XML for the nightly aggregator ──────────────────────
+      # File naming matches the aggregator contract in
+      # aforo-nextgen-docker/nightly/README.md: tier3-<flow>-junit.xml.
+      # Runs on both success and failure so a fail lands in the digest.
+      - name: emit JUnit XML
+        if: always()
+        env:
+          OUTCOME: ${{ steps.assert.outcome }}
+        run: |
+          mkdir -p junit
+          if [ "$OUTCOME" = "success" ]; then
+            cat > junit/tier3-ai-agent-e2e-junit.xml <<'XML'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <testsuites name="ai-agent-e2e" tests="1" failures="0" errors="0" skipped="0">
+            <testsuite name="ci-ai-agent-rest" tests="1" failures="0" errors="0" skipped="0">
+              <testcase name="assert-events-ai-agent" classname="loadgen.e2e.ai_agent"/>
+            </testsuite>
+          </testsuites>
+          XML
+          else
+            cat > junit/tier3-ai-agent-e2e-junit.xml <<'XML'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <testsuites name="ai-agent-e2e" tests="1" failures="1" errors="0" skipped="0">
+            <testsuite name="ci-ai-agent-rest" tests="1" failures="1" errors="0" skipped="0">
+              <testcase name="assert-events-ai-agent" classname="loadgen.e2e.ai_agent">
+                <failure message="assert-events-ai-agent.sh failed">See workflow logs for the failing assertion + captured event dump.</failure>
+              </testcase>
+            </testsuite>
+          </testsuites>
+          XML
+          fi
+
+      - name: upload JUnit XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tier3-ai-agent-e2e-junit
+          path: junit/tier3-ai-agent-e2e-junit.xml
+          if-no-files-found: error
+
+      # ── Diagnostics on failure ─────────────────────────────────────────
+      - name: dump compose logs on failure
+        if: failure()
+        working-directory: aforo-nextgen-docker/mcp-e2e
+        run: |
+          echo "=== docker compose ps ==="
+          docker compose ps
+          echo "=== mock-ingest logs (last 200) ==="
+          docker compose logs --tail=200 mock-ingest || true
+          echo "=== last 50 captured events ==="
+          curl -sS http://localhost:8090/events 2>/dev/null | jq '.events[-50:]' || true
+
+      # ── Tear down ──────────────────────────────────────────────────────
+      - name: docker compose down
+        if: always()
+        working-directory: aforo-nextgen-docker/mcp-e2e
+        run: docker compose down -v --remove-orphans

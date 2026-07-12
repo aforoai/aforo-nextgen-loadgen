@@ -1,0 +1,72 @@
+name: ai_agent wire e2e (nightly) — RESERVED STUB
+
+# Reserves the workflow slot for the wire-protocol AI_AGENT E2E:
+#
+#   loadgen (ai_agent_wire driver) ──► @aforo/agent-test-server ──► mock-ingest
+#
+# This complements ai-agent-e2e.yml (the REST-envelope path) by exercising
+# the FULL wire path a real Aforo customer's agent would take: driver
+# posts to /agent/session and /agent/invoke on the agent-test-server,
+# which the SDK/gateway plugin front-end meters and emits to ingest.
+#
+# Current ship status (2026-07-12):
+#   ✓ loadgen ai_agent_wire driver           (commits fa29109 + 1ba588a)
+#   ✓ loadgen ci-ai-agent-wire scenario      (fa29109)
+#   ✗ @aforo/agent-test-server               (P14 part 2 — not shipped)
+#   ✗ aforo-nextgen-docker/ai-agent-e2e/     (companion compose — not shipped)
+#
+# THIS WORKFLOW IS INTENTIONALLY INERT: no cron, no pull_request trigger,
+# only workflow_dispatch. Dispatching it prints the activation checklist
+# and exits successfully — never spins up a stack, never posts events.
+# Kept as a valid workflow file (instead of a pure-comment placeholder)
+# so it shows in the Actions tab and can be manually dispatched by anyone
+# checking the wire-path activation status.
+#
+# ACTIVATE AFTER P14 ships @aforo/agent-test-server:
+#   1. Publish @aforo/agent-test-server with Dockerfile + HEALTHCHECK.
+#   2. Add aforo-nextgen-docker/ai-agent-e2e/docker-compose.yml
+#      (agent-test-server + mock-ingest sidecar).
+#   3. Add aforo-nextgen-docker/ai-agent-e2e/assert-events-ai-agent-wire.sh
+#      (mirrors mcp-e2e/assert-events-ai-agent.sh).
+#   4. Rewrite this workflow: add schedule (04:30 UTC — staggered off
+#      ai-agent-e2e at 04:15 and mcp-e2e at 04:00), pull_request paths
+#      on ai_agent_wire.go + scenario, real steps (checkout, compose up,
+#      loadgen run, assert, emit JUnit XML).
+#
+# Until then, the workflow is a dispatch-only checklist printer.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  wire-e2e-status:
+    name: ai_agent wire e2e — activation status
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: print activation checklist
+        run: |
+          cat <<'EOF'
+          ═══════════════════════════════════════════════════════════════════
+            ai_agent wire e2e — RESERVED STUB (P15 part 5)
+          ═══════════════════════════════════════════════════════════════════
+
+          This workflow is intentionally inert. Dispatching it does not run
+          the wire-path E2E because the sidecar image + companion compose
+          stack have not shipped yet.
+
+          Ship status:
+            ✓ loadgen ai_agent_wire driver      (fa29109 + 1ba588a)
+            ✓ loadgen ci-ai-agent-wire scenario (fa29109)
+            ✗ @aforo/agent-test-server sidecar  (P14 part 2 — TODO)
+            ✗ aforo-nextgen-docker/ai-agent-e2e (compose stack + assert — TODO)
+
+          Reserved cron slot: 30 4 * * *  (04:30 UTC)
+          Reserved JUnit XML: tier3-ai-agent-wire-e2e-junit.xml
+          Activation runbook: see the header comment on this workflow file.
+
+          ═══════════════════════════════════════════════════════════════════
+          EOF
