@@ -47,6 +47,7 @@ on:
       - 'internal/driver/ai_agent_rest.go'
       - 'internal/driver/ai_agent_rest_test.go'
       - 'internal/generator/templates.go'
+      - 'internal/generator/fields.go'          # defaultAgentCapabilities + mcpExecStatusPicker
       - 'scenarios/ci-ai-agent-rest.yaml'
       - '.github/workflows/ai-agent-e2e.yml'
 
