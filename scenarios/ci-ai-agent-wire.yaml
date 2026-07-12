@@ -1,0 +1,95 @@
+# ci-ai-agent-wire — AI_AGENT end-to-end coverage via the wire protocol
+#
+# Purpose: exercise the SDK → server → optional-gateway → usage-ingestor
+# path that ci-ai-agent-rest structurally CANNOT reach. ci-ai-agent-rest
+# posts the standard IngestUsageEventRequest envelope directly, bypassing
+# the SDK entirely. This scenario POSTs to @aforo/agent-test-server's
+# REST wire protocol (POST /agent/session + POST /agent/invoke), which is
+# what a real @aforoai/agent-metering / aforo-agent-metering-instrumented
+# customer would emit.
+#
+# Wiring:
+#   loadgen (ai_agent_wire) → agent-test-server
+#     or (with a future ai_agent gateway plugin):
+#   loadgen (ai_agent_wire) → Kong (with plugin) → agent-test-server
+#   ─────────────────────────────────────────────
+#   The driver manages a per-agent-id session cache: first event opens a
+#   session via POST /agent/session, subsequent events call POST /agent/invoke
+#   under that session, and DELETE /agent/session/{id} runs after N=20
+#   invocations so a long run doesn't monopolise capacity on the server.
+#
+# Setup:
+#   1. Start the test server:
+#        cd aforo-metering-sdks/agent-test-server
+#        npm install && npm run build && npm run start:http
+#      (or `docker run -p 8090:8090 aforo/agent-test-server`)
+#   2. Point the driver at it:
+#        export AFORO_LOADGEN_AGENT_URL=http://localhost:8090
+#   3. Run the scenario:
+#        go run . run --scenario scenarios/ci-ai-agent-wire.yaml
+#
+# Coverage: 1 tenant, PER_UNIT POSTPAID AI_AGENT, ai_agent_wire only,
+# 20 TPS, 60s, no faults, no lifecycle.
+
+schema_version: 1
+name: ci-ai-agent-wire
+description: 60-second AI_AGENT smoke covering the SDK-shaped REST wire protocol against @aforo/agent-test-server.
+target_tps: 20
+duration: 60s
+seed: 5
+
+tenants:
+  count: 1
+  distribution: uniform
+  archetypes:
+    - name: ci-ai-agent-wire-baseline
+      weight: 1.0
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [AI_AGENT]
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+time_pattern: constant
+
+product_mix:
+  AI_AGENT: 1.0
+
+ingestion_paths:
+  ai_agent_wire: 1.0
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.001
+  p99_latency_ms_max: 750
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: ci
+  notes: |
+    Requires AFORO_LOADGEN_AGENT_URL to point at a running
+    @aforo/agent-test-server (default port 8090). A failing run signals
+    a regression EITHER in the driver (session lifecycle, wire body
+    shape) OR in the test server itself. Companion scenario to:
+      - ci-ai-agent-rest.yaml (same product type, ingest-endpoint path)
+      - ci-mcp-jsonrpc.yaml (sibling — MCP JSON-RPC wire protocol
+        against @aforo/mcp-test-server)
+
+    Chose 20 TPS (vs ci-ai-agent-rest.yaml's 50 TPS) because the
+    session lifecycle round-trip adds meaningful wire work per event —
+    higher TPS could saturate the test server's session capacity cap
+    before any regression signal surfaces. Bump TPS when the scenario
+    runs against a gateway sitting in front of the server so real
+    plugin behaviour is exercised.
