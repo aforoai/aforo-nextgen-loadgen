@@ -337,6 +337,58 @@ func TestAIAgentWire_EvictsSessionOn404(t *testing.T) {
 	}
 }
 
+// TestAIAgentWire_SessionCacheIsTenantScoped locks in Rule #18: two events
+// with the same agent id but DIFFERENT tenant ids must open separate
+// server-side sessions. Pre-fix the cache was keyed by bare agent id so
+// tenant A's session would be handed to tenant B's event — the classic
+// tenant-isolation cross-leak the RLS + cache-key rule exists to prevent.
+func TestAIAgentWire_SessionCacheIsTenantScoped(t *testing.T) {
+	fake := newFakeAgentServer()
+	ts := httptest.NewServer(fake.handler())
+	defer ts.Close()
+
+	d, err := NewAIAgentWire(AIAgentWireConfig{URL: ts.URL})
+	if err != nil {
+		t.Fatalf("NewAIAgentWire: %v", err)
+	}
+	defer d.Close()
+
+	// Same agent id, different tenants — hand-craft the events so the
+	// tenant field is the only difference.
+	eA := aiAgentWireEvent("shared_agent_id", "summarize_url")
+	eA.TenantID = "tenant_A"
+	eB := aiAgentWireEvent("shared_agent_id", "summarize_url")
+	eB.TenantID = "tenant_B"
+
+	// First event for tenant A — should CREATE a session.
+	resA := d.Submit(context.Background(), eA)
+	if resA.Status != 200 {
+		t.Fatalf("tenant A submit status: %d", resA.Status)
+	}
+	if got := fake.createReqs.Load(); got != 1 {
+		t.Errorf("expected 1 create after tenant A's first event, got %d", got)
+	}
+
+	// First event for tenant B with the SAME agent id — MUST create a
+	// NEW session (2 total) instead of reusing tenant A's.
+	resB := d.Submit(context.Background(), eB)
+	if resB.Status != 200 {
+		t.Fatalf("tenant B submit status: %d", resB.Status)
+	}
+	if got := fake.createReqs.Load(); got != 2 {
+		t.Errorf("expected 2 creates after tenant B's first event (rule #18 tenant scope), got %d — cache leaked across tenants", got)
+	}
+
+	// Second event for tenant A should REUSE its session (still 2 total).
+	resA2 := d.Submit(context.Background(), eA)
+	if resA2.Status != 200 {
+		t.Fatalf("tenant A 2nd submit status: %d", resA2.Status)
+	}
+	if got := fake.createReqs.Load(); got != 2 {
+		t.Errorf("expected creates to stay at 2 after tenant A reuse, got %d", got)
+	}
+}
+
 func TestAIAgentWire_RegisteredInAllNames(t *testing.T) {
 	found := false
 	for _, name := range AllNames() {

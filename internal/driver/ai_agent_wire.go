@@ -80,12 +80,28 @@ type AIAgentWire struct {
 	client         *http.Client
 	endAfter       int
 
-	// Session cache: agent_id → (sessionId, invocationCount). Guarded by
-	// mu because the runner spins many goroutines against this driver
-	// concurrently and two events with the same agent_id landing at the
-	// same instant must NOT each open a fresh session.
+	// Session cache: (tenant_id, agent_id) → (sessionId, invocationCount).
+	// Guarded by mu because the runner spins many goroutines against this
+	// driver concurrently and two events with the same (tenant, agent)
+	// landing at the same instant must NOT each open a fresh session.
+	//
+	// Rule #18 (Tenant Isolation Pre-Commit Checklist, CLAUDE.md): the key
+	// is tenantID+":"+agentID — NOT bare agentID. Two different tenants
+	// with the same agent id (rare in practice but possible when scenarios
+	// use short deterministic ids or when the same agent id is reused
+	// across a multi-tenant test) MUST get separate sessions so a
+	// downstream gateway plugin doesn't see tenant A's session id under
+	// tenant B's X-Tenant-Id header.
 	mu       sync.Mutex
 	sessions map[string]*wireSession
+}
+
+// sessionKey composes the tenant-scoped cache key. Kept as a helper so the
+// concatenation format lives in exactly one place — accidental drift
+// between the four call sites that touch d.sessions would create silent
+// cross-tenant leaks.
+func sessionKey(tenantID, agentID string) string {
+	return tenantID + ":" + agentID
 }
 
 // wireSession is the per-agent cache entry. Held under AIAgentWire.mu.
@@ -205,9 +221,12 @@ func (d *AIAgentWire) Submit(ctx context.Context, e *generator.Event) Result {
 		return res
 	}
 
-	// Resolve or open a session for this agent id. resolveSession may
-	// perform a POST /agent/session round-trip if this is the first event
-	// for the agent; that failure is attributed to this event.
+	// Resolve or open a session for this (tenant, agent) pair. Two events
+	// for the same agent id under DIFFERENT tenants must get separate
+	// sessions per Rule #18 — the key is composed by sessionKey below.
+	// resolveSession may perform a POST /agent/session round-trip if this
+	// is the first event for the pair; that failure is attributed to this
+	// event.
 	sessionID, resolveErr := d.resolveSession(ctx, e, agentID)
 	if resolveErr != nil {
 		res.TransportErr = resolveErr
@@ -281,7 +300,7 @@ func (d *AIAgentWire) Submit(ctx context.Context, e *generator.Event) Result {
 		// sweeper dropped an idle session between two events. Reset the
 		// cache so the next event opens a fresh session.
 		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
-			d.evictSession(agentID)
+			d.evictSession(e.TenantID, agentID)
 		}
 		return res
 	}
@@ -291,20 +310,24 @@ func (d *AIAgentWire) Submit(ctx context.Context, e *generator.Event) Result {
 	// best-effort: the response is ignored (the session state is already
 	// terminal server-side once DELETE returns), and a transport failure
 	// here does NOT flag the invocation itself as failed.
-	if d.recordInvocation(agentID) >= d.endAfter {
-		d.endSession(ctx, agentID)
+	if d.recordInvocation(e.TenantID, agentID) >= d.endAfter {
+		d.endSession(ctx, e.TenantID, agentID)
 	}
 	return res
 }
 
-// resolveSession returns the cached session id for agentID, opening a
-// fresh one against the server if the cache misses. The lock is held
-// only around the cache lookup + cache write; the actual HTTP round-trip
-// happens outside the lock so a slow server can't stall other agents'
-// events queuing behind the mutex.
+// resolveSession returns the cached session id for the (tenantID, agentID)
+// pair, opening a fresh one against the server if the cache misses. The
+// lock is held only around the cache lookup + cache write; the actual HTTP
+// round-trip happens outside the lock so a slow server can't stall other
+// agents' events queuing behind the mutex.
+//
+// Key composition per Rule #18 (see sessionKey docstring) — two different
+// tenants with the same agent id get separate sessions.
 func (d *AIAgentWire) resolveSession(ctx context.Context, e *generator.Event, agentID string) (string, error) {
+	key := sessionKey(e.TenantID, agentID)
 	d.mu.Lock()
-	if s, ok := d.sessions[agentID]; ok {
+	if s, ok := d.sessions[key]; ok {
 		id := s.id
 		d.mu.Unlock()
 		return id, nil
@@ -312,10 +335,10 @@ func (d *AIAgentWire) resolveSession(ctx context.Context, e *generator.Event, ag
 	d.mu.Unlock()
 
 	// Cache miss — open a new session. Any concurrent event for the same
-	// agent may race and each open their own; the second to write to the
-	// cache overwrites the first. Both sessions remain valid on the
-	// server side (test server capacity cap enforces the upper bound if
-	// the workload really is that heavy).
+	// (tenant, agent) may race and each open their own; the second to
+	// write to the cache overwrites the first. Both sessions remain valid
+	// on the server side (test server capacity cap enforces the upper
+	// bound if the workload really is that heavy).
 	body, err := json.Marshal(map[string]any{
 		"agentId":  agentID,
 		"tenantId": e.TenantID,
@@ -367,18 +390,19 @@ func (d *AIAgentWire) resolveSession(ctx context.Context, e *generator.Event, ag
 	}
 
 	d.mu.Lock()
-	d.sessions[agentID] = &wireSession{id: out.SessionID, invCount: 0}
+	d.sessions[key] = &wireSession{id: out.SessionID, invCount: 0}
 	d.mu.Unlock()
 	return out.SessionID, nil
 }
 
-// recordInvocation atomically bumps the invocation counter for agentID
-// and returns the new value. Callers use the return value to decide
-// whether to end the session.
-func (d *AIAgentWire) recordInvocation(agentID string) int {
+// recordInvocation atomically bumps the invocation counter for the
+// (tenantID, agentID) pair and returns the new value. Callers use the
+// return value to decide whether to end the session.
+func (d *AIAgentWire) recordInvocation(tenantID, agentID string) int {
+	key := sessionKey(tenantID, agentID)
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	s, ok := d.sessions[agentID]
+	s, ok := d.sessions[key]
 	if !ok {
 		return 0
 	}
@@ -386,11 +410,12 @@ func (d *AIAgentWire) recordInvocation(agentID string) int {
 	return s.invCount
 }
 
-// evictSession drops an agent's cached session id — used on unknown_session
-// 404s so the next event for that agent opens a new session.
-func (d *AIAgentWire) evictSession(agentID string) {
+// evictSession drops a (tenant, agent) pair's cached session id — used on
+// unknown_session 404s so the next event for that pair opens a new session.
+func (d *AIAgentWire) evictSession(tenantID, agentID string) {
+	key := sessionKey(tenantID, agentID)
 	d.mu.Lock()
-	delete(d.sessions, agentID)
+	delete(d.sessions, key)
 	d.mu.Unlock()
 }
 
@@ -399,15 +424,16 @@ func (d *AIAgentWire) evictSession(agentID string) {
 // stream but does NOT surface on the invocation Result. Runs synchronously
 // so a scenario finishing right after the last invocation on a session
 // still gets the DELETE observed by the server.
-func (d *AIAgentWire) endSession(ctx context.Context, agentID string) {
+func (d *AIAgentWire) endSession(ctx context.Context, tenantID, agentID string) {
+	key := sessionKey(tenantID, agentID)
 	d.mu.Lock()
-	s, ok := d.sessions[agentID]
+	s, ok := d.sessions[key]
 	if !ok {
 		d.mu.Unlock()
 		return
 	}
 	sessID := s.id
-	delete(d.sessions, agentID)
+	delete(d.sessions, key)
 	d.mu.Unlock()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, d.url+"/agent/session/"+sessID, nil)
