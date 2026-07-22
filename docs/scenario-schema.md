@@ -457,14 +457,23 @@ without the file prefix as `<scenario>:<line>:<col>: ...`.
 ## Schema migration
 
 ```go
-const CurrentSchemaVersion = 1
+const CurrentSchemaVersion = 2
 ```
 
 `schema_version` must be present and must equal a known version. A
-loaded scenario from a future version (`schema_version: 2` against a
-v1 tool) is rejected with a clear "upgrade aforo-loadgen" message. When
-v2 ships, `Migrate()` will gain an upgrade chain that walks v1 → v2
-in-place.
+loaded scenario from a future version (e.g. `schema_version: 3`
+against a v2 tool) is rejected with a clear "upgrade aforo-loadgen"
+message. `Migrate()` normalizes any older loaded `Scenario` up to
+`CurrentSchemaVersion` — today it walks v1 → v2 in-place via
+`upgradeV1toV2`, which only bumps `SchemaVersion`; the actual v1→v2
+backward-compat work (backfilling `RateCards` from legacy top-level
+`PricingModel` / `BillingMode` / `RateConfig` / `MetricConfigs` /
+`DimensionPricing`) runs in `applyDefaults` so both explicit-v2 authors
+and migrated-from-v1 files share the same normalization path. Future
+versions extend the switch (`case 2: upgradeV2toV3(s); fallthrough;
+case CurrentSchemaVersion: return nil`) — every migration step is
+preserved even after its source version stops appearing in the wild,
+so a v1 file can always walk all the way up to current.
 
 ---
 
