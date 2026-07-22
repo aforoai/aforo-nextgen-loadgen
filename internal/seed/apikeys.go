@@ -225,6 +225,22 @@ func fetchAPIKey(ctx context.Context, c *Client, tenantID, keyID string) (apiKey
 // supported by ApiKeyController.list) and matches client-side. The
 // (customerId, accessorId) pair is deterministic per subscription in
 // loadgen's seed scenarios, so at most one row matches.
+//
+// Returns the FIRST match regardless of status (2026-07-22, Issue 4). The
+// earlier implementation filtered out `REVOKED` keys because that maps
+// most naturally to "give me a usable secret." But the 409 recovery path
+// depends on this helper finding whatever row the backend UNIQUE index
+// (customer_id, accessor_id) tripped over — and that row is often the
+// previous run's revoked key. Filtering it out surfaced the 409 as a
+// "create api-key" error even though the row genuinely exists. The
+// seeder's downstream code treats the REVOKED status as informational
+// (transitionSubscription is a no-op for CANCELLED/EXPIRED slots that
+// most often carry revoked keys) and the manifest still records the
+// state accurately via apiKeyResponse.Revoked().
+//
+// If a caller genuinely needs an ACTIVE-only lookup, they should check
+// resp.Status themselves — that keeps the intent explicit and doesn't
+// hide previously-created rows from the 409 recovery path.
 func lookupAPIKeyByAccessor(ctx context.Context, c *Client, tenantID, customerID, accessorID string) (apiKeyResponse, bool, error) {
 	listURL, err := c.Target().Path(aforo.ServicePricing, aforo.PathAPIKeys)
 	if err != nil {
@@ -240,10 +256,26 @@ func lookupAPIKeyByAccessor(ctx context.Context, c *Client, tenantID, customerID
 	}, &keys); err != nil {
 		return apiKeyResponse{}, false, err
 	}
+	// Prefer an ACTIVE key when one exists; fall back to whatever match we
+	// have (REVOKED / SUSPENDED / PENDING_REVOCATION / ...). This keeps
+	// happy-path callers on a usable secret while still returning something
+	// for the 409 recovery path when only a revoked row remains.
+	var fallback apiKeyResponse
+	haveFallback := false
 	for _, k := range keys {
-		if k.CustomerID == customerID && k.AccessorID == accessorID && k.Status != "REVOKED" {
+		if k.CustomerID != customerID || k.AccessorID != accessorID {
+			continue
+		}
+		if k.Status == "ACTIVE" {
 			return k, true, nil
 		}
+		if !haveFallback {
+			fallback = k
+			haveFallback = true
+		}
+	}
+	if haveFallback {
+		return fallback, true, nil
 	}
 	return apiKeyResponse{}, false, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/aforo"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/scenario"
@@ -75,13 +76,19 @@ type rateTierRequest struct {
 // /rate-plans/search?name= by lookupRatePlanByName). Idempotency-Key is
 // the loadgen-internal seedKey set by provisionRatePlan.
 type ratePlanCreateRequest struct {
-	Name          string                `json:"name"`
-	Description   string                `json:"description,omitempty"`
-	PricingModel  string                `json:"pricingModel"`
-	Currency      string                `json:"currency"`
-	BaseFee       float64               `json:"baseFee,omitempty"`
-	ProductIDs    []string              `json:"productIds"`
-	MetricConfigs []metricConfigRequest `json:"metricConfigs"`
+	Name         string  `json:"name"`
+	Description  string  `json:"description,omitempty"`
+	PricingModel string  `json:"pricingModel"`
+	Currency     string  `json:"currency"`
+	BaseFee      float64 `json:"baseFee,omitempty"`
+	// DimensionPricing maps 1:1 to pricing-service's
+	// RatePlan.dimensionPricing JSONB column. Object shape
+	// {"dimensionKey": multiplier} — see CLAUDE.md Rule 21. Empty maps
+	// are omitted (`omitempty`) so a plan without per-dimension pricing
+	// carries no key on the wire.
+	DimensionPricing map[string]float64    `json:"dimensionPricing,omitempty"`
+	ProductIDs       []string              `json:"productIds"`
+	MetricConfigs    []metricConfigRequest `json:"metricConfigs"`
 }
 
 // ratePlanResponse mirrors the subset of pricing-service's RatePlanResponse
@@ -187,6 +194,15 @@ func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metri
 	if a.PricingModel == scenario.PricingFlatRate {
 		body.BaseFee = rc.FlatFeeUSD
 	}
+	// dimensionPricing rides on the plan (not per-metric) — pricing-service's
+	// RatePlan entity carries the map at the plan level (Rule 21). Empty maps
+	// stay off the wire via `omitempty`.
+	if len(a.DimensionPricing) > 0 {
+		body.DimensionPricing = make(map[string]float64, len(a.DimensionPricing))
+		for k, v := range a.DimensionPricing {
+			body.DimensionPricing[k] = v
+		}
+	}
 
 	if len(metrics) == 0 && a.PricingModel != scenario.PricingFlatRate {
 		// Fallback: every non-flat plan needs at least one metric. We synthesize
@@ -195,50 +211,103 @@ func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metri
 		metrics = []ManifestMetric{{ID: "missing-metric"}}
 	}
 
+	// metric_configs override map (Rule 21, heterogeneous rate plans):
+	// case-insensitive on the metric name so YAML authors can write either
+	// "Tokens Consumed" or "tokens consumed". Anything not in the override
+	// map falls back to the archetype-wide RateConfig below.
+	overrides := make(map[string]scenario.MetricOverride, len(a.MetricConfigs))
+	for k, v := range a.MetricConfigs {
+		overrides[strings.ToLower(strings.TrimSpace(k))] = v
+	}
 	for _, m := range metrics {
 		mc := metricConfigRequest{
 			MetricID: m.ID,
 			// Send the canonical catalog name so the rate plan persists
 			// metric_name (pricing V57) — see metricConfigRequest doc.
 			MetricName:    m.Name,
-			Model:         a.PricingModel,
 			BillingTiming: "ARREARS",
 		}
-		switch a.PricingModel {
-		case scenario.PricingFlatRate:
-			// FLAT_RATE has no per-metric pricing — but the platform requires
-			// at least one metric on every plan for usage attribution. Set
-			// rate to 0 so the metric exists but contributes nothing to the bill.
-			mc.Rate = floatPtr(0)
-		case scenario.PricingPerUnit:
-			mc.Rate = floatPtr(rc.PerUnitRateUSD)
-			if rc.IncludedFreeUnits > 0 {
-				mc.IncludedFree = rc.IncludedFreeUnits
-			}
-		case scenario.PricingPercentage:
-			mc.Rate = floatPtr(rc.PercentageRate)
-			if rc.MinFeeUSD > 0 {
-				mc.MinFee = rc.MinFeeUSD
-			}
-		case scenario.PricingIncludedQuota:
-			mc.IncludedFree = rc.IncludedFreeUnits
-			mc.Rate = floatPtr(rc.PerUnitRateUSD)
-			if rc.BlockSizeUnits > 0 {
-				mc.BlockSize = rc.BlockSizeUnits
-			}
-			// "CHARGE" is the v3 ovBehavior value that means "bill the
-			// overage at the metric's rate" — same intent as the legacy
-			// "ALLOW" name but matches the pricing-service enum.
-			mc.OvBehavior = "CHARGE"
-		case scenario.PricingGraduated:
-			mc.Tiers = tiersFromBands(rc.GraduatedTiers)
-		case scenario.PricingVolumeTiered:
-			mc.Tiers = tiersFromBands(rc.VolumeTiers)
+		// Per-metric override wins if present; else archetype default.
+		if ov, ok := overrides[strings.ToLower(strings.TrimSpace(m.Name))]; ok {
+			mc.Model = ov.PricingModel
+			applyMetricOverride(&mc, ov)
+		} else {
+			mc.Model = a.PricingModel
+			applyArchetypeRateConfig(&mc, a.PricingModel, rc)
 		}
 		body.MetricConfigs = append(body.MetricConfigs, mc)
 	}
 
 	return body
+}
+
+// applyArchetypeRateConfig stamps the archetype-wide RateConfig onto a
+// metric config for the given pricing model. Refactored out of the
+// per-metric loop so it can share the resolution logic with the
+// per-metric override path.
+func applyArchetypeRateConfig(mc *metricConfigRequest, model scenario.PricingModel, rc scenario.RateConfig) {
+	switch model {
+	case scenario.PricingFlatRate:
+		// FLAT_RATE has no per-metric pricing — but the platform requires
+		// at least one metric on every plan for usage attribution. Set
+		// rate to 0 so the metric exists but contributes nothing to the bill.
+		mc.Rate = floatPtr(0)
+	case scenario.PricingPerUnit:
+		mc.Rate = floatPtr(rc.PerUnitRateUSD)
+		if rc.IncludedFreeUnits > 0 {
+			mc.IncludedFree = rc.IncludedFreeUnits
+		}
+	case scenario.PricingPercentage:
+		mc.Rate = floatPtr(rc.PercentageRate)
+		if rc.MinFeeUSD > 0 {
+			mc.MinFee = rc.MinFeeUSD
+		}
+	case scenario.PricingIncludedQuota:
+		mc.IncludedFree = rc.IncludedFreeUnits
+		mc.Rate = floatPtr(rc.PerUnitRateUSD)
+		if rc.BlockSizeUnits > 0 {
+			mc.BlockSize = rc.BlockSizeUnits
+		}
+		// "CHARGE" is the v3 ovBehavior value that means "bill the
+		// overage at the metric's rate" — same intent as the legacy
+		// "ALLOW" name but matches the pricing-service enum.
+		mc.OvBehavior = "CHARGE"
+	case scenario.PricingGraduated:
+		mc.Tiers = tiersFromBands(rc.GraduatedTiers)
+	case scenario.PricingVolumeTiered:
+		mc.Tiers = tiersFromBands(rc.VolumeTiers)
+	}
+}
+
+// applyMetricOverride stamps a per-metric MetricOverride onto a metric
+// config. Mirrors applyArchetypeRateConfig with the override's inline
+// rate values instead of the archetype's shared RateConfig.
+func applyMetricOverride(mc *metricConfigRequest, ov scenario.MetricOverride) {
+	switch ov.PricingModel {
+	case scenario.PricingFlatRate:
+		mc.Rate = floatPtr(0)
+	case scenario.PricingPerUnit:
+		mc.Rate = floatPtr(ov.PerUnitRateUSD)
+		if ov.IncludedFreeUnits > 0 {
+			mc.IncludedFree = ov.IncludedFreeUnits
+		}
+	case scenario.PricingPercentage:
+		mc.Rate = floatPtr(ov.PercentageRate)
+		if ov.MinFeeUSD > 0 {
+			mc.MinFee = ov.MinFeeUSD
+		}
+	case scenario.PricingIncludedQuota:
+		mc.IncludedFree = ov.IncludedFreeUnits
+		mc.Rate = floatPtr(ov.PerUnitRateUSD)
+		if ov.BlockSizeUnits > 0 {
+			mc.BlockSize = ov.BlockSizeUnits
+		}
+		mc.OvBehavior = "CHARGE"
+	case scenario.PricingGraduated:
+		mc.Tiers = tiersFromBands(ov.GraduatedTiers)
+	case scenario.PricingVolumeTiered:
+		mc.Tiers = tiersFromBands(ov.VolumeTiers)
+	}
 }
 
 func tiersFromBands(bands []scenario.TierBand) []rateTierRequest {

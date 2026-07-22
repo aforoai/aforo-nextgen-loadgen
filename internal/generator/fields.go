@@ -239,3 +239,85 @@ func genResponseBytes(rng *rand.Rand) int {
 		return 222100 + rng.Intn(1_000_000)
 	}
 }
+
+// genUserID returns a synthetic end-user id with bounded cardinality — used
+// by every descriptor whose Active-Users metric aggregates COUNT_DISTINCT
+// on `user_id`. Cardinality ~5000/tenant matches a mid-sized SaaS's active
+// user population; adjust upstream if a scenario needs a heavier tail.
+func genUserID(rng *rand.Rand) string {
+	return fmt.Sprintf("user_%06x", rng.Intn(5000))
+}
+
+// genGPUHours returns fractional GPU-hours consumed for an AI_AGENT step.
+// Modeled as a small typical value (0.001-0.05 h ≈ 3.6s-180s per event)
+// with a heavy tail for long training / batch generation calls.
+func genGPUHours(rng *rand.Rand) float64 {
+	r := rng.Float64()
+	switch {
+	case r < 0.85:
+		return 0.001 + rng.Float64()*0.049
+	case r < 0.98:
+		return 0.05 + rng.Float64()*0.5
+	default:
+		return 0.55 + rng.Float64()*3.5
+	}
+}
+
+// genExecutionMinutes returns whole-minute execution durations for
+// AI_AGENT tasks. Most tasks complete in <5m; the tail models long-running
+// agents.
+func genExecutionMinutes(rng *rand.Rand) int {
+	r := rng.Float64()
+	switch {
+	case r < 0.70:
+		return 1 + rng.Intn(5)
+	case r < 0.95:
+		return 5 + rng.Intn(15)
+	default:
+		return 20 + rng.Intn(40)
+	}
+}
+
+// genStepCount returns the number of agent steps taken in one event.
+// Small for simple tasks, larger for multi-tool orchestrations.
+func genStepCount(rng *rand.Rand) int {
+	r := rng.Float64()
+	switch {
+	case r < 0.55:
+		return 1
+	case r < 0.85:
+		return 2 + rng.Intn(3)
+	case r < 0.98:
+		return 5 + rng.Intn(10)
+	default:
+		return 15 + rng.Intn(25)
+	}
+}
+
+// genConcurrentGauge returns a MAX-aggregated gauge value between low and
+// high. Used for concurrent_agents / concurrent_sessions — the platform's
+// MAX aggregation takes the highest quantity in the period, so a realistic
+// distribution biases toward the middle of the range.
+func genConcurrentGauge(rng *rand.Rand, low, high int) int {
+	if low >= high {
+		return low
+	}
+	// Triangular distribution centered ~30% between low and high.
+	base := float64(low) + rng.Float64()*float64(high-low)
+	skew := rng.Float64() * 0.5 * float64(high-low)
+	v := int(base + skew)
+	if v > high {
+		v = high
+	}
+	if v < low {
+		v = low
+	}
+	return v
+}
+
+// genPercentileLatencyMs is a Quantity value for PERCENTILE_95 metrics
+// (MCP P95 Latency). It mirrors genLatencyMs so per-event latency stamped
+// as Quantity feeds the percentile aggregator correctly.
+func genPercentileLatencyMs(rng *rand.Rand) int {
+	return genLatencyMs(rng)
+}

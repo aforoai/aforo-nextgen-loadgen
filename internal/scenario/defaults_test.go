@@ -2,6 +2,28 @@ package scenario
 
 import "testing"
 
+// TestApplyDefaults_ProductsPerType_DefaultsToOne — Issue 2 fix, backfill
+// behavior. Existing scenarios never set products_per_type; applyDefaults
+// backfills 0 → 1 so those scenarios keep the historical
+// single-product-per-type shape.
+func TestApplyDefaults_ProductsPerType_DefaultsToOne(t *testing.T) {
+	s := &Scenario{
+		Tenants: Tenants{
+			Archetypes: []TenantArchetype{
+				{Name: "a"}, // ProductsPerType zero-valued
+				{Name: "b", ProductsPerType: 4},
+			},
+		},
+	}
+	applyDefaults(s)
+	if got := s.Tenants.Archetypes[0].ProductsPerType; got != 1 {
+		t.Errorf("archetype a: ProductsPerType = %d, want 1 (default)", got)
+	}
+	if got := s.Tenants.Archetypes[1].ProductsPerType; got != 4 {
+		t.Errorf("archetype b: ProductsPerType = %d, want 4 (explicit not overwritten)", got)
+	}
+}
+
 func TestApplyDefaults_Distribution(t *testing.T) {
 	s := &Scenario{}
 	applyDefaults(s)

@@ -35,7 +35,14 @@ type seedFlags struct {
 	tokenEnv          string
 	provisionWebhooks bool
 	reuseTenantID     string
-	catalog           string
+	// tenantID is the alias for reuseTenantID surfaced 2026-07-22 so
+	// operators can spell the intent as `--tenant-id`, matching how the
+	// UI, docs, and product code refer to the field. Either flag is
+	// honored; when both are set, --reuse-tenant-id wins (only one can
+	// meaningfully differ, and this matches the "explicit-longer-flag
+	// wins" precedent set by --dry-run vs --clean).
+	tenantID string
+	catalog  string
 }
 
 // newSeedCommand wires `aforo-loadgen seed`. The body is intentionally thin —
@@ -76,11 +83,15 @@ Examples:
 	cmd.Flags().StringVar(&f.tokenEnv, "token-env", "AFORO_ADMIN_TOKEN", "env var holding the bearer token")
 	cmd.Flags().BoolVar(&f.provisionWebhooks, "provision-webhooks", false, "create one webhook ingest source per tenant via /api/v1/webhook-sources and write the bundle alongside the manifest (Session 8)")
 	cmd.Flags().StringVar(&f.reuseTenantID, "reuse-tenant-id", "",
-		"reuse an existing tenant id instead of minting a fresh `loadgen-tenant-...` per run. "+
+		"reuse an existing tenant id instead of minting a fresh `lg-...` per run. "+
 			"Use this when the seeded products / customers / events need to be visible to "+
-			"an operator UI session already authenticated as that tenant (e.g. `aforo_dev`). "+
+			"an operator UI session already authenticated as that tenant (e.g. `aforo_dev`) "+
+			"or when adding entities to a workspace created manually in the UI. "+
 			"Requires a single-tenant scenario; multi-tenant scenarios are rejected because "+
 			"the workers would race on the same tenant id. Env: AFORO_LOADGEN_REUSE_TENANT_ID.")
+	cmd.Flags().StringVar(&f.tenantID, "tenant-id", "",
+		"alias for --reuse-tenant-id — seed into the given tenant instead of minting "+
+			"a fresh loadgen tenant. When both flags are supplied, --reuse-tenant-id wins.")
 	cmd.Flags().StringVar(&f.catalog, "catalog", "",
 		"DEMO catalog-mode: path to demo-seed-catalog.json. Instead of the archetype "+
 			"generator's synthetic \"Loadgen …\" names, seed EXACTLY the human, real-world "+
@@ -118,8 +129,12 @@ func runSeed(ctx context.Context, out, errOut io.Writer, f *seedFlags) error {
 		return runCleanFlow(ctx, out, errOut, c, f)
 	}
 
-	// --reuse-tenant-id / --catalog: prefer flag, fall back to env.
+	// --reuse-tenant-id / --tenant-id / --catalog: prefer explicit
+	// --reuse-tenant-id, fall back to --tenant-id alias, then env.
 	reuseTenantID := f.reuseTenantID
+	if reuseTenantID == "" {
+		reuseTenantID = f.tenantID
+	}
 	if reuseTenantID == "" {
 		reuseTenantID = os.Getenv("AFORO_LOADGEN_REUSE_TENANT_ID")
 	}

@@ -76,13 +76,22 @@ type ManifestProduct struct {
 	Metrics   []ManifestMetric `json:"metrics,omitempty"`
 }
 
-// ManifestMetric is one billable unit on a product. Carries BOTH the
+// ManifestMetric is one billable unit on a product. Carries the
 // backend-assigned ID (for cross-tenant references on the rate plan
-// junction tables) AND the human-friendly Name (for usage events, which
-// the platform's IngestUsageEventRequest looks up by name).
+// junction tables), the human-friendly Name (for usage events, which
+// the platform's IngestUsageEventRequest looks up by name), and the
+// descriptor's EventField + AggregationType so the runtime generator
+// can stamp Envelope.Quantity from the correct payload field for
+// SUM / MAX / PERCENTILE_95 aggregations (see generator.produce).
+//
+// Older manifests written before EventField / AggregationType were
+// plumbed through leave those fields empty; the generator's Quantity
+// resolution falls back to 1.0 in that case.
 type ManifestMetric struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	EventField      string `json:"event_field,omitempty"`
+	AggregationType string `json:"aggregation_type,omitempty"`
 }
 
 // ManifestRatePlan mirrors a created rate plan.

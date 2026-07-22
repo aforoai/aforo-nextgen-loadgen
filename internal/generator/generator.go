@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -308,28 +309,31 @@ func (g *Generator) produce(eventTime time.Time) (*Event, error) {
 	size := g.payloadPicker.Pick(g.rng)
 	ApplyPayloadSize(body, size, g.rng)
 
-	// Pick a metric NAME for this event. Backend's IngestUsageEventRequest
-	// looks up the metric by name (not id). When the tenant carries no
-	// metric for the chosen productType (rare — archetype mismatch), we
-	// drop the event because there's nothing for the backend to attribute
-	// usage to. The same logic applied to metric IDs in the prior shape.
-	metricName := ""
+	// Pick a metric for this event. Backend's IngestUsageEventRequest looks
+	// up the metric by name (not id). When the tenant carries no metric for
+	// the chosen productType (rare — archetype mismatch), we drop the event
+	// because there's nothing for the backend to attribute usage to.
+	var picked seed.ManifestMetric
 	if metrics := t.productTypes[productKind]; len(metrics) > 0 {
-		metricName = metrics[g.rng.Intn(len(metrics))].Name
+		picked = metrics[g.rng.Intn(len(metrics))]
 	}
-	if metricName == "" {
+	if picked.Name == "" {
 		return nil, nil
 	}
 
+	// Quantity resolution — read the descriptor's `key` field off the
+	// template payload for SUM / MAX / PERCENTILE_95 aggregations so the
+	// backend accumulator sees real values instead of always summing 1s.
+	// Fallback to 1.0 for COUNT / COUNT_DISTINCT (which don't read the
+	// numeric quantity) and for older manifests missing the metadata.
+	// See TestQuantityFromDescriptor for the invariants this must hold.
+	quantity := resolveQuantity(body, picked)
+
 	eventID := genEventID(g.rng)
 	envelope := Envelope{
-		CustomerID: triple.customer.CustomerID,
-		MetricName: metricName,
-		// Quantity defaults to 1 — one event = one unit of the metric.
-		// Per-metric scaling (e.g. token counts for LLM products) would
-		// require enriching this from the template body; out of MVP scope.
-		// Backend enforces @Positive so 1.0 is the safe floor.
-		Quantity:       1.0,
+		CustomerID:     triple.customer.CustomerID,
+		MetricName:     picked.Name,
+		Quantity:       quantity,
 		OccurredAt:     eventTime,
 		IdempotencyKey: eventID,
 		ProductType:    string(productKind),
@@ -370,6 +374,80 @@ func (g *Generator) produce(eventTime time.Time) (*Event, error) {
 }
 
 // --- helpers ---
+
+// resolveQuantity returns the Envelope.Quantity value for one event.
+//
+// The backend's usage-ingestor treats each event's `quantity` as the value
+// SUM / MAX / PERCENTILE_95 metrics accumulate. COUNT / COUNT_DISTINCT
+// metrics ignore quantity — they count events (COUNT) or count distinct
+// values of a metadata field (COUNT_DISTINCT). See:
+// aforo-nextgen-usage-ingestor-service PricingCalculator + descriptor
+// aggregations.
+//
+// Rules (verified against descriptors + PricingCalculatorService):
+//
+//   - Metric absent EventField/AggregationType (older manifests, backend
+//     drift): fall back to Quantity=1 so the request still passes @Positive.
+//   - COUNT / COUNT_DISTINCT: Quantity=1. The aggregator doesn't read it.
+//   - SUM / MAX / PERCENTILE_95 / AVG: look up EventField in metadata,
+//     coerce to float64. If the field is absent, non-numeric, or ≤ 0, fall
+//     back to 1 so the event still gets accepted (backend enforces
+//     @Positive on quantity).
+//
+// The metadata still carries every descriptor key alongside — analytics
+// materialized views and cost/anomaly downstream jobs read those fields
+// via descriptor eventSchema.columns, independent of Envelope.Quantity.
+func resolveQuantity(metadata map[string]any, m seed.ManifestMetric) float64 {
+	const fallback = 1.0
+	if m.EventField == "" || m.AggregationType == "" {
+		return fallback
+	}
+	switch strings.ToUpper(m.AggregationType) {
+	case "COUNT", "COUNT_DISTINCT":
+		return fallback
+	case "SUM", "MAX", "AVG", "PERCENTILE_95", "PERCENTILE_99", "MIN":
+		if metadata == nil {
+			return fallback
+		}
+		raw, ok := metadata[m.EventField]
+		if !ok {
+			return fallback
+		}
+		v, ok := coerceNumeric(raw)
+		if !ok || v <= 0 {
+			return fallback
+		}
+		return v
+	default:
+		return fallback
+	}
+}
+
+// coerceNumeric widens the common numeric go types the templates emit
+// into float64. Returns ok=false for strings, bools, nil, or maps/slices —
+// SUM/MAX aggregations on those degenerate to Quantity=1 by design.
+func coerceNumeric(v any) (float64, bool) {
+	switch x := v.(type) {
+	case float64:
+		return x, true
+	case float32:
+		return float64(x), true
+	case int:
+		return float64(x), true
+	case int32:
+		return float64(x), true
+	case int64:
+		return float64(x), true
+	case uint:
+		return float64(x), true
+	case uint32:
+		return float64(x), true
+	case uint64:
+		return float64(x), true
+	default:
+		return 0, false
+	}
+}
 
 // genEventID returns a 32-hex-char id deterministic per rng state. Even
 // though the platform's UsageEventValidator doesn't require uniqueness, a

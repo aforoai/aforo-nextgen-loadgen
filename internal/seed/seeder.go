@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/big"
 	mathrand "math/rand"
+	"strings"
 	"sync"
 	"time"
 
@@ -130,6 +131,15 @@ func (s *Seeder) Run(ctx context.Context) (*RunResult, error) {
 		return res, nil
 	}
 
+	// --reuse-tenant-id pre-flight hint (2026-07-22): log-only lookup so the
+	// operator sees an early signal if the id is a typo, without gating the
+	// run. Fail-open by design — downstream provisionDefaultBillingEntity is
+	// the source of truth (a real 404 there stops the worker cleanly). See
+	// verifyReusedTenantExists's doc for the rationale.
+	if s.cfg.ReuseTenantID != "" && !s.cfg.Client.DryRun() {
+		s.verifyReusedTenantExists(ctx)
+	}
+
 	allocs := AllocateTenants(s.cfg.Scenario)
 	if len(s.cfg.OnlyArchetypes) > 0 {
 		allocs = FilterArchetypes(allocs, s.cfg.OnlyArchetypes)
@@ -184,32 +194,65 @@ func (s *Seeder) Run(ctx context.Context) (*RunResult, error) {
 	return res, nil
 }
 
+// verifyReusedTenantExists probes the --reuse-tenant-id target ONCE up-front
+// so the operator gets an early, actionable hint if the id is a typo,
+// instead of watching N goroutines all surface the same root cause via
+// their own downstream 404s.
+//
+// FAIL-OPEN by design: this is a hint, not a gate. A transient lookup
+// error (network / permission) or an empty response (backend cache miss,
+// fake test server, RLS quirk on freshly-created tenants) does NOT kill
+// the run. The downstream provisionDefaultBillingEntity call remains the
+// source of truth — if the tenant genuinely doesn't exist, its 404
+// produces a definitive error and stops the worker cleanly. The function
+// therefore has no error return: every outcome is log-only.
+//
+// Uses lookupTenantByExternalID (GET /api/v1/internal/tenants?externalId=)
+// which is the same endpoint provisionTenant would have called.
+func (s *Seeder) verifyReusedTenantExists(ctx context.Context) {
+	tenant, ok, err := lookupTenantByExternalID(ctx, s.cfg.Client, s.cfg.ReuseTenantID)
+	if err != nil {
+		s.cfg.Logger.Printf("[reuse-tenant] pre-flight lookup for %q errored (%v) — continuing; downstream calls will surface a definitive error if the tenant is missing.", s.cfg.ReuseTenantID, err)
+		return
+	}
+	if !ok {
+		s.cfg.Logger.Printf("[reuse-tenant] pre-flight lookup for %q returned no match. "+
+			"If a definitive 404 follows on the next call, verify the id matches "+
+			"the workspace slug in the UI URL (e.g. /home/{account}).",
+			s.cfg.ReuseTenantID)
+		return
+	}
+	s.cfg.Logger.Printf("[reuse-tenant] pre-flight lookup ok: tenant %q resolved (name=%q)", s.cfg.ReuseTenantID, tenant.Name)
+}
+
 func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenario.TenantArchetype, seq int, rng *mathrand.Rand) error {
 	c := s.cfg.Client
 	// Tenant is the ONE entity where externalId is a real backend column
-	// (LoadgenTenantResponse on /internal/admin). Other entities use
-	// seedKey only as the Idempotency-Key header value. See CONVENTIONS.md.
-	tenantExternalID := seedKey("tenant", a.Name, s.cfg.RunID, seq)
+	// (LoadgenTenantResponse on /internal/admin). It is ALSO the identifier
+	// the UI onboarding + workspace-slug validators see, which caps at ~41
+	// chars in practice. Use the dedicated shortened generator here rather
+	// than the general seedKey (which is fine for header-only usage but too
+	// long for a slug — see tenantExternalID's doc).
+	tenantExtID := tenantExternalID(a.Name, s.cfg.RunID, seq)
 
 	var tenant tenantResponse
 	if s.cfg.ReuseTenantID != "" {
 		// --reuse-tenant-id path (2026-06-11): skip provisioning and use the
 		// supplied tenant ID directly. Downstream provisioners (products,
 		// metrics, customers, subscriptions) still create fresh entities
-		// scoped to this tenant. The first downstream call surfaces a clear
-		// 404 if the tenant does not actually exist at the backend; we
-		// deliberately do NOT pre-validate here to avoid a dependency on
-		// the LoadgenInternalTenantController lookup-by-id endpoint.
+		// scoped to this tenant. Pre-flight lookup is performed by
+		// verifyReusedTenantExists at the top of Run() rather than here,
+		// so the operator gets a clear error before any worker starts.
 		tenant = tenantResponse{
 			ID:         s.cfg.ReuseTenantID,
 			ExternalID: s.cfg.ReuseTenantID,
 			Name:       fmt.Sprintf("Reused Tenant [%s]", s.cfg.ReuseTenantID),
 		}
-		tenantExternalID = s.cfg.ReuseTenantID
+		tenantExtID = s.cfg.ReuseTenantID
 		s.cfg.Logger.Printf("[%s/%03d] reusing existing tenant id=%s (skipping provisionTenant)", a.Name, seq, tenant.ID)
 	} else {
 		var err error
-		tenant, err = provisionTenant(ctx, c, tenantExternalID, fmt.Sprintf("Loadgen Tenant [%s] %03d", a.Name, seq), a.Name)
+		tenant, err = provisionTenant(ctx, c, tenantExtID, fmt.Sprintf("Loadgen Tenant [%s] %03d", a.Name, seq), a.Name)
 		if err != nil {
 			return err
 		}
@@ -231,42 +274,100 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 
 	mt := ManifestTenant{
 		TenantID:     tenant.ID,
-		ExternalID:   tenantExternalID,
+		ExternalID:   tenantExtID,
 		Archetype:    a.Name,
 		PricingModel: a.PricingModel,
 		BillingMode:  a.BillingMode,
 	}
 
-	// One product per product type in the archetype.
-	productIDs := make([]string, 0, len(a.ProductTypes))
-	// Carry BOTH id + name: the rate plan needs the name persisted (pricing V57)
-	// so billing's metricName-fallback works for seeded usage.
-	rateMetrics := make([]ManifestMetric, 0, 4)
-	for _, pt := range a.ProductTypes {
-		prodSeedKey := seedKey(fmt.Sprintf("product-%s", pt), a.Name, s.cfg.RunID, seq)
-		prod, err := provisionProduct(ctx, c, tenant.ID, prodSeedKey, a.Name, pt)
-		if err != nil {
-			return err
-		}
-		productIDs = append(productIDs, prod.ID)
+	// N products per product type in the archetype (per Issue 2). Default
+	// ProductsPerType is 1 (applyDefaults backfills), so archetypes that
+	// don't set the field keep the historical single-product-per-type
+	// behavior. When set to N > 1, we create N distinct products of every
+	// listed product type (e.g. [API,AGENTIC_API] × 4 = 8 products).
+	productsPerType := a.ProductsPerType
+	if productsPerType <= 0 {
+		productsPerType = 1
+	}
+	totalProducts := len(a.ProductTypes) * productsPerType
+	productIDs := make([]string, 0, totalProducts)
 
-		metricSeedKey := seedKey(fmt.Sprintf("metrics-%s", pt), a.Name, s.cfg.RunID, seq)
-		metrics, err := provisionMetricsForProduct(ctx, c, tenant.ID, prod.ID, pt, metricSeedKey)
-		if err != nil {
-			return err
+	// Rate-plan metric dedup: two paths produce duplicate metricName entries
+	// in the rate plan otherwise, both of which pricing-service rejects with
+	// 400 "Duplicate metricName ..." (RatePlanServiceImpl.validate line 1017).
+	//   1. ProductsPerType > 1: catalog dedupes metrics by (tenant, name), so
+	//      product #2 of the same type returns the SAME metric IDs as product
+	//      #1 — appending them twice trips the rate plan check.
+	//   2. Metric-name overlap across descriptors: "Data Transfer" appears in
+	//      the API + WEBSOCKET_API + GRAPHQL_API + GRPC_API descriptors, and
+	//      other names may overlap in the future. Deduping by name is the
+	//      safe, forward-compatible fix.
+	// Case-insensitive dedup mirrors pricing-service's own predicate
+	// (`mc.getMetricName().trim().toLowerCase()`).
+	rateMetrics := make([]ManifestMetric, 0, 4*productsPerType)
+	seenMetricNames := make(map[string]struct{}, 4*productsPerType)
+	for _, pt := range a.ProductTypes {
+		for prodIdx := 1; prodIdx <= productsPerType; prodIdx++ {
+			// Product seed key + name distinguish products of the same type
+			// within a tenant. When productsPerType==1 we keep the historical
+			// name shape ("Loadgen Product {archetype} {type}") for backward
+			// compatibility with existing manifests + lookup-by-name tests;
+			// when >1 we append an ordinal ("... 01", "... 02", ...).
+			var prodSeedKey, prodName string
+			if productsPerType == 1 {
+				prodSeedKey = seedKey(fmt.Sprintf("product-%s", pt), a.Name, s.cfg.RunID, seq)
+				prodName = fmt.Sprintf("Loadgen Product %s %s", a.Name, pt)
+			} else {
+				prodSeedKey = seedKey(fmt.Sprintf("product-%s-%02d", pt, prodIdx), a.Name, s.cfg.RunID, seq)
+				prodName = fmt.Sprintf("Loadgen Product %s %s %02d", a.Name, pt, prodIdx)
+			}
+			prod, err := provisionProductNamed(ctx, c, tenant.ID, prodSeedKey, prodName, a.Name, pt)
+			if err != nil {
+				return err
+			}
+			productIDs = append(productIDs, prod.ID)
+
+			// Metrics are tenant-scoped (NOT product-scoped) on the catalog side,
+			// so bulk-seeding for productsPerType > 1 returns the SAME metric
+			// IDs on every iteration. Still call it every iteration to keep the
+			// idempotency chain deterministic and to record per-product metric
+			// arrays on the manifest, but rely on the rate-plan dedup below.
+			metricSeedKey := seedKey(fmt.Sprintf("metrics-%s", pt), a.Name, s.cfg.RunID, seq)
+			metrics, err := provisionMetricsForProduct(ctx, c, tenant.ID, prod.ID, pt, metricSeedKey)
+			if err != nil {
+				return err
+			}
+			mProd := ManifestProduct{
+				ProductID:   prod.ID,
+				Name:        prod.Name,
+				SeedKey:     prodSeedKey,
+				ProductType: pt,
+			}
+			for _, m := range metrics {
+				mm := ManifestMetric{
+					ID:              m.ID,
+					Name:            m.Name,
+					EventField:      m.EventField,
+					AggregationType: m.AggregationType,
+				}
+				// Per-product manifest keeps the full metric list (safe;
+				// duplicates here are informational, not a rate-plan input).
+				mProd.MetricIDs = append(mProd.MetricIDs, m.ID)
+				mProd.Metrics = append(mProd.Metrics, mm)
+				// Rate-plan aggregate dedups by name (case-insensitive) —
+				// see block comment on seenMetricNames above.
+				nameKey := strings.ToLower(strings.TrimSpace(m.Name))
+				if nameKey == "" {
+					continue
+				}
+				if _, dup := seenMetricNames[nameKey]; dup {
+					continue
+				}
+				seenMetricNames[nameKey] = struct{}{}
+				rateMetrics = append(rateMetrics, mm)
+			}
+			mt.Products = append(mt.Products, mProd)
 		}
-		mProd := ManifestProduct{
-			ProductID:   prod.ID,
-			Name:        prod.Name,
-			SeedKey:     prodSeedKey,
-			ProductType: pt,
-		}
-		for _, m := range metrics {
-			rateMetrics = append(rateMetrics, ManifestMetric{ID: m.ID, Name: m.Name})
-			mProd.MetricIDs = append(mProd.MetricIDs, m.ID)
-			mProd.Metrics = append(mProd.Metrics, ManifestMetric{ID: m.ID, Name: m.Name})
-		}
-		mt.Products = append(mt.Products, mProd)
 	}
 
 	// One rate plan covering all products + their metrics.
@@ -444,12 +545,81 @@ func uniqueCurrencies(plans []customerPlan) []string {
 // offerings→code, etc.); the seedKey only matters within the backend's
 // idempotency-cache TTL (24h default).
 //
-// The "external_id prefix" naming convention remains useful for `--clean`
-// scans against the LoadgenTenant /internal/admin endpoint (the one place
-// backend genuinely stores externalId), and for grep-debugging in
-// loadgen-side logs.
+// Do NOT reuse seedKey as a tenant externalId — the boilerplate onboarding
+// slug schema (apps/web/app/onboarding/_lib/schema/onboarding.schema.ts)
+// caps the workspace slug at 50 chars AND the LoadgenInternalTenantController
+// derives a storefront subdomain that shrinks the practical budget to ~41
+// chars (50 - 8-hex CRC32 - 1 dash). A generated seedKey like
+// "loadgen-tenant-complete-fresh-seed-2026-07-21-949610-001" is 56 chars —
+// well past both limits. Use tenantExternalID for the tenant identifier
+// instead; seedKey stays for Idempotency-Key headers (no wire length limit
+// in practice).
 func seedKey(kind, archetype, runID string, seq int) string {
 	return fmt.Sprintf("loadgen-%s-%s-%s-%03d", kind, archetype, runID, seq)
+}
+
+// tenantExternalID builds the tenant's external identifier / slug.
+//
+// This is the ONE loadgen identifier that travels to the UI: it is written
+// as `tenant_id` on tenant_configs, becomes the workspace slug the operator
+// sees, and drives the storefront subdomain that
+// LoadgenInternalTenantController derives (see its `slug()` helper — the
+// helper truncates at 50 chars minus a CRC32 suffix, leaving ~41 chars of
+// real budget).
+//
+// The boilerplate onboarding form (apps/web/app/onboarding/_lib/schema/
+// onboarding.schema.ts) rejects any workspace slug longer than 50 chars via
+// Zod max(50), which manifests to the operator as "We couldn't create your
+// workspace". So this helper must keep the identifier well under 50 chars
+// even for long archetype names, while staying deterministic per
+// (archetype, runID, seq) so re-runs within the 24h idempotency window
+// match the prior identifier.
+//
+// Shape: "lg-{archetype-trunc}-{6-hex}-{seq:03d}" — target ≤ 32 chars.
+//   - "lg-" (3) instead of "loadgen-tenant-" (15) — same identifier
+//     purpose, matches the LoadgenInternalTenantController's own "loadgen-"
+//     prefix convention.
+//   - archetype truncated to first 8 chars — enough for grep debugging
+//     without eating the length budget.
+//   - 6-hex hash of the full (archetype, runID, seq) tuple — deterministic
+//     across re-runs on the same run id, distinguishes archetype slots.
+//   - {seq:03d} — human-readable slot ordinal.
+//
+// Regex compliance: the boilerplate schema requires
+// ^[a-z0-9]+(?:-[a-z0-9]+)*$ (lowercase alphanumerics separated by dashes).
+// runIDs contain dashes but the hash strips them; archetype names are
+// user-controlled but we lowercase and strip non-alphanumerics to be safe.
+func tenantExternalID(archetype, runID string, seq int) string {
+	arch := strings.ToLower(archetype)
+	// Strip anything outside [a-z0-9] to preserve the boilerplate slug regex.
+	// Consecutive stripped chars collapse to nothing, then re-cap at 8.
+	var b strings.Builder
+	b.Grow(len(arch))
+	for i := 0; i < len(arch); i++ {
+		c := arch[i]
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			b.WriteByte(c)
+		}
+	}
+	archClean := b.String()
+	if archClean == "" {
+		archClean = "arch"
+	}
+	if len(archClean) > 8 {
+		archClean = archClean[:8]
+	}
+	// The 6-hex hash disambiguates across concurrent runs / archetypes
+	// that happen to share an arch-prefix truncation, but does NOT need to
+	// be collision-free on its own — the trailing seq:03d suffix is the
+	// primary uniqueness guarantee within one run. Two tenants of the same
+	// archetype in the same run always have different seqs, so the full
+	// identifier `lg-{arch}-{hash}-{seq}` is unique even if two hash values
+	// happened to match. Across DIFFERENT archetypes, the hash input includes
+	// the archetype name → different inputs → different hashes generally.
+	// (Naive birthday-collision math on 24 bits alone would be ~3% at 1000
+	// tenants, but the seq suffix removes that concern.)
+	h := fnvHash(fmt.Sprintf("%s|%s|%d", archetype, runID, seq)) & 0xFFFFFF
+	return fmt.Sprintf("lg-%s-%06x-%03d", archClean, h, seq)
 }
 
 // rngForTenant returns a deterministic *mathrand.Rand seeded from the

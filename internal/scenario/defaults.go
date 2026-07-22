@@ -15,6 +15,14 @@ func applyDefaults(s *Scenario) {
 	if s.Tenants.Distribution == "" {
 		s.Tenants.Distribution = DistUniform
 	}
+	// Backfill ProductsPerType=0 → 1 so existing scenarios (which never had
+	// this field) keep the historical single-product-per-type behavior.
+	// Explicit ProductsPerType=1 is also legal and equivalent.
+	for i := range s.Tenants.Archetypes {
+		if s.Tenants.Archetypes[i].ProductsPerType == 0 {
+			s.Tenants.Archetypes[i].ProductsPerType = 1
+		}
+	}
 	if s.TimePattern == "" {
 		s.TimePattern = TimeConstant
 	}

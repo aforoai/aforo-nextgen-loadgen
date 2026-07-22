@@ -1,0 +1,227 @@
+# coverage-all-dimensions — full-dimension ingestion coverage
+#
+# Purpose: exercise EVERY billable-unit dimension across the 4 GA product
+# types (5 API + 9 AI_AGENT + 8 MCP_SERVER + 8 AGENTIC_API = 30 metrics).
+# One tenant, one archetype per product type, four products of each type,
+# and heterogeneous pricing per metric via metric_configs — so
+# GRADUATED / VOLUME_TIERED / FLAT_RATE / PER_UNIT / INCLUDED_QUOTA /
+# PERCENTAGE all get exercised in the same run.
+#
+# Also lights up per-tool / per-capability dimension multipliers (Rule 21)
+# on the MCP + AI_AGENT archetypes so v3 pipeline's
+# AggregateStage.enrichWithDimensionData per-tool fan-out runs.
+#
+# NOT for CI (too broad, too slow). Meant for pre-release validation runs
+# against a staging cluster. Runtime ~5 min at 100 TPS.
+#
+# What this proves:
+#   - Every descriptor `key` field lands in usage_events metadata
+#     (analytics MVs get real data for each dimension).
+#   - Every metric aggregation type (COUNT / SUM / MAX / COUNT_DISTINCT /
+#     PERCENTILE_95) accumulates the correct Quantity per event (see
+#     resolveQuantity — SUM/MAX/PERCENTILE_95 stamp the descriptor's
+#     eventField, COUNT/COUNT_DISTINCT stamp 1).
+#   - Rate plans persist heterogeneous pricing models on the same tenant.
+#   - dimensionPricing multipliers are honored by both v3 and legacy paths.
+
+schema_version: 1
+name: coverage-all-dimensions
+description: >
+  Full-dimension ingestion + billing coverage — every metric of every
+  GA product type, exercised end-to-end with heterogeneous pricing +
+  dimension_pricing multipliers.
+target_tps: 100
+duration: 5m
+seed: 42
+
+tenants:
+  # count=4 spreads exactly one tenant per archetype (weights are all 0.25).
+  # A lower count would land only one archetype; a higher count would
+  # duplicate archetypes and waste time re-seeding the same billable-unit
+  # coverage. If you extend product_types beyond the 4 GA types, bump
+  # count to match the archetype list.
+  count: 4
+  distribution: uniform
+  archetypes:
+    # One archetype per product type. products_per_type: 4 means 4 API +
+    # 4 AI_AGENT + 4 MCP_SERVER + 4 AGENTIC_API = 16 products on the tenant.
+    #
+    # metric_configs override the archetype's default pricing model per
+    # metric so one rate plan covers every model. Metrics NOT in the map
+    # inherit the archetype's default (PER_UNIT with 0.001 USD/unit).
+
+    - name: cov-api
+      weight: 0.25
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      products_per_type: 4
+      customer_count: 3
+      currency_mix: {USD: 1.0}
+      subscription_state_mix: {ACTIVE: 1.0}
+      rate_config:
+        per_unit_rate_usd: 0.001
+      metric_configs:
+        "Data Transfer":
+          pricing_model: GRADUATED
+          graduated_tiers:
+            - {up_to_units: 1000, unit_price_usd: 0.005}
+            - {up_to_units: 100000, unit_price_usd: 0.003}
+            - {up_to_units: 0, unit_price_usd: 0.001}   # 0 = infinity
+        "Compute Time":
+          pricing_model: VOLUME_TIERED
+          volume_tiers:
+            - {up_to_units: 100000, unit_price_usd: 0.0001}
+            - {up_to_units: 0, unit_price_usd: 0.00005}
+        "Active Users":
+          pricing_model: FLAT_RATE
+          flat_fee_usd: 0
+        "Error Requests":
+          pricing_model: INCLUDED_QUOTA
+          included_free_units: 100
+          per_unit_rate_usd: 0.01
+
+    - name: cov-ai
+      weight: 0.25
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [AI_AGENT]
+      products_per_type: 4
+      customer_count: 3
+      currency_mix: {USD: 1.0}
+      subscription_state_mix: {ACTIVE: 1.0}
+      rate_config:
+        per_unit_rate_usd: 0.0001
+      metric_configs:
+        "Tokens Consumed":
+          pricing_model: GRADUATED
+          graduated_tiers:
+            - {up_to_units: 100000, unit_price_usd: 0.00002}
+            - {up_to_units: 0, unit_price_usd: 0.00001}
+        "GPU Hours":
+          pricing_model: PER_UNIT
+          per_unit_rate_usd: 2.50
+        "Execution Minutes":
+          pricing_model: INCLUDED_QUOTA
+          included_free_units: 500
+          per_unit_rate_usd: 0.05
+        "Tasks Completed":
+          pricing_model: PER_UNIT
+          per_unit_rate_usd: 0.10
+        "Knowledge Queries":
+          pricing_model: PER_UNIT
+          per_unit_rate_usd: 0.01
+      # Per-capability multipliers — exercises Rule 21 dimension pricing
+      # on the v3 pipeline's AggregateStage.enrichWithDimensionData path
+      # via the capability_name → toolName bridge.
+      dimension_pricing:
+        generate_response: 2.0
+        search_knowledge: 1.5
+        translate_document: 1.2
+        summarize_email: 1.2
+        classify_intent: 0.5
+
+    - name: cov-mcp
+      weight: 0.25
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [MCP_SERVER]
+      products_per_type: 4
+      customer_count: 3
+      currency_mix: {USD: 1.0}
+      subscription_state_mix: {ACTIVE: 1.0}
+      rate_config:
+        per_unit_rate_usd: 0.001
+      metric_configs:
+        "MCP Input Tokens":
+          pricing_model: GRADUATED
+          graduated_tiers:
+            - {up_to_units: 1000000, unit_price_usd: 0.000005}
+            - {up_to_units: 0, unit_price_usd: 0.000003}
+        "MCP Output Tokens":
+          pricing_model: GRADUATED
+          graduated_tiers:
+            - {up_to_units: 1000000, unit_price_usd: 0.000015}
+            - {up_to_units: 0, unit_price_usd: 0.000010}
+        "MCP Session Duration":
+          pricing_model: PER_UNIT
+          per_unit_rate_usd: 0.001
+        "MCP Errors":
+          pricing_model: FLAT_RATE
+          flat_fee_usd: 0
+      # Per-tool multipliers.
+      dimension_pricing:
+        vector_search: 2.5
+        summarize: 2.0
+        extract_entities: 1.5
+        write_file: 1.5
+        execute_query: 1.2
+
+    - name: cov-agentic
+      weight: 0.25
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [AGENTIC_API]
+      products_per_type: 4
+      customer_count: 3
+      currency_mix: {USD: 1.0}
+      subscription_state_mix: {ACTIVE: 1.0}
+      rate_config:
+        per_unit_rate_usd: 0.001
+      metric_configs:
+        "Agentic Input Tokens":
+          pricing_model: GRADUATED
+          graduated_tiers:
+            - {up_to_units: 1000000, unit_price_usd: 0.000005}
+            - {up_to_units: 0, unit_price_usd: 0.000003}
+        "Agentic Output Tokens":
+          pricing_model: GRADUATED
+          graduated_tiers:
+            - {up_to_units: 1000000, unit_price_usd: 0.000015}
+            - {up_to_units: 0, unit_price_usd: 0.000010}
+        "Agentic Data Transfer":
+          pricing_model: VOLUME_TIERED
+          volume_tiers:
+            - {up_to_units: 500000, unit_price_usd: 0.00005}
+            - {up_to_units: 0, unit_price_usd: 0.00003}
+        "Agentic Active Users":
+          pricing_model: FLAT_RATE
+          flat_fee_usd: 0
+
+time_pattern: constant
+
+# Balanced product mix so each archetype gets ~1/4 of the traffic.
+product_mix:
+  API: 0.25
+  AI_AGENT: 0.25
+  MCP_SERVER: 0.25
+  AGENTIC_API: 0.25
+
+# Multiple ingestion paths so gateway plugins + SDKs + REST all see a share.
+ingestion_paths:
+  rest_direct: 0.60
+  gateway_kong: 0.10
+  gateway_apigee: 0.10
+  sdk_node: 0.10
+  sdk_python: 0.10
+
+payload_variation:
+  small_pct: 0.7
+  medium_pct: 0.25
+  large_pct: 0.05
+
+assertions:
+  events_lost_max: 0
+  invoice_revenue_drift_pct_max: 0.01
+  p99_latency_ms_max: 2000
+  cross_tenant_leakage_max: 0
+  per_archetype_billing_match: true
+  stale_key_zero_false_positives: true
+
+metadata:
+  tier: pre-release
+  notes: |
+    Full ingestion + billing dimension coverage. Failing this run points at
+    (1) a descriptor added a metric loadgen doesn't emit, or (2) a metric's
+    Quantity resolution regressed. Descriptor `key` coverage is locked by
+    TestTemplatesEmitEveryDescriptorKey in internal/generator/.

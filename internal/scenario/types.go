@@ -213,6 +213,90 @@ type TenantArchetype struct {
 	SubscriptionStateMix map[SubscriptionState]float64 `yaml:"subscription_state_mix,omitempty"`
 	DiscountMix          map[string]float64            `yaml:"discount_mix,omitempty"`
 	RateConfig           RateConfig                    `yaml:"rate_config,omitempty"`
+
+	// ProductsPerType controls how many DISTINCT product catalog entries
+	// are created for EACH product type listed in ProductTypes. Default 1
+	// preserves the historical single-product-per-type behavior. Set to N
+	// to model a tenant with N products of every type (e.g.
+	// ProductTypes=[API,AI_AGENT,MCP_SERVER,AGENTIC_API] +
+	// ProductsPerType=4 → 16 products per tenant).
+	//
+	// Rejected values: <0 → validation error. 0 → treated as 1 (default).
+	// Sensible cap: 25 per type — beyond that a scenario is likely
+	// mis-configured; the validator will reject.
+	//
+	// The N products of the same type share the same metric names and
+	// same rate plan; only the product name differs
+	// ("Loadgen Product {archetype} {type} 01", "…02", etc.). This is
+	// the intended shape for testing multi-product catalog UI, per-tenant
+	// billable-unit dedup, and per-product analytics rollups.
+	ProductsPerType int `yaml:"products_per_type,omitempty"`
+
+	// MetricConfigs is an optional per-metric pricing override map keyed by
+	// the descriptor's metric NAME (e.g. "Tokens Consumed", "Agent Sessions").
+	// Metrics named in this map get the specified pricing model and rate on
+	// the rate plan; metrics NOT in the map fall back to the archetype's
+	// top-level PricingModel + RateConfig. This lets one archetype exercise
+	// heterogeneous rate plans — the shape real customers configure — like:
+	//
+	//	metric_configs:
+	//	  "Tokens Consumed":
+	//	    pricing_model: GRADUATED
+	//	    graduated_tiers: [...]
+	//	  "GPU Hours":
+	//	    pricing_model: FLAT_RATE
+	//	    flat_fee_usd: 25
+	//	  "Agent Sessions":
+	//	    pricing_model: PER_UNIT
+	//	    per_unit_rate_usd: 0.10
+	//
+	// Ignored metric names (e.g. typo, or a metric that doesn't exist for
+	// the archetype's product types) are silently dropped — the seeder
+	// logs a warning at rate-plan build time. Case-insensitive on the map
+	// key so YAML author can write either "Tokens Consumed" or
+	// "tokens consumed".
+	MetricConfigs map[string]MetricOverride `yaml:"metric_configs,omitempty"`
+
+	// DimensionPricing is the per-dimension multiplier map that lands on the
+	// rate plan's dimensionPricing JSONB column. Keys are dimension names
+	// (MCP `tool_name` / AI_AGENT `capability_name` / AGENTIC_API
+	// `endpoint_path`), values are float multipliers applied to the base
+	// rate for events carrying that dimension:
+	//
+	//	dimension_pricing:
+	//	  web_search: 1.5      # 50% surcharge for web-search tool calls
+	//	  generate_image: 3.0  # 3x for GPU-heavy tools
+	//	  vector_search: 2.0
+	//
+	// Rule 21 (CLAUDE.md): this maps 1:1 to pricing-service's
+	// RatePlan.dimensionPricing (canonical shape is a JSONB OBJECT map).
+	// The v3 pipeline's AggregateStage.enrichWithDimensionData fans out one
+	// billing line per dimension when the metric is PER_UNIT + zero-free —
+	// so this only meaningfully exercises MCP_SERVER / AI_AGENT / AGENTIC_API
+	// archetypes running one of those pricing models. FLAT_RATE, PERCENTAGE,
+	// INCLUDED_QUOTA (with free tier), GRADUATED, and VOLUME_TIERED
+	// intentionally stay on the aggregate single-line path (tier math would
+	// disagree per fan-out).
+	//
+	// An empty map is dropped from the request body — no
+	// `dimension_pricing:{}` is sent to pricing-service.
+	DimensionPricing map[string]float64 `yaml:"dimension_pricing,omitempty"`
+}
+
+// MetricOverride carries the per-metric pricing config used by
+// TenantArchetype.MetricConfigs. Structurally a slim mirror of RateConfig
+// with only the fields relevant to a single metric — flat fees at the plan
+// level are on the archetype's RateConfig, not here.
+type MetricOverride struct {
+	PricingModel      PricingModel `yaml:"pricing_model"`
+	PerUnitRateUSD    float64      `yaml:"per_unit_rate_usd,omitempty"`
+	PercentageRate    float64      `yaml:"percentage_rate,omitempty"`
+	MinFeeUSD         float64      `yaml:"min_fee_usd,omitempty"`
+	IncludedFreeUnits int64        `yaml:"included_free_units,omitempty"`
+	BlockSizeUnits    int64        `yaml:"block_size_units,omitempty"`
+	FlatFeeUSD        float64      `yaml:"flat_fee_usd,omitempty"`
+	GraduatedTiers    []TierBand   `yaml:"graduated_tiers,omitempty"`
+	VolumeTiers       []TierBand   `yaml:"volume_tiers,omitempty"`
 }
 
 // RateConfig holds the pricing-model-specific knobs for an archetype.

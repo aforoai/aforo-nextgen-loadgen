@@ -279,6 +279,82 @@ func (v *validator) checkTenants(s *Scenario) {
 			v.addAt(append(basePath, "customer_count"),
 				"customer_count must be > 0")
 		}
+		// products_per_type is 0-defaulted to 1 by applyDefaults; here we
+		// just guard against negative values or absurdly large ones. The
+		// cap of 25 is a "you almost certainly mis-typed" heuristic — the
+		// seeder can technically handle more, but nothing in the platform
+		// exercises catalogs beyond this size and the total tenant footprint
+		// grows linearly (16 products × 25 per type × 4 types = 400
+		// products/tenant × N tenants gets expensive fast).
+		if a.ProductsPerType < 0 {
+			v.addAt(append(basePath, "products_per_type"),
+				fmt.Sprintf("products_per_type %d must be >= 0 (0 defaults to 1)", a.ProductsPerType))
+		}
+		if a.ProductsPerType > 25 {
+			v.addAt(append(basePath, "products_per_type"),
+				fmt.Sprintf("products_per_type %d exceeds the sanity cap of 25 — split into multiple archetypes if you genuinely need more", a.ProductsPerType))
+		}
+		// metric_configs override the archetype's default pricing model per
+		// metric. Validate the pricing model on each override; unknown
+		// values silently regressing to PER_UNIT would hide operator typos.
+		for name, mc := range a.MetricConfigs {
+			p := append(basePath, "metric_configs", name)
+			if !isValidPricingModel(mc.PricingModel) {
+				v.addAt(append(p, "pricing_model"),
+					fmt.Sprintf("pricing_model %q is not one of: %s",
+						mc.PricingModel, joinPricingModels()))
+			}
+			if mc.PricingModel == PricingGraduated {
+				if len(mc.GraduatedTiers) == 0 {
+					v.addAt(append(p, "graduated_tiers"),
+						"pricing_model GRADUATED requires graduated_tiers")
+				}
+				validateTierBandOrdering(v, append(p, "graduated_tiers"), mc.GraduatedTiers)
+			}
+			if mc.PricingModel == PricingVolumeTiered {
+				if len(mc.VolumeTiers) == 0 {
+					v.addAt(append(p, "volume_tiers"),
+						"pricing_model VOLUME_TIERED requires volume_tiers")
+				}
+				validateTierBandOrdering(v, append(p, "volume_tiers"), mc.VolumeTiers)
+			}
+			// FLAT_RATE at the per-metric level has NO wire mapping: pricing-
+			// service's metricConfigRequest carries `rate`/`minFee`/`tiers`/
+			// `includedFree`/`blockSize`, but no per-metric flat-fee field.
+			// The flat fee lives at PLAN level (RatePlan.baseFee, driven by
+			// the archetype's rate_config.flat_fee_usd). A non-zero
+			// MetricOverride.FlatFeeUSD here would silently drop and produce
+			// wrong billing math — reject at the validator with a pointer at
+			// the correct field.
+			//
+			// Zero-valued FlatFeeUSD IS accepted so operators can use FLAT_RATE
+			// as "don't bill this metric" (Rate=0 is what the wire body sends).
+			if mc.PricingModel == PricingFlatRate && mc.FlatFeeUSD != 0 {
+				v.addAt(append(p, "flat_fee_usd"),
+					fmt.Sprintf("per-metric FLAT_RATE cannot carry a non-zero flat_fee_usd (%.2f) — "+
+						"the platform's rate plan holds a single plan-level flat fee. "+
+						"Move the fee to the archetype's rate_config.flat_fee_usd and set the archetype's "+
+						"pricing_model to FLAT_RATE, or use FLAT_RATE per-metric only to zero out a metric "+
+						"(flat_fee_usd: 0).", mc.FlatFeeUSD))
+			}
+		}
+		// dimension_pricing multipliers must be strictly finite + positive —
+		// a 0 multiplier silently zeros every event carrying that dimension,
+		// a negative value credits the customer per event, and NaN/Inf slip
+		// past a naive `<= 0` check (NaN comparisons always false; Inf > 0)
+		// only to fail encoding/json marshaling mid-run. All three are
+		// almost certainly operator typos, not intentional configuration.
+		for k, mult := range a.DimensionPricing {
+			if math.IsNaN(mult) || math.IsInf(mult, 0) {
+				v.addAt(append(basePath, "dimension_pricing", k),
+					fmt.Sprintf("dimension multiplier for %q must be a finite number (got %v)", k, mult))
+				continue
+			}
+			if mult <= 0 {
+				v.addAt(append(basePath, "dimension_pricing", k),
+					fmt.Sprintf("dimension multiplier for %q must be > 0 (got %v)", k, mult))
+			}
+		}
 
 		v.checkWeightMap(append(basePath, "currency_mix"), a.CurrencyMix, false /* required */)
 		v.checkSubscriptionStateMix(append(basePath, "subscription_state_mix"), a.SubscriptionStateMix)
@@ -322,11 +398,13 @@ func (v *validator) checkTenants(s *Scenario) {
 				v.addAt(append(basePath, "rate_config", "graduated_tiers"),
 					"pricing_model=GRADUATED requires at least one tier in rate_config.graduated_tiers")
 			}
+			validateTierBandOrdering(v, append(basePath, "rate_config", "graduated_tiers"), a.RateConfig.GraduatedTiers)
 		case PricingVolumeTiered:
 			if len(a.RateConfig.VolumeTiers) == 0 {
 				v.addAt(append(basePath, "rate_config", "volume_tiers"),
 					"pricing_model=VOLUME_TIERED requires at least one tier in rate_config.volume_tiers")
 			}
+			validateTierBandOrdering(v, append(basePath, "rate_config", "volume_tiers"), a.RateConfig.VolumeTiers)
 		}
 	}
 
@@ -848,6 +926,34 @@ func isValidPricingModel(m PricingModel) bool {
 		}
 	}
 	return false
+}
+
+// validateTierBandOrdering rejects tier definitions where up_to_units is not
+// strictly ascending. Backend rate-plan validation would eventually reject
+// the same shape, but a client-side check surfaces the error at parse time
+// with the operator's YAML path attached — much easier to debug than a
+// mid-run 400 that lands after seed setup.
+//
+// A tier with up_to_units == 0 is the sentinel for "the rest / infinity"
+// and is only valid as the LAST entry.
+func validateTierBandOrdering(v *validator, path []string, bands []TierBand) {
+	prev := int64(-1)
+	for i, b := range bands {
+		if b.UpToUnits == 0 {
+			// Only valid as the last tier — signals "up to infinity".
+			if i != len(bands)-1 {
+				v.addAt(append(path, indexSeg(i), "up_to_units"),
+					"up_to_units=0 (infinity sentinel) is only valid on the LAST tier")
+			}
+			continue
+		}
+		if b.UpToUnits <= prev {
+			v.addAt(append(path, indexSeg(i), "up_to_units"),
+				fmt.Sprintf("up_to_units must be strictly ascending (got %d after %d) — an earlier tier is unreachable",
+					b.UpToUnits, prev))
+		}
+		prev = b.UpToUnits
+	}
 }
 
 func isValidBillingMode(m BillingMode) bool {
