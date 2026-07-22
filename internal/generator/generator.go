@@ -342,6 +342,20 @@ func (g *Generator) produce(eventTime time.Time) (*Event, error) {
 		// dimension matching + per-event reporting.
 		Metadata: body,
 	}
+	// Lift trace_id + session_id from metadata to top-level envelope fields
+	// so ProductTypeEventExtractor.extractTrace / extractAiAgentFields
+	// picks them up from the body's top level (extractTrace only reads
+	// body top-level traceId + HTTP traceparent — NEVER metadata.trace_id).
+	// The metadata copy stays untouched for analytics MVs and for
+	// backward compatibility with the driver-side templates_test asserts.
+	//
+	// Only lift for the agentic product types — API events don't populate
+	// trace_id in the template. See templates.go aiAgentTemplate +
+	// agenticAPITemplate + mcpServerTemplate for the shape and
+	// SessionAggregatorService.onAgenticSessionEvent + AgenticEventRouter
+	// .routeLegacy for the consumer contract.
+	envelope.TraceID = stringField(body, "trace_id")
+	envelope.SessionID = stringField(body, "session_id")
 
 	evt := &Event{
 		Envelope:      envelope,
@@ -421,6 +435,27 @@ func resolveQuantity(metadata map[string]any, m seed.ManifestMetric) float64 {
 	default:
 		return fallback
 	}
+}
+
+// stringField reads a string-typed value out of a template metadata map.
+// Returns "" when the key is absent or the value is not a string — safe to
+// use for optional top-level envelope fields that use `omitempty`.
+//
+// Used by produce() to lift trace_id + session_id from the per-template
+// metadata to top-level Envelope fields so ProductTypeEventExtractor picks
+// them up as UsageEvent.traceId + UsageEvent.sessionId (extractTrace only
+// reads top-level body / HTTP headers, NEVER metadata; leaving trace_id
+// in metadata alone silently drops it, which is exactly why
+// SessionAggregatorService's traceId-null guard was tripping on every
+// AI_AGENT + AGENTIC_API event pre-2026-07-22).
+func stringField(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
 }
 
 // coerceNumeric widens the common numeric go types the templates emit

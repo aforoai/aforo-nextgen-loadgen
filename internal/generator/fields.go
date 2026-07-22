@@ -10,6 +10,22 @@ import (
 // staying deterministic for a given rng. All helpers take the rng as the
 // last argument; callers thread the same rng through one event's lifetime.
 
+// defaultTraceIDCardinality and defaultSessionIDCardinality control how
+// many distinct traceIds / sessionIds one scenario emits. Bucketing values
+// this small guarantees many events share the same id, which is what
+// SessionAggregatorService (agentic-sessions Kafka consumer) needs to
+// group events into agentic_sessions rows.
+//
+// 256 is enough diversity for a realistic tenant fleet (128 concurrent
+// sessions × ~1-2 events each is a typical steady-state distribution)
+// without collapsing every event onto a handful of trace ids. Match this
+// value across AI_AGENT + AGENTIC_API + MCP_SERVER templates so the three
+// agentic surfaces produce similar events-per-session shapes.
+const (
+	defaultTraceIDCardinality   = 256
+	defaultSessionIDCardinality = 256
+)
+
 // Common HTTP method distribution — favors GET/POST as in real APIs.
 var defaultMethodPicker = NewWeightedPicker(map[string]float64{
 	"GET":     0.55,
@@ -148,14 +164,30 @@ func genAgentID(rng *rand.Rand, cardinality int) string {
 	return fmt.Sprintf("agent_%08x", idx)
 }
 
-// genTraceID returns a 16-hex-char id (W3C-trace-context style).
-func genTraceID(rng *rand.Rand) string {
-	b := make([]byte, 16)
-	const hex = "0123456789abcdef"
-	for i := range b {
-		b[i] = hex[rng.Intn(16)]
+// genTraceID returns a trace id with bounded cardinality so multiple events
+// naturally group into the same synthetic session.
+//
+// Session grouping contract — do NOT reintroduce the pre-2026-07-22 unbucketed
+// shape. usage-ingestor's SessionAggregatorService (agentic-sessions Kafka
+// consumer) groups events under a Redis/PostgreSQL session keyed by
+// (tenantId, traceId). A fresh random 16-hex per event meant every AI_AGENT
+// and AGENTIC_API event landed in its own single-event session — tester
+// Issue A7: "Total Sessions: 0 despite 96 events" was actually 96 sessions
+// with 1 event each on the dashboard, presented as no useful aggregation.
+//
+// Cardinality-bucketed cardinality mirrors genSessionID's shape: pass 128 or
+// 256 to get ~TPS×duration/cardinality events per trace, which is realistic
+// for a request-tree agentic workload.
+//
+// Format is "trace_<8-hex>" — treated as an opaque string by the extractor
+// (ProductTypeEventExtractor.extractTrace reads it verbatim from the JSON
+// body's top-level traceId when present; no W3C validation), so the choice
+// of format is scoped to loadgen readability.
+func genTraceID(rng *rand.Rand, cardinality int) string {
+	if cardinality < 1 {
+		cardinality = 256
 	}
-	return string(b)
+	return fmt.Sprintf("trace_%08x", rng.Intn(cardinality))
 }
 
 // genSessionID returns a session id with bounded cardinality, simulating

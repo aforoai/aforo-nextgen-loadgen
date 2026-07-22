@@ -1,4 +1,4 @@
-# Scenario YAML Schema (v1)
+# Scenario YAML Schema (v2)
 
 **Status:** Session 2 contract. Every later component (seed harness, run
 engine, fault injectors, lifecycle stress, payments, ERP, chaos, assertions)

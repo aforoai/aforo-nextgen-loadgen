@@ -158,8 +158,20 @@ func aiAgentTemplate(rng *rand.Rand) map[string]any {
 		"model":           defaultModelPicker.Pick(rng),
 		"input_tokens":    in,
 		"output_tokens":   out,
-		"trace_id":        genTraceID(rng),
-		"session_id":      genSessionID(rng, 256),
+		// Session grouping — bucketed cardinality so many events share the
+		// same traceId + sessionId, which is how usage-ingestor's
+		// SessionAggregatorService groups an agentic session (routes to
+		// aforo.agentic.sessions Kafka topic only when event.getTraceId()
+		// is non-null; per-event random ids silently degraded to 96 rows
+		// of 1 event each and Total Sessions: 0 on the dashboard).
+		// generator.produce() lifts these to Envelope.TraceID +
+		// Envelope.SessionID at the top of the ingest body so
+		// ProductTypeEventExtractor.extractTrace reads them (extractTrace
+		// only consults body top-level + traceparent/x-trace-id headers,
+		// NEVER metadata.trace_id — leaving them here in metadata for
+		// analytics MV parity but the top-level copy is what routes).
+		"trace_id":        genTraceID(rng, defaultTraceIDCardinality),
+		"session_id":      genSessionID(rng, defaultSessionIDCardinality),
 		// Descriptor `key` fields that were previously absent — each is
 		// consumed by exactly one AI_AGENT metric per descriptors/ai_agent.json.
 		"session_count":          1,
@@ -216,7 +228,11 @@ func mcpServerTemplate(rng *rand.Rand) map[string]any {
 		"tool_name":             tool,
 		"execution_status":      status,
 		"execution_duration_ms": dur,
-		"session_id":            genSessionID(rng, 256),
+		// MCP grouping is session-driven (McpSessionManager keys on
+		// session_id, not traceId) — cardinality matches AI_AGENT so the
+		// two agentic surfaces produce a similar events-per-session shape.
+		// generator.produce() lifts session_id → Envelope.SessionID.
+		"session_id":            genSessionID(rng, defaultSessionIDCardinality),
 		"transport":             mcpTransportPicker.Pick(rng),
 		// Descriptor `key` fields absent from the historical template —
 		// each is the sole event-source for its MCP metric per
@@ -242,7 +258,12 @@ func agenticAPITemplate(rng *rand.Rand) map[string]any {
 		toolCalls += 3 + rng.Intn(8)
 	}
 	return map[string]any{
-		"trace_id":         genTraceID(rng),
+		// Session grouping — same bucketed contract as aiAgentTemplate.
+		// generator.produce() lifts trace_id → Envelope.TraceID so
+		// SessionAggregatorService's agentic-sessions Kafka listener sees
+		// a non-null traceId and creates an agentic_sessions row instead
+		// of early-returning at line 80-82.
+		"trace_id":         genTraceID(rng, defaultTraceIDCardinality),
 		"agent_id":         genAgentID(rng, 32),
 		"endpoint":         genEndpoint(rng),
 		"latency_ms":       genLatencyMs(rng),
@@ -255,6 +276,13 @@ func agenticAPITemplate(rng *rand.Rand) map[string]any {
 		"output_tokens":      out,
 		"response_bytes":     genResponseBytes(rng),
 		"user_id":            genUserID(rng),
+		// endpoint_path drives per-endpoint dimension-pricing (see the
+		// P0-4 fix in aforo-nextgen-billing-service) and per-endpoint
+		// PreBillAnomalyScorer baseline (P0-3 in aforo-nextgen-usage-
+		// ingestor-service). Emitting it here lets the loadgen contract
+		// test assert one of the two dimension-key surfaces per product
+		// type (MCP: tool_name; AGENTIC_API: endpoint_path).
+		"endpoint_path":      genEndpoint(rng),
 	}
 }
 
@@ -277,11 +305,29 @@ func agenticAPITemplate(rng *rand.Rand) map[string]any {
 // shape sends template fields as `metadata` and uses MetricName (not
 // metric UUID) so backend's name-based metric lookup succeeds.
 type Envelope struct {
-	CustomerID     string         `json:"customerId"`
-	MetricName     string         `json:"metricName"`
-	Quantity       float64        `json:"quantity"`
-	OccurredAt     time.Time      `json:"occurredAt"`
-	IdempotencyKey string         `json:"idempotencyKey"`
-	ProductType    string         `json:"productType,omitempty"`
-	Metadata       map[string]any `json:"metadata,omitempty"`
+	CustomerID     string    `json:"customerId"`
+	MetricName     string    `json:"metricName"`
+	Quantity       float64   `json:"quantity"`
+	OccurredAt     time.Time `json:"occurredAt"`
+	IdempotencyKey string    `json:"idempotencyKey"`
+	ProductType    string    `json:"productType,omitempty"`
+	// TraceID is the top-level body field ProductTypeEventExtractor.extractTrace
+	// reads to populate UsageEvent.traceId when the request carries no
+	// traceparent / x-trace-id header (loadgen's REST path does not).
+	// Non-empty on AI_AGENT + AGENTIC_API events so AgenticEventRouter
+	// routes to aforo.agentic.sessions Kafka topic (routeLegacy line 172
+	// early-returns for null traceId and skips the session track — that
+	// is the exact "Total Sessions: 0 despite 96 events" root cause).
+	// Bucketed via defaultTraceIDCardinality so many events share the
+	// same id and SessionAggregatorService produces an actual aggregated
+	// session row instead of one-event-per-row.
+	// Populated by generator.produce() from metadata["trace_id"] — the
+	// metadata copy stays as an analytics-MV parity duplicate.
+	TraceID string `json:"traceId,omitempty"`
+	// SessionID is the top-level body field for AI_AGENT session grouping
+	// (per ProductTypeEventExtractor Javadoc: "AI_AGENT: traceId +
+	// sessionId"). Lifted from metadata["session_id"] by
+	// generator.produce() for the same reason as TraceID.
+	SessionID string         `json:"sessionId,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
