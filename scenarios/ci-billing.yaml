@@ -14,7 +14,7 @@
 # VOLUME_TIERED — all under POSTPAID. REST direct only. 100 TPS, 90s.
 # Per-archetype billing match assertion is the merge gate.
 
-schema_version: 1
+schema_version: 2
 name: ci-billing
 description: 90-second billing-math smoke test. One archetype per pricing model under POSTPAID.
 target_tps: 100

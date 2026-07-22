@@ -23,7 +23,7 @@
 # Coverage: 1 tenant, PER_UNIT POSTPAID MCP_SERVER, mcp_jsonrpc only,
 # 50 TPS, 60s, no faults, no lifecycle.
 
-schema_version: 1
+schema_version: 2
 name: ci-mcp-jsonrpc
 description: 60-second real JSON-RPC 2.0 tools/call smoke for gateway-plugin detection paths.
 target_tps: 50

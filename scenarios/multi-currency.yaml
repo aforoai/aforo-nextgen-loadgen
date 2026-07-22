@@ -7,7 +7,7 @@
 #
 # Coverage: 6 tenants, 3 archetypes (one per currency), 150 TPS, 3m.
 
-schema_version: 1
+schema_version: 2
 name: multi-currency
 description: Three-currency invoice coverage with pinned FX rates. Asserts FX applied at bill-run time.
 target_tps: 150

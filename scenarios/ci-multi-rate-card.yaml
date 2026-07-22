@@ -1,0 +1,81 @@
+# ci-multi-rate-card — the tester's business scenario
+#
+# Purpose: prove loadgen can express "one product, N rate cards" — the
+# platform's rate_plan_products M:N junction has always supported this
+# shape; loadgen's scenario schema is what was limiting it to one card
+# per product until the v2 RateCards field landed (2026-07-22).
+#
+# Coverage:
+#   - 1 tenant, 1 archetype with a single API product
+#   - THREE rate cards on that product: Starter / Pro / Enterprise
+#   - customer_share splits the 100 customers 60/30/10 across the tiers
+#   - Each card has its own currency-fanned offerings (2 currencies each)
+# Runs happy-path REST only, no fault injection.
+
+schema_version: 2
+name: ci-multi-rate-card
+description: >-
+  Multi rate card per product. Starter (PER_UNIT), Pro (INCLUDED_QUOTA),
+  Enterprise (FLAT_RATE) on ONE tenant with ONE product. Distributes 100
+  customers 60/30/10 across the three tiers. Locks the v2 RateCards
+  schema.
+target_tps: 20
+duration: 60s
+seed: 42
+
+tenants:
+  count: 1
+  distribution: uniform
+  archetypes:
+    - name: multi-rate-card
+      weight: 1.0
+      # Legacy top-level fields still respected — v2 RateCards inherit
+      # from them when a per-card field is left unset. Explicit per-card
+      # values below override.
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      products_per_type: 1
+      customer_count: 100
+      currency_mix:
+        USD: 0.8
+        EUR: 0.2
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+      # v2 shape: three rate cards on the same product, customer_share
+      # splits the archetype's 100 customers proportionally.
+      rate_cards:
+        - name: starter
+          pricing_model: PER_UNIT
+          rate_config:
+            per_unit_rate_usd: 0.002
+          customer_share: 0.6
+
+        - name: pro
+          pricing_model: INCLUDED_QUOTA
+          rate_config:
+            included_free_units: 10000
+            per_unit_rate_usd: 0.001
+          customer_share: 0.3
+
+        - name: enterprise
+          pricing_model: FLAT_RATE
+          rate_config:
+            flat_fee_usd: 499
+          customer_share: 0.1
+
+time_pattern: constant
+
+product_mix:
+  API: 1.0
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0

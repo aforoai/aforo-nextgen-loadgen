@@ -92,6 +92,15 @@ type offeringResponse struct {
 //     Idempotency-Key header value, (b) the `code` body field. The natural
 //     identity used by lookupOfferingByCode is `code`. See CONVENTIONS.md.
 func provisionOffering(ctx context.Context, c *Client, tenantID, seedKey string, a scenario.TenantArchetype, ratePlanID, currency string) (offeringResponse, error) {
+	return provisionOfferingWithName(ctx, c, tenantID, seedKey, a, ratePlanID, currency, "")
+}
+
+// provisionOfferingWithName is the v2 provisioning entry point. When
+// `nameOverride` is non-empty, that value is used as the offering display
+// name (the `code` still comes from `seedKey`, which the caller MUST
+// generate deterministically per rate-card × currency so cross-day
+// idempotency still works).
+func provisionOfferingWithName(ctx context.Context, c *Client, tenantID, seedKey string, a scenario.TenantArchetype, ratePlanID, currency, nameOverride string) (offeringResponse, error) {
 	code := seedKey // the seedKey IS the offering code (real DTO column).
 
 	if existing, ok, err := lookupOfferingByCode(ctx, c, tenantID, code); err != nil {
@@ -99,11 +108,15 @@ func provisionOffering(ctx context.Context, c *Client, tenantID, seedKey string,
 	} else if ok {
 		return existing, nil
 	}
+	name := nameOverride
+	if name == "" {
+		name = fmt.Sprintf("Loadgen Offering %s", a.Name)
+	}
 	// Name MUST NOT contain square brackets — same forward-compat
 	// reasoning as products + rate plans (see products.go).
 	body := offeringCreateRequest{
 		Code:              code,
-		Name:              fmt.Sprintf("Loadgen Offering %s", a.Name),
+		Name:              name,
 		Description:       fmt.Sprintf("auto-provisioned for archetype=%s", a.Name),
 		Type:              "STANDALONE",
 		Status:            "ACTIVE",

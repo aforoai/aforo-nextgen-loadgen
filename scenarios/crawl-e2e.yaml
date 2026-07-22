@@ -19,7 +19,7 @@
 #   • Lifecycle agent enabled at low rate (~1 transition / min total)
 #   • Per-archetype billing-match validation enabled
 
-schema_version: 1
+schema_version: 2
 name: crawl-e2e
 description: One tenant per product type, four pricing models, all 6 negative paths active, lifecycle on, 5 minutes at 50 TPS.
 target_tps: 50

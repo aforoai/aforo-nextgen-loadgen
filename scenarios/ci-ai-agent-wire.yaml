@@ -31,7 +31,7 @@
 # Coverage: 1 tenant, PER_UNIT POSTPAID AI_AGENT, ai_agent_wire only,
 # 20 TPS, 60s, no faults, no lifecycle.
 
-schema_version: 1
+schema_version: 2
 name: ci-ai-agent-wire
 description: 60-second AI_AGENT smoke covering the SDK-shaped REST wire protocol against @aforo/agent-test-server.
 target_tps: 20

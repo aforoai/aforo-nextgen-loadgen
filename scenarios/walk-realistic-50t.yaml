@@ -8,7 +8,7 @@
 # (incl. one gateway), 2K TPS, 24h. Sine-24h time pattern. Light fault
 # injection. Lifecycle off (lifecycle-stress.yaml owns that).
 
-schema_version: 1
+schema_version: 2
 name: walk-realistic-50t
 description: 50 tenants, 8 archetypes, sine-24h pattern, 2K TPS for 24 hours.
 target_tps: 2000

@@ -1,4 +1,4 @@
-schema_version: 1
+schema_version: 2
 name: demo-complete-test
 description: Complete demo tenant with loadgen - seed + run + invoices
 target_tps: 50

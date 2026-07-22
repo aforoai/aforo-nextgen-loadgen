@@ -14,7 +14,7 @@
 # Keep TPS gentle: the demo stack is a laptop-sized single host shared with
 # visitor traffic, not a load-test rig.
 
-schema_version: 1
+schema_version: 2
 name: demo-golden
 description: Gentle usage trickle across the golden demo tenant's real subscriptions.
 target_tps: 20

@@ -24,7 +24,7 @@
 #   - Rate plans persist heterogeneous pricing models on the same tenant.
 #   - dimensionPricing multipliers are honored by both v3 and legacy paths.
 
-schema_version: 1
+schema_version: 2
 name: coverage-all-dimensions
 description: >
   Full-dimension ingestion + billing coverage — every metric of every

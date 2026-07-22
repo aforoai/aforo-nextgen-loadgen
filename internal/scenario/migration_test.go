@@ -56,10 +56,28 @@ func TestMigrate(t *testing.T) {
 	}
 }
 
-func TestCurrentSchemaVersionIsOne(t *testing.T) {
-	// Tripwire: bump this test deliberately when we add schema v2 — the
-	// migration chain in Migrate must be updated in the same PR.
-	if CurrentSchemaVersion != 1 {
+func TestCurrentSchemaVersionIsTwo(t *testing.T) {
+	// Tripwire: bump this test deliberately when we add schema v3 — the
+	// migration chain in Migrate must be updated in the same PR. Also
+	// re-check that every /scenarios/*.yaml file has been bumped to the
+	// new version (see TestGolden_BuiltInScenariosLoadAndValidate) and
+	// that applyDefaults still backfills the old shape into the new one
+	// (see TestApplyDefaults_v1RateCardsBackfill).
+	if CurrentSchemaVersion != 2 {
 		t.Errorf("CurrentSchemaVersion = %d; if you bumped this, update Migrate() with an upgrade path", CurrentSchemaVersion)
+	}
+}
+
+// TestUpgradeV1toV2_PreservesSchemaShape asserts that a v1 scenario runs
+// through Migrate cleanly and comes out with SchemaVersion=2. The actual
+// RateCards backfill happens in applyDefaults (not in the migration
+// step) — see TestApplyDefaults_v1RateCardsBackfill for that guarantee.
+func TestUpgradeV1toV2_PreservesSchemaShape(t *testing.T) {
+	s := &Scenario{SchemaVersion: 1}
+	if err := Migrate(s); err != nil {
+		t.Fatalf("Migrate v1 scenario: %v", err)
+	}
+	if s.SchemaVersion != 2 {
+		t.Errorf("SchemaVersion = %d; want 2 after Migrate", s.SchemaVersion)
 	}
 }

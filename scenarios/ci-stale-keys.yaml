@@ -27,7 +27,7 @@
 # split, REST direct only. 50 TPS, 60s. negative_paths.stale_keys_pct
 # is *deliberately high* so a broken cache leaks within the 60s window.
 
-schema_version: 1
+schema_version: 2
 name: ci-stale-keys
 description: 60-second stale-key cascade. Asserts BillingHierarchyEnricher invalidates on revoke.
 target_tps: 50

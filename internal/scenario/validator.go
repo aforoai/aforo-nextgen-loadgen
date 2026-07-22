@@ -406,11 +406,134 @@ func (v *validator) checkTenants(s *Scenario) {
 			}
 			validateTierBandOrdering(v, append(basePath, "rate_config", "volume_tiers"), a.RateConfig.VolumeTiers)
 		}
+
+		// v2 RateCards validation (2026-07-22). By this point applyDefaults has
+		// backfilled RateCards from the legacy scalars, so len(RateCards) >= 1
+		// is guaranteed. We validate: unique names, resolvable ProductFilter,
+		// customer_share sums to 1.0 ± tolerance, per-card pricing-model
+		// minimums, per-card offering currencies are ISO-shaped.
+		v.checkRateCards(append(basePath, "rate_cards"), *a)
 	}
 
 	if !weightsApproxOne(weightSum) {
 		v.addAt([]string{"tenants", "archetypes"},
 			fmt.Sprintf("archetype weights sum to %.4f; must be 1.0 ± %g", weightSum, weightTolerance))
+	}
+}
+
+// checkRateCards validates the v2 RateCards slice on an archetype. Called
+// after applyDefaults, so this MUST tolerate a single-element backfilled
+// slice (the v1-migration path) without complaining — only actually
+// operator-authored issues should fire an error here.
+func (v *validator) checkRateCards(path []string, a TenantArchetype) {
+	if len(a.RateCards) == 0 {
+		// Should be impossible post-defaults, but guard so we don't panic
+		// on a mid-migration YAML.
+		v.addAt(path, "rate_cards is empty after defaults application — internal invariant broken")
+		return
+	}
+	// Unique names within the archetype.
+	seenNames := map[string]int{}
+	// customer_share sum.
+	var shareSum float64
+	// Product-filter type set for cross-check.
+	validTypes := map[ProductType]struct{}{}
+	for _, pt := range a.ProductTypes {
+		validTypes[pt] = struct{}{}
+	}
+
+	for i, rc := range a.RateCards {
+		cardPath := append(append([]string{}, path...), indexSeg(i))
+		if rc.Name == "" {
+			v.addAt(append(cardPath, "name"), "rate_cards[].name is required")
+		} else if prior, ok := seenNames[rc.Name]; ok {
+			v.addAt(append(cardPath, "name"),
+				fmt.Sprintf("rate_cards[].name %q duplicates rate_cards[%d].name", rc.Name, prior))
+		} else {
+			seenNames[rc.Name] = i
+		}
+		if !isValidPricingModel(rc.PricingModel) {
+			v.addAt(append(cardPath, "pricing_model"),
+				fmt.Sprintf("rate_cards[].pricing_model %q is not one of: %s", rc.PricingModel, joinPricingModels()))
+		}
+		if rc.BillingMode != "" && !isValidBillingMode(rc.BillingMode) {
+			v.addAt(append(cardPath, "billing_mode"),
+				fmt.Sprintf("rate_cards[].billing_mode %q is not one of: %s", rc.BillingMode, joinBillingModes()))
+		}
+		if rc.CustomerShare < 0 || rc.CustomerShare > 1 {
+			v.addAt(append(cardPath, "customer_share"),
+				fmt.Sprintf("rate_cards[].customer_share %v must be in [0, 1]", rc.CustomerShare))
+		}
+		shareSum += rc.CustomerShare
+		// ProductFilter type resolution.
+		for j, pt := range rc.ProductFilter {
+			if !isValidProductType(pt) {
+				v.addAt(append(append(cardPath, "product_filter"), indexSeg(j)),
+					fmt.Sprintf("product_filter[%d] %q is not one of: API, AI_AGENT, MCP_SERVER, AGENTIC_API", j, pt))
+				continue
+			}
+			if _, ok := validTypes[pt]; !ok {
+				v.addAt(append(append(cardPath, "product_filter"), indexSeg(j)),
+					fmt.Sprintf("product_filter[%d] %q is not present in archetype.product_types %v", j, pt, a.ProductTypes))
+			}
+		}
+		// Pricing-model-specific minimums (same shape as archetype-level check).
+		switch rc.PricingModel {
+		case PricingFlatRate:
+			if rc.RateConfig.FlatFeeUSD <= 0 {
+				v.addAt(append(cardPath, "rate_config", "flat_fee_usd"),
+					"rate_cards[].pricing_model=FLAT_RATE requires rate_config.flat_fee_usd > 0")
+			}
+		case PricingPerUnit:
+			if rc.RateConfig.PerUnitRateUSD <= 0 {
+				v.addAt(append(cardPath, "rate_config", "per_unit_rate_usd"),
+					"rate_cards[].pricing_model=PER_UNIT requires rate_config.per_unit_rate_usd > 0")
+			}
+		case PricingPercentage:
+			if rc.RateConfig.PercentageRate <= 0 {
+				v.addAt(append(cardPath, "rate_config", "percentage_rate"),
+					"rate_cards[].pricing_model=PERCENTAGE requires rate_config.percentage_rate > 0")
+			}
+		case PricingIncludedQuota:
+			if rc.RateConfig.IncludedFreeUnits <= 0 || rc.RateConfig.PerUnitRateUSD <= 0 {
+				v.addAt(append(cardPath, "rate_config"),
+					"rate_cards[].pricing_model=INCLUDED_QUOTA requires included_free_units > 0 and per_unit_rate_usd > 0")
+			}
+		case PricingGraduated:
+			if len(rc.RateConfig.GraduatedTiers) == 0 {
+				v.addAt(append(cardPath, "rate_config", "graduated_tiers"),
+					"rate_cards[].pricing_model=GRADUATED requires rate_config.graduated_tiers")
+			}
+			validateTierBandOrdering(v, append(cardPath, "rate_config", "graduated_tiers"), rc.RateConfig.GraduatedTiers)
+		case PricingVolumeTiered:
+			if len(rc.RateConfig.VolumeTiers) == 0 {
+				v.addAt(append(cardPath, "rate_config", "volume_tiers"),
+					"rate_cards[].pricing_model=VOLUME_TIERED requires rate_config.volume_tiers")
+			}
+			validateTierBandOrdering(v, append(cardPath, "rate_config", "volume_tiers"), rc.RateConfig.VolumeTiers)
+		}
+		// Offering currencies.
+		for j, off := range rc.Offerings {
+			offPath := append(append(cardPath, "offerings"), indexSeg(j))
+			if off.Currency != "" && len(off.Currency) != 3 {
+				v.addAt(append(offPath, "currency"),
+					fmt.Sprintf("offerings[].currency %q is not a 3-letter ISO code", off.Currency))
+			}
+			if off.BillingMode != "" && !isValidBillingMode(off.BillingMode) {
+				v.addAt(append(offPath, "billing_mode"),
+					fmt.Sprintf("offerings[].billing_mode %q is not one of: %s", off.BillingMode, joinBillingModes()))
+			}
+			if off.TrialDays < 0 {
+				v.addAt(append(offPath, "trial_days"),
+					fmt.Sprintf("offerings[].trial_days %d must be >= 0", off.TrialDays))
+			}
+		}
+	}
+	// customer_share sum. Backfilled scenarios (single card, share 1.0)
+	// pass trivially; explicit multi-card configs must sum to 1.0.
+	if !weightsApproxOne(shareSum) {
+		v.addAt(path,
+			fmt.Sprintf("rate_cards[].customer_share values sum to %.4f; must be 1.0 ± %g", shareSum, weightTolerance))
 	}
 }
 

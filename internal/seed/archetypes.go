@@ -118,6 +118,10 @@ type customerPlan struct {
 	State    scenario.SubscriptionState
 	// RNG-derived suffix for unique external IDs.
 	Seq int
+	// CardIndex is the index into the archetype's RateCards slice that
+	// this customer subscribes to. Populated by planArchetype using the
+	// per-card CustomerShare weights. Always in [0, len(RateCards)).
+	CardIndex int
 }
 
 // planArchetype expands one archetype into per-customer plans. customer_count
@@ -133,27 +137,100 @@ func planArchetype(a scenario.TenantArchetype, rng *rand.Rand) archetypePlan {
 	}
 	currencies := distributeCurrencies(a.CurrencyMix, n)
 	states := distributeStates(a.SubscriptionStateMix, n)
+	// v2 (2026-07-22): distribute customers across the archetype's RateCards
+	// using each card's CustomerShare weight. When RateCards has exactly one
+	// card (backfilled from legacy scalars), every customer gets CardIndex=0
+	// — preserving v1 behavior.
+	cardIdxs := distributeCardIndices(a.RateCards, n)
 
-	// Shuffle currencies and states independently so currency=EUR isn't
-	// always paired with state=ACTIVE. Both shuffles use the same rng, so
-	// runs with the same seed produce the same pairing.
+	// Shuffle currencies, states, and cardIdxs independently so
+	// currency=EUR isn't always paired with state=ACTIVE or with card #0.
+	// All shuffles use the same rng, so runs with the same seed produce the
+	// same pairing.
 	rng.Shuffle(len(currencies), func(i, j int) {
 		currencies[i], currencies[j] = currencies[j], currencies[i]
 	})
 	rng.Shuffle(len(states), func(i, j int) {
 		states[i], states[j] = states[j], states[i]
 	})
+	rng.Shuffle(len(cardIdxs), func(i, j int) {
+		cardIdxs[i], cardIdxs[j] = cardIdxs[j], cardIdxs[i]
+	})
 
 	plans := make([]customerPlan, n)
 	for i := 0; i < n; i++ {
 		plans[i] = customerPlan{
-			Currency: currencies[i],
-			State:    states[i],
-			Discount: drawDiscount(a.DiscountMix, rng),
-			Seq:      i + 1,
+			Currency:  currencies[i],
+			State:     states[i],
+			Discount:  drawDiscount(a.DiscountMix, rng),
+			Seq:       i + 1,
+			CardIndex: cardIdxs[i],
 		}
 	}
 	return archetypePlan{Customers: plans}
+}
+
+// distributeCardIndices returns a slice of length n where each element is
+// the index of the RateCardSpec that customer i subscribes to. Card counts
+// are proportional to each card's CustomerShare with largest-residual
+// rounding, so the exact distribution is deterministic given the same
+// (RateCards, n) tuple. When RateCards is empty (shouldn't happen after
+// applyDefaults but guarded for safety), returns all-zeros.
+func distributeCardIndices(cards []scenario.RateCardSpec, n int) []int {
+	if len(cards) == 0 || n <= 0 {
+		return make([]int, n)
+	}
+	if len(cards) == 1 {
+		return make([]int, n) // all zeros
+	}
+	type slot struct {
+		idx      int
+		raw      float64
+		floor    int
+		residual float64
+	}
+	slots := make([]slot, len(cards))
+	allocated := 0
+	for i, c := range cards {
+		raw := c.CustomerShare * float64(n)
+		fl := int(raw)
+		slots[i] = slot{i, raw, fl, raw - float64(fl)}
+		allocated += fl
+	}
+	// Distribute rounding remainder by descending residual.
+	if allocated < n {
+		ordered := append([]slot(nil), slots...)
+		sort.SliceStable(ordered, func(i, j int) bool {
+			if ordered[i].residual != ordered[j].residual {
+				return ordered[i].residual > ordered[j].residual
+			}
+			return ordered[i].idx < ordered[j].idx
+		})
+		for k := 0; allocated < n; k++ {
+			ordered[k%len(ordered)].floor++
+			allocated++
+		}
+		bump := make(map[int]int, len(ordered))
+		for _, s := range ordered {
+			bump[s.idx] = s.floor
+		}
+		for i := range slots {
+			slots[i].floor = bump[i]
+		}
+	}
+	out := make([]int, 0, n)
+	for _, s := range slots {
+		for k := 0; k < s.floor; k++ {
+			out = append(out, s.idx)
+		}
+	}
+	// Guard against edge cases where floor+residual rounding produced
+	// fewer than n entries (shouldn't happen post-remainder, but be
+	// defensive).
+	for len(out) < n {
+		out = append(out, 0)
+	}
+	return out[:n]
 }
 
 // expectedBillingFormula renders a one-line description of how the platform

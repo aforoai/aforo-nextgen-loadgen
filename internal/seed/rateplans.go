@@ -134,7 +134,22 @@ type ratePlanResponse struct {
 //   - seedKey: loadgen-internal opaque deterministic string sent as the
 //     HTTP Idempotency-Key header. See CONVENTIONS.md.
 func provisionRatePlan(ctx context.Context, c *Client, tenantID string, a scenario.TenantArchetype, productIDs []string, metrics []ManifestMetric, seedKey string) (ratePlanResponse, error) {
-	name := fmt.Sprintf("Loadgen Rate Plan %s", a.Name)
+	return provisionRatePlanWithName(ctx, c, tenantID, a, productIDs, metrics, seedKey, "")
+}
+
+// provisionRatePlanWithName is the v2 provisioning entry point. When
+// `nameOverride` is non-empty, that value is used as the rate plan name
+// (bypassing the default "Loadgen Rate Plan {archetype}" derivation) so a
+// single archetype can provision multiple distinct rate plans via
+// RateCardSpec-scoped names. The BODY payload's PricingModel / RateConfig
+// still flow from the archetype passed in — callers wanting per-card
+// pricing MUST synthesize a card-scoped archetype (see
+// deriveCardArchetype in seeder.go) before calling this.
+func provisionRatePlanWithName(ctx context.Context, c *Client, tenantID string, a scenario.TenantArchetype, productIDs []string, metrics []ManifestMetric, seedKey, nameOverride string) (ratePlanResponse, error) {
+	name := nameOverride
+	if name == "" {
+		name = fmt.Sprintf("Loadgen Rate Plan %s", a.Name)
+	}
 
 	if existing, ok, err := lookupRatePlanByName(ctx, c, tenantID, name); err != nil {
 		return ratePlanResponse{}, fmt.Errorf("lookup rate plan %q: %w", name, err)
@@ -143,6 +158,9 @@ func provisionRatePlan(ctx context.Context, c *Client, tenantID string, a scenar
 	}
 
 	body := buildRatePlanRequest(a, productIDs, metrics)
+	if nameOverride != "" {
+		body.Name = nameOverride
+	}
 	createURL, err := c.Target().Path(aforo.ServicePricing, aforo.PathRatePlans)
 	if err != nil {
 		return ratePlanResponse{}, err

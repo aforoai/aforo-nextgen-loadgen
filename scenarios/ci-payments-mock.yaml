@@ -17,7 +17,7 @@
 # Coverage: 1 tenant, 2 archetypes (PREPAID + POSTPAID, both PER_UNIT)
 # so wallet + invoice paths both fire. REST direct only. 50 TPS, 90s.
 
-schema_version: 1
+schema_version: 2
 name: ci-payments-mock
 description: 90-second payments+tax+ERP smoke. PREPAID + POSTPAID, all mock providers.
 target_tps: 50

@@ -370,39 +370,120 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		}
 	}
 
-	// One rate plan covering all products + their metrics.
-	rpSeedKey := seedKey("rateplan", a.Name, s.cfg.RunID, seq)
-	rp, err := provisionRatePlan(ctx, c, tenant.ID, a, productIDs, rateMetrics, rpSeedKey)
-	if err != nil {
-		return err
+	// v2 (2026-07-22): loop over the archetype's RateCards, provisioning
+	// ONE rate plan per spec plus its associated offerings. applyDefaults
+	// normally backfills a single-element RateCards from the archetype's
+	// legacy top-level PricingModel / RateConfig fields when the operator
+	// hasn't declared any, so v1 scenarios keep producing byte-identical
+	// output. Callers that construct an archetype directly (unit tests,
+	// experimental fixtures) and skip applyDefaults hit an empty slice
+	// here — guard by backfilling locally so the seeder is safe to call
+	// with a bare archetype too. Same predicate as applyDefaults.
+	if len(a.RateCards) == 0 {
+		a.RateCards = []scenario.RateCardSpec{{
+			Name:             "default",
+			PricingModel:     a.PricingModel,
+			BillingMode:      a.BillingMode,
+			RateConfig:       a.RateConfig,
+			MetricConfigs:    a.MetricConfigs,
+			DimensionPricing: a.DimensionPricing,
+			CustomerShare:    1.0,
+		}}
 	}
-	mt.RatePlans = append(mt.RatePlans, ManifestRatePlan{
-		RatePlanID: rp.ID,
-		Name:       rp.Name,
-		SeedKey:    rpSeedKey,
-		Version:    rp.Version,
-		Config:     rateConfigSummary(a),
-	})
-
+	//
+	// The plan variable is computed BEFORE the rate-card loop because it
+	// determines which currencies each card needs to fan its offerings
+	// out over — a rate card with no explicit Offerings inherits the
+	// archetype's currency mix (v1 behavior), while a card with explicit
+	// Offerings uses just those currencies.
 	plan := planArchetype(a, rng)
+	archetypeCurrencies := uniqueCurrencies(plan.Customers)
 
-	// Group customers by currency so we share one offering per currency.
-	currencies := uniqueCurrencies(plan.Customers)
-	offByCurrency := make(map[string]offeringResponse, len(currencies))
-	for _, cur := range currencies {
-		offSeedKey := seedKey(fmt.Sprintf("offering-%s", cur), a.Name, s.cfg.RunID, seq)
-		off, err := provisionOffering(ctx, c, tenant.ID, offSeedKey, a, rp.ID, cur)
+	// Map from rate-card name → { rate plan response, offering by currency }.
+	// Customer loop reads (cp.CardIndex, cp.Currency) to bind the sub.
+	type cardProvisioning struct {
+		RatePlan      ratePlanResponse
+		OffByCurrency map[string]offeringResponse
+	}
+	cardProvs := make([]cardProvisioning, len(a.RateCards))
+
+	for cardIdx := range a.RateCards {
+		card := a.RateCards[cardIdx]
+		cardArchetype := deriveCardArchetype(a, card)
+
+		// Filter the archetype's productIDs to the subset the card prices.
+		// Empty ProductFilter = "prices all products in the archetype".
+		cardProductIDs := filterProductIDsForCard(a, card, mt.Products)
+		if len(cardProductIDs) == 0 {
+			// The card's ProductFilter didn't match any product type in the
+			// archetype's ProductTypes (validator catches this at parse
+			// time, but guard so a fresh operator error is clear).
+			return fmt.Errorf("archetype %q rate_cards[%d] %q product_filter %v matched none of the archetype's products",
+				a.Name, cardIdx, card.Name, card.ProductFilter)
+		}
+
+		rpSeedKey := seedKey(fmt.Sprintf("rateplan-%02d", cardIdx+1), a.Name, s.cfg.RunID, seq)
+		rpName := fmt.Sprintf("Loadgen Rate Plan %s — %s", a.Name, card.Name)
+		rp, err := provisionRatePlanWithName(ctx, c, tenant.ID, cardArchetype, cardProductIDs, rateMetrics, rpSeedKey, rpName)
 		if err != nil {
 			return err
 		}
-		offByCurrency[cur] = off
-		mt.Offerings = append(mt.Offerings, ManifestOffering{
-			OfferingID:  off.ID,
-			Code:        off.Code,
-			SeedKey:     offSeedKey,
-			BillingMode: a.BillingMode,
-			Currency:    cur,
+		mt.RatePlans = append(mt.RatePlans, ManifestRatePlan{
+			RatePlanID: rp.ID,
+			Name:       rp.Name,
+			SeedKey:    rpSeedKey,
+			Version:    rp.Version,
+			Config:     rateConfigSummary(cardArchetype),
 		})
+
+		// Offerings for this card: if the spec declared explicit
+		// Offerings, use those (each with its own currency); otherwise
+		// fall back to the v1 shape of one offering per archetype
+		// currency.
+		offByCurrency := make(map[string]offeringResponse, 4)
+		offeringSpecs := card.Offerings
+		if len(offeringSpecs) == 0 {
+			for _, cur := range archetypeCurrencies {
+				offeringSpecs = append(offeringSpecs, scenario.OfferingSpec{
+					Currency:    cur,
+					BillingMode: cardArchetype.BillingMode,
+					TrialDays:   cardArchetype.RateConfig.TrialDays,
+				})
+			}
+		}
+		for offIdx, off := range offeringSpecs {
+			cur := off.Currency
+			if cur == "" {
+				cur = "USD"
+			}
+			offSeedKey := seedKey(fmt.Sprintf("offering-%02d-%s-%02d", cardIdx+1, cur, offIdx+1), a.Name, s.cfg.RunID, seq)
+			offName := fmt.Sprintf("Loadgen Offering %s — %s (%s)", a.Name, card.Name, cur)
+			// If the spec named the offering, prefer that.
+			if off.Name != "" {
+				offName = off.Name
+			}
+			// Per-offering BillingMode / TrialDays override cardArchetype's.
+			perOfferingArchetype := cardArchetype
+			if off.BillingMode != "" {
+				perOfferingArchetype.BillingMode = off.BillingMode
+			}
+			if off.TrialDays > 0 {
+				perOfferingArchetype.RateConfig.TrialDays = off.TrialDays
+			}
+			created, err := provisionOfferingWithName(ctx, c, tenant.ID, offSeedKey, perOfferingArchetype, rp.ID, cur, offName)
+			if err != nil {
+				return err
+			}
+			offByCurrency[cur] = created
+			mt.Offerings = append(mt.Offerings, ManifestOffering{
+				OfferingID:  created.ID,
+				Code:        created.Code,
+				SeedKey:     offSeedKey,
+				BillingMode: perOfferingArchetype.BillingMode,
+				Currency:    cur,
+			})
+		}
+		cardProvs[cardIdx] = cardProvisioning{RatePlan: rp, OffByCurrency: offByCurrency}
 	}
 
 	// One customer + subscription chain per plan slot.
@@ -420,10 +501,24 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 			Discount:   cp.Discount,
 		}
 
+		// v2: read the picked card's billing mode + rate config for
+		// wallet/payment-method provisioning. When the card inherited
+		// from the archetype top-level fields (v1 back-compat path),
+		// these values are identical to a.BillingMode / a.RateConfig.
+		pickedCard := a.RateCards[cp.CardIndex]
+		pickedBillingMode := pickedCard.BillingMode
+		if pickedBillingMode == "" {
+			pickedBillingMode = a.BillingMode
+		}
+		pickedWalletBalance := pickedCard.RateConfig.WalletInitialBalanceUSD
+		if pickedWalletBalance == 0 {
+			pickedWalletBalance = a.RateConfig.WalletInitialBalanceUSD
+		}
+
 		walletID := ""
-		if a.BillingMode == scenario.BillingPrepaid || a.BillingMode == scenario.BillingHybrid {
+		if pickedBillingMode == scenario.BillingPrepaid || pickedBillingMode == scenario.BillingHybrid {
 			walSeedKey := seedKey("wallet", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
-			wallet, err := provisionWallet(ctx, c, tenant.ID, walSeedKey, cust.ID, cp.Currency, a.RateConfig.WalletInitialBalanceUSD)
+			wallet, err := provisionWallet(ctx, c, tenant.ID, walSeedKey, cust.ID, cp.Currency, pickedWalletBalance)
 			if err != nil {
 				return err
 			}
@@ -431,7 +526,7 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		}
 
 		paymentMethodID := ""
-		if a.BillingMode == scenario.BillingPostpaid || a.BillingMode == scenario.BillingHybrid {
+		if pickedBillingMode == scenario.BillingPostpaid || pickedBillingMode == scenario.BillingHybrid {
 			pmSeedKey := seedKey("pm", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
 			pm, err := provisionPaymentMethod(ctx, c, tenant.ID, pmSeedKey, cust.ID, cp.Seq)
 			if err != nil {
@@ -440,7 +535,24 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 			paymentMethodID = pm.ID
 		}
 
-		off := offByCurrency[cp.Currency]
+		// v2: bind the sub to the card the planner picked for this customer.
+		prov := cardProvs[cp.CardIndex]
+		off, ok := prov.OffByCurrency[cp.Currency]
+		if !ok {
+			// Fallback: if the card's Offerings don't cover this
+			// customer's currency (e.g. an explicit RateCardSpec.Offerings
+			// list omitted the currency this customer drew), try to bind
+			// to any USD offering under that card. Failing that, use the
+			// FIRST offering on the card so the sub still lands.
+			if usdOff, has := prov.OffByCurrency["USD"]; has {
+				off = usdOff
+			} else {
+				for _, any := range prov.OffByCurrency {
+					off = any
+					break
+				}
+			}
+		}
 		subSeedKey := seedKey("sub", a.Name, s.cfg.RunID, seq*1_000+cp.Seq)
 		sub, _, err := provisionSubscription(ctx, c, tenant.ID, subSeedKey, off.ID, cust.ID, walletID, paymentMethodID, cp.State, a.Name)
 		if err != nil {
@@ -515,6 +627,84 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 
 	manifest.AppendTenant(mt)
 	return nil
+}
+
+// deriveCardArchetype returns a copy of `a` with fields overridden from
+// the rate-card spec, so downstream helpers (buildRatePlanRequest,
+// rateConfigSummary, expectedBillingFormula, provisionOffering) that
+// consume `scenario.TenantArchetype` can be reused for v2 without
+// changing their signatures. Only the fields the RateCardSpec is
+// authoritative over are swapped; everything else (ProductTypes,
+// CustomerCount, CurrencyMix, DiscountMix, RateCards, etc.) is preserved
+// so any read of `a.Name` etc. still returns the archetype's identity.
+//
+// Whole-struct override for RateConfig — matches applyDefaults'
+// isZeroRateConfig-based inheritance (per-field inheritance would silently
+// drop tier / included-free config the operator meant to set at plan
+// level).
+func deriveCardArchetype(a scenario.TenantArchetype, card scenario.RateCardSpec) scenario.TenantArchetype {
+	out := a
+	if card.PricingModel != "" {
+		out.PricingModel = card.PricingModel
+	}
+	if card.BillingMode != "" {
+		out.BillingMode = card.BillingMode
+	}
+	if !isZeroRateConfig(card.RateConfig) {
+		out.RateConfig = card.RateConfig
+	}
+	if card.MetricConfigs != nil {
+		out.MetricConfigs = card.MetricConfigs
+	}
+	if card.DimensionPricing != nil {
+		out.DimensionPricing = card.DimensionPricing
+	}
+	// Leave out.RateCards and out.ProductTypes untouched — the card doesn't
+	// override the archetype's identity.
+	return out
+}
+
+// isZeroRateConfig mirrors scenario.isZeroRateConfig — kept here as a
+// local so seeder.go doesn't need to import a helper from the scenario
+// package. Same predicate: whole-struct zero-value check.
+func isZeroRateConfig(rc scenario.RateConfig) bool {
+	return rc.FlatFeeUSD == 0 &&
+		rc.PerUnitRateUSD == 0 &&
+		rc.PercentageRate == 0 &&
+		rc.ChargeBasePerEventUSD == 0 &&
+		rc.MinFeeUSD == 0 &&
+		rc.IncludedFreeUnits == 0 &&
+		rc.BlockSizeUnits == 0 &&
+		len(rc.GraduatedTiers) == 0 &&
+		len(rc.VolumeTiers) == 0 &&
+		rc.WalletInitialBalanceUSD == 0 &&
+		rc.TrialDays == 0
+}
+
+// filterProductIDsForCard applies the card's ProductFilter to the
+// archetype's product roster and returns the subset of product IDs this
+// rate card should be bound to. Empty ProductFilter = "bind all of the
+// archetype's products" (the v1 back-compat default). Returns a fresh
+// slice — safe to mutate.
+func filterProductIDsForCard(a scenario.TenantArchetype, card scenario.RateCardSpec, products []ManifestProduct) []string {
+	if len(card.ProductFilter) == 0 {
+		out := make([]string, 0, len(products))
+		for _, p := range products {
+			out = append(out, p.ProductID)
+		}
+		return out
+	}
+	filterSet := make(map[scenario.ProductType]struct{}, len(card.ProductFilter))
+	for _, pt := range card.ProductFilter {
+		filterSet[pt] = struct{}{}
+	}
+	out := make([]string, 0, len(products))
+	for _, p := range products {
+		if _, ok := filterSet[p.ProductType]; ok {
+			out = append(out, p.ProductID)
+		}
+	}
+	return out
 }
 
 func uniqueCurrencies(plans []customerPlan) []string {

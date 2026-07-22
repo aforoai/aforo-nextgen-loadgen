@@ -15,7 +15,7 @@
 # Coverage: 1 tenant, 1 archetype (PER_UNIT POSTPAID AGENTIC_API), REST
 # direct only, 100 TPS, 60s. No fault injection. No lifecycle. No payments.
 
-schema_version: 1
+schema_version: 2
 name: ci-agentic-api
 description: 60-second AGENTIC_API smoke test for CI. One tenant, REST direct, no faults.
 target_tps: 100

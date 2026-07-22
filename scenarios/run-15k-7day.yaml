@@ -9,7 +9,7 @@
 # 15K TPS, 7d. Sine-24h. Light fault injection. Lifecycle on at low rate.
 # Payments off in this baseline (toggle on for end-to-end revenue runs).
 
-schema_version: 1
+schema_version: 2
 name: run-15k-7day
 description: 500 tenants, 12 archetypes, 15K TPS for 7 days. The headline endurance run.
 target_tps: 15000

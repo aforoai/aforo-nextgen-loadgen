@@ -7,7 +7,7 @@
 # Coverage: 10 tenants, 3 archetypes (POSTPAID, PREPAID, HYBRID), 200 TPS,
 # 5m. Lifecycle disabled — payments + dunning are the focus.
 
-schema_version: 1
+schema_version: 2
 name: payments-stripe-test
 description: 5-minute payment-flow run against Stripe test mode. 80% success / 15% decline / 5% insufficient funds.
 target_tps: 200

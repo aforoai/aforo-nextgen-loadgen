@@ -36,6 +36,23 @@ func Migrate(s *Scenario) error {
 	if s.SchemaVersion < 1 {
 		return fmt.Errorf("schema_version %d is unsupported (minimum is 1)", s.SchemaVersion)
 	}
-	// schema version 1 is the current contract — nothing to migrate.
+	switch s.SchemaVersion {
+	case 1:
+		upgradeV1toV2(s)
+		fallthrough
+	case CurrentSchemaVersion:
+		return nil
+	}
 	return nil
+}
+
+// upgradeV1toV2 is a no-op walk that just bumps SchemaVersion. The actual
+// v1→v2 backward-compat work (backfilling RateCards from legacy top-level
+// PricingModel / RateConfig / MetricConfigs / DimensionPricing) happens in
+// applyDefaults so both explicit-v2 authors and migrated-from-v1 files
+// share the same normalization path — reading `Migrate` and expecting the
+// v1 shape to be rewritten in place would violate the "defaults after
+// migration" convention.
+func upgradeV1toV2(s *Scenario) {
+	s.SchemaVersion = CurrentSchemaVersion
 }

@@ -7,7 +7,7 @@
 #
 # Coverage: 8 tenants (2 per provider), 4 archetypes, 100 TPS, 3m.
 
-schema_version: 1
+schema_version: 2
 name: erp-sync-validation
 description: ERP sync coverage across all 4 providers. Verifies SLA + provider-side round-trip.
 target_tps: 100

@@ -13,7 +13,7 @@
 # Negative paths on at low rates incl. stale_keys (since several archetypes
 # include CANCELLED/EXPIRED states). Lifecycle off (separate scenario).
 
-schema_version: 1
+schema_version: 2
 name: matrix-billing
 description: 30 archetypes covering every (pricing × billing) combination plus stale-state variants.
 target_tps: 1000

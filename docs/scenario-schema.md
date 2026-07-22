@@ -14,7 +14,7 @@ bug reports against this doc when you spot drift.
 ## Top level
 
 ```yaml
-schema_version: 1                # int, required, must equal 1 today
+schema_version: 2                # int, required, must equal 2 today (v1 files auto-migrate on load — see below)
 name: <kebab-case>               # string, required, must match ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$
 description: <free text>         # optional
 target_tps: <int>                # required, > 0
@@ -106,6 +106,75 @@ archetypes:
 
 **Archetype weight invariant:** weights of every archetype in `archetypes`
 sum to `1.0 ± 0.001`.
+
+### Multiple rate cards per archetype (v2, 2026-07-22)
+
+An archetype can declare **N rate cards** — different pricing tiers on the same
+product set — via the `rate_cards` array. Each card carries its own pricing
+model + rate config + metric overrides + dimension pricing + customer share,
+so a single archetype models the "Starter / Pro / Enterprise" pattern
+without duplicating the entire archetype block.
+
+```yaml
+tenants:
+  archetypes:
+    - name: three-tier
+      weight: 1.0
+      # Top-level pricing_model / rate_config / metric_configs still work —
+      # they become the DEFAULT that any per-card field inherits from when
+      # left unset. Every existing v1 scenario keeps producing byte-
+      # identical output via this back-compat path.
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 100
+      rate_config: { per_unit_rate_usd: 0.001 }
+
+      rate_cards:
+        - name: starter                      # required — unique within archetype
+          pricing_model: PER_UNIT            # optional — inherits from top-level
+          rate_config: { per_unit_rate_usd: 0.002 }
+          customer_share: 0.6                # 60% of customer_count subscribe to this card
+
+        - name: pro
+          pricing_model: INCLUDED_QUOTA
+          rate_config:
+            included_free_units: 10000
+            per_unit_rate_usd: 0.001
+          customer_share: 0.3
+
+        - name: enterprise
+          pricing_model: FLAT_RATE
+          rate_config: { flat_fee_usd: 499 }
+          customer_share: 0.1
+```
+
+**`customer_share` invariant:** across every card in the archetype, shares
+must sum to `1.0 ± 0.001`. When ALL cards have `customer_share` unset,
+each card is assigned an equal share of `1.0 / N`.
+
+**Backward compatibility:** when `rate_cards` is absent, `applyDefaults`
+synthesizes a single card named `default` from the archetype's top-level
+`pricing_model` / `billing_mode` / `rate_config` / `metric_configs` /
+`dimension_pricing` fields. Existing v1 scenarios keep loading and produce
+byte-identical output — the seed harness's behavior for a single-card
+archetype is identical to v1.
+
+**Optional per-card fields:**
+
+- `billing_mode` — override the archetype's top-level billing mode.
+- `product_filter: [ProductType, ...]` — bind this card only to products of
+  the listed types from `archetype.product_types`. Empty = bind to every
+  product (default).
+- `offerings:` — explicit list of offerings that wrap this card. Each entry
+  can carry its own `currency`, `billing_mode`, `trial_days`, and `name`.
+  When omitted, the seeder generates one offering per currency in the
+  archetype's `currency_mix` (preserves v1 fan-out behavior).
+
+**v1 files auto-migrate:** loading a `schema_version: 1` file bumps it to
+2 and normalizes it through the same `applyDefaults` path. No manual
+edit is required; the golden test asserts every scenario in
+`/scenarios/*.yaml` sits at `schema_version: 2` today.
 
 ### Pricing models and `rate_config`
 

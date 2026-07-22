@@ -128,6 +128,56 @@ func TestPlanArchetype_DistributesCustomers(t *testing.T) {
 	}
 }
 
+// TestPlanArchetype_DistributesAcrossRateCards asserts that the v2
+// RateCards path assigns customers to cards proportional to CustomerShare.
+// Exact rounding at n=100 with shares 0.6/0.3/0.1 → 60/30/10 buckets.
+func TestPlanArchetype_DistributesAcrossRateCards(t *testing.T) {
+	a := scenario.TenantArchetype{
+		CustomerCount: 100,
+		CurrencyMix:   map[string]float64{"USD": 1.0},
+		SubscriptionStateMix: map[scenario.SubscriptionState]float64{
+			scenario.StateActive: 1.0,
+		},
+		RateCards: []scenario.RateCardSpec{
+			{Name: "starter", CustomerShare: 0.6, PricingModel: scenario.PricingPerUnit},
+			{Name: "pro", CustomerShare: 0.3, PricingModel: scenario.PricingPerUnit},
+			{Name: "enterprise", CustomerShare: 0.1, PricingModel: scenario.PricingFlatRate},
+		},
+	}
+	rng := rand.New(rand.NewSource(42))
+	plan := planArchetype(a, rng)
+	counts := map[int]int{}
+	for _, cp := range plan.Customers {
+		counts[cp.CardIndex]++
+	}
+	if counts[0] != 60 || counts[1] != 30 || counts[2] != 10 {
+		t.Errorf("card distribution: starter=%d pro=%d enterprise=%d, want 60/30/10",
+			counts[0], counts[1], counts[2])
+	}
+}
+
+// TestPlanArchetype_SingleCard_AllZero asserts the v1 back-compat path:
+// when RateCards has exactly one entry (backfilled from legacy scalars),
+// every customer gets CardIndex=0. This is the invariant seeder.go's
+// customer loop assumes when it reads a.RateCards[cp.CardIndex].
+func TestPlanArchetype_SingleCard_AllZero(t *testing.T) {
+	a := scenario.TenantArchetype{
+		CustomerCount:        7,
+		CurrencyMix:          map[string]float64{"USD": 1.0},
+		SubscriptionStateMix: map[scenario.SubscriptionState]float64{scenario.StateActive: 1.0},
+		RateCards: []scenario.RateCardSpec{
+			{Name: "default", CustomerShare: 1.0, PricingModel: scenario.PricingPerUnit},
+		},
+	}
+	rng := rand.New(rand.NewSource(1))
+	plan := planArchetype(a, rng)
+	for i, cp := range plan.Customers {
+		if cp.CardIndex != 0 {
+			t.Errorf("customer[%d].CardIndex = %d, want 0 (single-card back-compat)", i, cp.CardIndex)
+		}
+	}
+}
+
 func TestExpectedBillingFormula(t *testing.T) {
 	tests := []struct {
 		name string

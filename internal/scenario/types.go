@@ -28,7 +28,22 @@ import (
 // CurrentSchemaVersion is the schema version this build understands.
 // Bump when introducing breaking changes; add a Migrate path for the prior
 // version so older files keep loading.
-const CurrentSchemaVersion = 1
+//
+// Version history:
+//
+//	v1 — initial contract (2026-03-xx). Single PricingModel + RateConfig per
+//	     archetype; loadgen provisioned exactly one rate plan per tenant.
+//	v2 — RateCards []RateCardSpec (2026-07-22). An archetype may declare N
+//	     rate cards, each with its own pricing model / rate config / metric
+//	     overrides / dimension pricing / offerings, and each with a share of
+//	     the archetype's customer population. When RateCards is empty the
+//	     migration path in applyDefaults backfills a single spec from the
+//	     legacy top-level fields — every v1 scenario keeps loading and
+//	     produces byte-identical output. Closes the "one rate card per
+//	     product" tester bug: the platform's rate_plan_products M:N junction
+//	     was always able to hold N rate cards for one product; loadgen's
+//	     scenario schema is the layer that was constraining it to one.
+const CurrentSchemaVersion = 2
 
 // ProductType enumerates the four GA product types Aforo bills against.
 // Mirrors com.aforo.billing.product.model.ProductType in the platform.
@@ -281,6 +296,98 @@ type TenantArchetype struct {
 	// An empty map is dropped from the request body — no
 	// `dimension_pricing:{}` is sent to pricing-service.
 	DimensionPricing map[string]float64 `yaml:"dimension_pricing,omitempty"`
+
+	// RateCards is the v2 shape for expressing N rate cards per archetype.
+	// Each RateCardSpec carries its own pricing model / rate config / metric
+	// overrides / dimension pricing / offerings and takes a share of the
+	// archetype's CustomerCount.
+	//
+	// When absent (or empty), applyDefaults backfills exactly one card from
+	// the legacy top-level PricingModel + BillingMode + RateConfig +
+	// MetricConfigs + DimensionPricing fields, so every v1 scenario keeps
+	// producing byte-identical output. When present, the legacy top-level
+	// fields are IGNORED for provisioning (they may still be set for
+	// documentation, but the seeder walks RateCards exclusively).
+	//
+	// Business use case (2026-07-22): a tenant sells the same product at
+	// different price points to different customer segments (Starter / Pro /
+	// Enterprise). The platform's rate_plan_products M:N junction has always
+	// supported this; loadgen's scenario schema is what was forcing one
+	// card per product until this field landed.
+	RateCards []RateCardSpec `yaml:"rate_cards,omitempty"`
+}
+
+// RateCardSpec describes one rate card an archetype provisions on each of
+// its tenants. Multiple specs let a single archetype exercise the
+// "multiple rate cards per product" business scenario.
+type RateCardSpec struct {
+	// Name is the display suffix appended to the tenant's rate plan name
+	// ("Loadgen Rate Plan <archetype> — <name>"). Must be unique within the
+	// archetype's RateCards slice. When absent, defaults to "card-<index>".
+	Name string `yaml:"name"`
+
+	// PricingModel for this card. Required when set; falls back to the
+	// archetype's top-level PricingModel when omitted.
+	PricingModel PricingModel `yaml:"pricing_model,omitempty"`
+
+	// BillingMode override for offerings under this card. Falls back to the
+	// archetype's top-level BillingMode when omitted.
+	BillingMode BillingMode `yaml:"billing_mode,omitempty"`
+
+	// RateConfig for this card. Fields not set inherit from the archetype's
+	// top-level RateConfig (per-field inheritance is NOT applied — the whole
+	// struct is either supplied or inherited).
+	RateConfig RateConfig `yaml:"rate_config,omitempty"`
+
+	// MetricConfigs are per-metric pricing overrides scoped to THIS card.
+	// See TenantArchetype.MetricConfigs for shape.
+	MetricConfigs map[string]MetricOverride `yaml:"metric_configs,omitempty"`
+
+	// DimensionPricing rides on this card's rate plan (Rule 21).
+	DimensionPricing map[string]float64 `yaml:"dimension_pricing,omitempty"`
+
+	// ProductFilter is optional. When non-empty, this card is bound only to
+	// products of the listed types from the archetype's ProductTypes. Empty
+	// means "bind to every product in the archetype" (default). Use this
+	// when different rate cards should price different product-type subsets
+	// on the same tenant (e.g. one card for MCP tools, another for AI
+	// agents).
+	ProductFilter []ProductType `yaml:"product_filter,omitempty"`
+
+	// Offerings is the per-currency (or explicit) list of offerings that
+	// wrap this card. When absent, defaults to ONE offering per currency in
+	// the archetype's CurrencyMix (preserves v1 behavior). When present,
+	// currencies are taken from OfferingSpec.Currency (defaults to "USD" if
+	// unset).
+	Offerings []OfferingSpec `yaml:"offerings,omitempty"`
+
+	// CustomerShare is the fraction of the archetype's CustomerCount whose
+	// subscription binds to THIS card. Sums across RateCards must equal
+	// 1.0 ± 0.001 (validator enforces). When absent, defaults to equal
+	// share (1.0 / len(RateCards)) so a v2 scenario with N cards and no
+	// shares distributes customers uniformly.
+	CustomerShare float64 `yaml:"customer_share,omitempty"`
+}
+
+// OfferingSpec describes one offering wrapping a RateCardSpec. Multiple
+// specs let a single card be sold with different currencies / billing
+// modes / trial windows.
+type OfferingSpec struct {
+	// Name is the display suffix appended to the offering name. When
+	// absent, defaults to the currency ("USD" / "EUR" / ...).
+	Name string `yaml:"name,omitempty"`
+
+	// Currency for this offering (ISO-4217 code). When absent, defaults to
+	// "USD".
+	Currency string `yaml:"currency,omitempty"`
+
+	// BillingMode override for this offering. Falls back to the parent
+	// RateCardSpec.BillingMode → archetype BillingMode when omitted.
+	BillingMode BillingMode `yaml:"billing_mode,omitempty"`
+
+	// TrialDays override. Falls back to the parent RateCardSpec.RateConfig.TrialDays
+	// → archetype RateConfig.TrialDays when omitted.
+	TrialDays int `yaml:"trial_days,omitempty"`
 }
 
 // MetricOverride carries the per-metric pricing config used by

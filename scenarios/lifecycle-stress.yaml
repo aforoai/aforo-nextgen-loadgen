@@ -10,7 +10,7 @@
 # 1K TPS, 4h. Lifecycle on at full intensity. Light fault injection.
 # Payments off (use payments=true overlay for a fuller stress run).
 
-schema_version: 1
+schema_version: 2
 name: lifecycle-stress
 description: 4-hour 1K-TPS run with full subscription lifecycle transitions enabled.
 target_tps: 1000

@@ -116,8 +116,8 @@ func TestScenarios_Show_PrintsKnown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scenarios show ci-smoke: %v", err)
 	}
-	if !strings.Contains(out, "schema_version: 1") {
-		t.Errorf("show output missing schema_version: 1\n%s", out)
+	if !strings.Contains(out, "schema_version: 2") {
+		t.Errorf("show output missing schema_version: 2\n%s", out)
 	}
 	if !strings.Contains(out, "name: ci-smoke") {
 		t.Errorf("show output missing scenario name\n%s", out)

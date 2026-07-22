@@ -1,5 +1,28 @@
 package scenario
 
+import "fmt"
+
+// isZeroRateConfig reports whether every RateConfig field is at its zero
+// value, meaning the caller left the config unset. Used by applyDefaults'
+// v2 RateCards backfill to decide whether a per-card RateConfig should
+// inherit from the archetype's top-level one. Per-field inheritance is
+// intentionally NOT done — carrying an all-zero RateConfig alongside a
+// non-zero one would silently drop tier / included-free fields the
+// operator meant to set at plan level.
+func isZeroRateConfig(rc RateConfig) bool {
+	return rc.FlatFeeUSD == 0 &&
+		rc.PerUnitRateUSD == 0 &&
+		rc.PercentageRate == 0 &&
+		rc.ChargeBasePerEventUSD == 0 &&
+		rc.MinFeeUSD == 0 &&
+		rc.IncludedFreeUnits == 0 &&
+		rc.BlockSizeUnits == 0 &&
+		len(rc.GraduatedTiers) == 0 &&
+		len(rc.VolumeTiers) == 0 &&
+		rc.WalletInitialBalanceUSD == 0 &&
+		rc.TrialDays == 0
+}
+
 // applyDefaults fills in low-stakes defaults for fields the author may have
 // omitted. It does NOT supply defaults for things the author likely intended
 // to set explicitly (target_tps, duration, archetypes, weights). The
@@ -21,6 +44,67 @@ func applyDefaults(s *Scenario) {
 	for i := range s.Tenants.Archetypes {
 		if s.Tenants.Archetypes[i].ProductsPerType == 0 {
 			s.Tenants.Archetypes[i].ProductsPerType = 1
+		}
+	}
+	// Backfill RateCards (v2 schema, 2026-07-22). When the archetype has NO
+	// explicit RateCards, synthesize a single card from the legacy top-level
+	// PricingModel / BillingMode / RateConfig / MetricConfigs /
+	// DimensionPricing so every v1 scenario keeps producing byte-identical
+	// output. When the author DID declare RateCards, per-card fields
+	// (BillingMode, RateConfig, MetricConfigs, DimensionPricing) fall back
+	// to the archetype's top-level values so authors can share defaults
+	// across cards without repetition. CustomerShare defaults to equal
+	// share when unset on ALL cards.
+	for i := range s.Tenants.Archetypes {
+		a := &s.Tenants.Archetypes[i]
+		if len(a.RateCards) == 0 {
+			a.RateCards = []RateCardSpec{{
+				Name:             "default",
+				PricingModel:     a.PricingModel,
+				BillingMode:      a.BillingMode,
+				RateConfig:       a.RateConfig,
+				MetricConfigs:    a.MetricConfigs,
+				DimensionPricing: a.DimensionPricing,
+				CustomerShare:    1.0,
+			}}
+			continue
+		}
+		// Per-card inheritance from top-level.
+		anySharesSet := false
+		for j := range a.RateCards {
+			rc := &a.RateCards[j]
+			if rc.Name == "" {
+				rc.Name = fmt.Sprintf("card-%d", j+1)
+			}
+			if rc.PricingModel == "" {
+				rc.PricingModel = a.PricingModel
+			}
+			if rc.BillingMode == "" {
+				rc.BillingMode = a.BillingMode
+			}
+			// Whole-struct inheritance for RateConfig: if the caller left
+			// the field entirely zero-valued we inherit; otherwise we
+			// respect their explicit config wholesale (per the docstring on
+			// RateCardSpec.RateConfig — per-field inheritance is NOT
+			// applied).
+			if isZeroRateConfig(rc.RateConfig) {
+				rc.RateConfig = a.RateConfig
+			}
+			if rc.MetricConfigs == nil {
+				rc.MetricConfigs = a.MetricConfigs
+			}
+			if rc.DimensionPricing == nil {
+				rc.DimensionPricing = a.DimensionPricing
+			}
+			if rc.CustomerShare > 0 {
+				anySharesSet = true
+			}
+		}
+		if !anySharesSet {
+			share := 1.0 / float64(len(a.RateCards))
+			for j := range a.RateCards {
+				a.RateCards[j].CustomerShare = share
+			}
 		}
 	}
 	if s.TimePattern == "" {

@@ -9,7 +9,7 @@
 # Coverage: 4 tenants (PREPAID + HYBRID), 100 TPS, 4m. The 4m duration
 # leaves enough slack for several hold/expiry cycles.
 
-schema_version: 1
+schema_version: 2
 name: wallet-lifecycle
 description: 4-minute hold/release lifecycle stress on PREPAID + HYBRID wallets. Asserts platform invariants.
 target_tps: 100

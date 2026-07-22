@@ -1,6 +1,129 @@
 package scenario
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
+
+// TestApplyDefaults_v1RateCardsBackfill locks the v1→v2 back-compat path:
+// an archetype declared with legacy top-level PricingModel / RateConfig
+// and NO explicit RateCards must, after applyDefaults, carry exactly one
+// RateCardSpec named "default" whose fields mirror the archetype's
+// top-level values. This guarantee is what lets every existing scenario
+// keep producing byte-identical output after the schema-version bump.
+func TestApplyDefaults_v1RateCardsBackfill(t *testing.T) {
+	s := &Scenario{
+		Tenants: Tenants{
+			Archetypes: []TenantArchetype{{
+				Name:             "legacy",
+				PricingModel:     PricingPerUnit,
+				BillingMode:      BillingPostpaid,
+				RateConfig:       RateConfig{PerUnitRateUSD: 0.01},
+				MetricConfigs:    map[string]MetricOverride{"api_calls": {PricingModel: PricingPerUnit, PerUnitRateUSD: 0.02}},
+				DimensionPricing: map[string]float64{"web_search": 1.5},
+			}},
+		},
+	}
+	applyDefaults(s)
+	a := s.Tenants.Archetypes[0]
+	if len(a.RateCards) != 1 {
+		t.Fatalf("RateCards len = %d, want 1 (backfilled from legacy scalars)", len(a.RateCards))
+	}
+	rc := a.RateCards[0]
+	if rc.Name != "default" {
+		t.Errorf("RateCards[0].Name = %q, want %q", rc.Name, "default")
+	}
+	if rc.PricingModel != PricingPerUnit {
+		t.Errorf("PricingModel = %q, want %q (from top-level)", rc.PricingModel, PricingPerUnit)
+	}
+	if rc.BillingMode != BillingPostpaid {
+		t.Errorf("BillingMode = %q, want %q (from top-level)", rc.BillingMode, BillingPostpaid)
+	}
+	if rc.RateConfig.PerUnitRateUSD != 0.01 {
+		t.Errorf("RateConfig.PerUnitRateUSD = %v, want 0.01 (from top-level)", rc.RateConfig.PerUnitRateUSD)
+	}
+	if rc.MetricConfigs["api_calls"].PerUnitRateUSD != 0.02 {
+		t.Errorf("MetricConfigs backfill lost the api_calls entry")
+	}
+	if rc.DimensionPricing["web_search"] != 1.5 {
+		t.Errorf("DimensionPricing backfill lost the web_search entry")
+	}
+	if rc.CustomerShare != 1.0 {
+		t.Errorf("CustomerShare = %v, want 1.0 (single card = 100%%)", rc.CustomerShare)
+	}
+}
+
+// TestApplyDefaults_v2ExplicitRateCards_InheritTopLevel asserts that an
+// operator-authored archetype with explicit RateCards inherits any
+// per-card field the operator left empty from the top-level equivalents
+// (BillingMode, RateConfig, MetricConfigs, DimensionPricing) — matching
+// the per-archetype "shared defaults" convention.
+func TestApplyDefaults_v2ExplicitRateCards_InheritTopLevel(t *testing.T) {
+	s := &Scenario{
+		Tenants: Tenants{
+			Archetypes: []TenantArchetype{{
+				Name:        "v2",
+				BillingMode: BillingPrepaid, // top-level default
+				RateConfig:  RateConfig{PerUnitRateUSD: 0.005, WalletInitialBalanceUSD: 100},
+				RateCards: []RateCardSpec{
+					// Card 1: everything inherited from top-level except PricingModel.
+					{Name: "starter", PricingModel: PricingPerUnit, CustomerShare: 0.6},
+					// Card 2: explicit BillingMode override.
+					{Name: "pro", PricingModel: PricingFlatRate, BillingMode: BillingPostpaid, RateConfig: RateConfig{FlatFeeUSD: 99}, CustomerShare: 0.4},
+				},
+			}},
+		},
+	}
+	applyDefaults(s)
+	a := s.Tenants.Archetypes[0]
+	if a.RateCards[0].BillingMode != BillingPrepaid {
+		t.Errorf("card starter: BillingMode = %q, want inherited %q", a.RateCards[0].BillingMode, BillingPrepaid)
+	}
+	if a.RateCards[0].RateConfig.PerUnitRateUSD != 0.005 {
+		t.Errorf("card starter: RateConfig inherited-check lost PerUnitRateUSD")
+	}
+	if a.RateCards[1].BillingMode != BillingPostpaid {
+		t.Errorf("card pro: BillingMode = %q, want explicit %q (not inherited)", a.RateCards[1].BillingMode, BillingPostpaid)
+	}
+	if a.RateCards[1].RateConfig.FlatFeeUSD != 99 {
+		t.Errorf("card pro: explicit RateConfig lost FlatFeeUSD=99")
+	}
+	// Shares sum to 1.0.
+	sum := a.RateCards[0].CustomerShare + a.RateCards[1].CustomerShare
+	if math.Abs(sum-1.0) > 1e-9 {
+		t.Errorf("customer_share sum = %v, want 1.0", sum)
+	}
+}
+
+// TestApplyDefaults_v2RateCards_EqualShareDefault asserts that an
+// operator-authored RateCards slice with NO CustomerShare set on any card
+// gets an equal-share default (1.0/N) so scenarios can express "3 cards,
+// spread customers evenly" without repeating a share on each entry.
+func TestApplyDefaults_v2RateCards_EqualShareDefault(t *testing.T) {
+	s := &Scenario{
+		Tenants: Tenants{
+			Archetypes: []TenantArchetype{{
+				Name: "equal-shares",
+				RateCards: []RateCardSpec{
+					{Name: "a", PricingModel: PricingPerUnit, RateConfig: RateConfig{PerUnitRateUSD: 0.01}},
+					{Name: "b", PricingModel: PricingPerUnit, RateConfig: RateConfig{PerUnitRateUSD: 0.02}},
+					{Name: "c", PricingModel: PricingPerUnit, RateConfig: RateConfig{PerUnitRateUSD: 0.03}},
+				},
+			}},
+		},
+	}
+	applyDefaults(s)
+	shares := []float64{
+		s.Tenants.Archetypes[0].RateCards[0].CustomerShare,
+		s.Tenants.Archetypes[0].RateCards[1].CustomerShare,
+		s.Tenants.Archetypes[0].RateCards[2].CustomerShare,
+	}
+	for i, sh := range shares {
+		if math.Abs(sh-(1.0/3.0)) > 1e-9 {
+			t.Errorf("card[%d].CustomerShare = %v, want %v (equal-share default)", i, sh, 1.0/3.0)
+		}
+	}
+}
 
 // TestApplyDefaults_ProductsPerType_DefaultsToOne — Issue 2 fix, backfill
 // behavior. Existing scenarios never set products_per_type; applyDefaults
