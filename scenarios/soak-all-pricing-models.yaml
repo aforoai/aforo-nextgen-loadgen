@@ -1,0 +1,147 @@
+# soak-all-pricing-models — post-deploy soak for the model-aware MRR
+# classifier (V58, Issue A2).
+#
+# Purpose: exercise EVERY GA pricing model on a single seeded environment
+# so post-deploy verification of the model-aware revenue classifier can
+# assert non-zero values in each of the three buckets — Recurring, Usage,
+# Overage — via Micrometer counters + the analytics endpoint. Companion
+# to docs/runbooks/2026-07-23-mrr-classifier-post-deploy-soak.md.
+#
+# Coverage — 6 archetypes, 6 pricing models, ONE tenant each, 5 customers
+# each (30 customers total), 5-minute run, REST direct only, no fault
+# injection. Every archetype uses ONE product of the API type so downstream
+# analytics can pivot per archetype without extra product-mix complexity.
+#
+# Expected bucket landing per archetype:
+#   FLAT_RATE archetype       → Recurring (plan-level base fee stamps FLAT_RATE)
+#   PER_UNIT archetype        → Usage
+#   PERCENTAGE archetype      → Usage
+#   INCLUDED_QUOTA archetype  → Overage (metric line — the base allowance
+#                                is spent inside the metric, so overage
+#                                consumption is what invoices)
+#   GRADUATED archetype       → Overage (whole line — v1 simplification)
+#   VOLUME_TIERED archetype   → Overage (same)
+#
+# The runbook walks the reader through asserting each bucket receives
+# non-zero writes after the bill run.
+
+schema_version: 2
+name: soak-all-pricing-models
+description: >-
+  Six archetypes covering every GA pricing model — FLAT_RATE, PER_UNIT,
+  PERCENTAGE, INCLUDED_QUOTA, GRADUATED, VOLUME_TIERED. One tenant + one
+  product + five customers per archetype. Locks the post-deploy soak for
+  the model-aware revenue classifier (V58, Issue A2).
+target_tps: 20
+duration: 300s
+seed: 723
+
+tenants:
+  count: 6
+  distribution: uniform
+  archetypes:
+
+    - name: soak-flat-rate
+      weight: 0.166667
+      pricing_model: FLAT_RATE
+      billing_mode: POSTPAID
+      product_types: [API]
+      products_per_type: 1
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        flat_fee_usd: 99
+
+    - name: soak-per-unit
+      weight: 0.166667
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      products_per_type: 1
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.002
+
+    - name: soak-percentage
+      weight: 0.166667
+      pricing_model: PERCENTAGE
+      billing_mode: POSTPAID
+      product_types: [API]
+      products_per_type: 1
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        percentage_rate: 2.9
+        charge_base_per_event_usd: 50.0
+
+    - name: soak-included-quota
+      weight: 0.166667
+      pricing_model: INCLUDED_QUOTA
+      billing_mode: POSTPAID
+      product_types: [API]
+      products_per_type: 1
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        included_free_units: 1000
+        per_unit_rate_usd: 0.001
+
+    - name: soak-graduated
+      weight: 0.166667
+      pricing_model: GRADUATED
+      billing_mode: POSTPAID
+      product_types: [API]
+      products_per_type: 1
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        graduated_tiers:
+          - { up_to_units: 1000, unit_price_usd: 0.005 }
+          - { up_to_units: 10000, unit_price_usd: 0.003 }
+          - { up_to_units: 0, unit_price_usd: 0.001 } # 0 = no upper bound
+
+    - name: soak-volume-tiered
+      weight: 0.166665
+      pricing_model: VOLUME_TIERED
+      billing_mode: POSTPAID
+      product_types: [API]
+      products_per_type: 1
+      customer_count: 5
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        volume_tiers:
+          - { up_to_units: 1000, unit_price_usd: 0.005 }
+          - { up_to_units: 10000, unit_price_usd: 0.003 }
+          - { up_to_units: 0, unit_price_usd: 0.001 }
+
+time_pattern: constant
+
+product_mix:
+  API: 1.0
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0
