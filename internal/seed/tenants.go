@@ -24,6 +24,14 @@ type tenantCreateRequest struct {
 	Tier        string            `json:"tier,omitempty"`
 	Description string            `json:"description,omitempty"`
 	Metadata    map[string]string `json:"metadata,omitempty"`
+
+	// Optional real-operator owner identity. When set (from the
+	// AFORO_LOADGEN_OPERATOR_* env), org-service seeds this Supabase user as the
+	// tenant OWNER so a real person can sign in via the auth handoff. omitempty
+	// keeps the payload byte-identical to before when unconfigured.
+	OwnerUserID string `json:"ownerUserId,omitempty"`
+	OwnerEmail  string `json:"ownerEmail,omitempty"`
+	OwnerName   string `json:"ownerName,omitempty"`
 }
 
 // tenantResponse is the normalized response we extract. Real org-service
@@ -44,6 +52,7 @@ func provisionTenant(ctx context.Context, c *Client, externalID, name, archetype
 		return existing, nil
 	}
 
+	ownerUserID, ownerEmail, ownerName := c.Operator()
 	body := tenantCreateRequest{
 		ExternalID:  externalID,
 		Name:        name,
@@ -53,6 +62,9 @@ func provisionTenant(ctx context.Context, c *Client, externalID, name, archetype
 			"loadgen":   "true",
 			"archetype": archetype,
 		},
+		OwnerUserID: ownerUserID,
+		OwnerEmail:  ownerEmail,
+		OwnerName:   ownerName,
 	}
 	createURL, err := c.Target().Path(aforo.ServiceOrganization, aforo.PathInternalTenants)
 	if err != nil {

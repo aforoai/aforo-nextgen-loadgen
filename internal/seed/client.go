@@ -39,6 +39,17 @@ type ClientConfig struct {
 	DryRun         bool          // true → log requests but never send them
 	Logger         *log.Logger   // nil → log.Default()
 	Now            func() time.Time
+
+	// Operator, when set, supplies a REAL Supabase user identity that becomes
+	// the OWNER of every tenant this run provisions (and is healed onto
+	// already-provisioned tenants on a re-run) so a real person can sign in.
+	// Populated from AFORO_LOADGEN_OPERATOR_USER_ID / _EMAIL / _NAME by the
+	// seed CLI. When OperatorUserID is blank the tenant-create payload omits
+	// the owner fields (omitempty) and org-service falls back to its synthetic
+	// "loadgen-{externalId}" owner — byte-identical to the prior behavior.
+	OperatorUserID string
+	OperatorEmail  string
+	OperatorName   string
 }
 
 // Client wraps an HTTP transport with auth, rate limiting, retry, and
@@ -127,6 +138,13 @@ func (c *Client) Target() aforo.Target { return c.cfg.Target }
 
 // DryRun reports whether this client is in dry-run mode (no network calls).
 func (c *Client) DryRun() bool { return c.cfg.DryRun }
+
+// Operator returns the real-operator owner identity to seed onto provisioned
+// tenants. All three values are empty when no operator was configured, in
+// which case tenant provisioning uses org-service's synthetic owner fallback.
+func (c *Client) Operator() (userID, email, name string) {
+	return c.cfg.OperatorUserID, c.cfg.OperatorEmail, c.cfg.OperatorName
+}
 
 // DryRunRecords returns the captured request records — only populated when
 // DryRun is true. Callers may safely iterate the returned slice; it's a copy.

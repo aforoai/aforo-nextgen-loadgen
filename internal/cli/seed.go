@@ -113,6 +113,14 @@ func runSeed(ctx context.Context, out, errOut io.Writer, f *seedFlags) error {
 		MaxConcurrency: f.maxConcurrency,
 		MinInterval:    time.Duration(f.minIntervalMS) * time.Millisecond,
 		DryRun:         f.dryRun,
+		// Optional real-operator owner identity. When AFORO_LOADGEN_OPERATOR_USER_ID
+		// is set, org-service seeds this Supabase user as the OWNER of every
+		// provisioned tenant so a real person can sign in via the auth handoff;
+		// when unset the tenant-create payload omits the owner fields and the
+		// backend falls back to its synthetic loadgen owner.
+		OperatorUserID: strings.TrimSpace(os.Getenv("AFORO_LOADGEN_OPERATOR_USER_ID")),
+		OperatorEmail:  strings.TrimSpace(os.Getenv("AFORO_LOADGEN_OPERATOR_EMAIL")),
+		OperatorName:   strings.TrimSpace(os.Getenv("AFORO_LOADGEN_OPERATOR_NAME")),
 	}
 	c, err := seed.NewClient(clientCfg)
 	if err != nil {
