@@ -110,6 +110,7 @@ func runSeed(ctx context.Context, out, errOut io.Writer, f *seedFlags) error {
 	clientCfg := seed.ClientConfig{
 		Target:         target,
 		BearerToken:    token,
+		InternalAPIKey: strings.TrimSpace(os.Getenv("AFORO_INTERNAL_API_KEY")),
 		MaxConcurrency: f.maxConcurrency,
 		MinInterval:    time.Duration(f.minIntervalMS) * time.Millisecond,
 		DryRun:         f.dryRun,

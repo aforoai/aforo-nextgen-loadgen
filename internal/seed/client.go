@@ -28,8 +28,15 @@ const (
 // ClientConfig configures HTTP transport. Zero values fall back to the
 // default constants above so callers only set what they need to override.
 type ClientConfig struct {
-	Target         aforo.Target
-	BearerToken    string
+	Target      aforo.Target
+	BearerToken string
+	// InternalAPIKey, when set, is forwarded as X-Internal-Api-Key on every
+	// request. Endpoints under /api/v1/internal/** (e.g. org-service's
+	// tenant lookup/create) are gated by this shared platform key in addition
+	// to (or instead of) the bearer token — see AFORO_INTERNAL_API_KEY in
+	// aforo-common's SecurityProperties.Internal. Populated from the env var
+	// of the same name by the seed CLI.
+	InternalAPIKey string
 	HTTPClient     *http.Client  // nil → default with reasonable timeouts
 	MaxConcurrency int           // 0 → 50
 	MinInterval    time.Duration // 0 → 200ms
@@ -269,6 +276,9 @@ func (c *Client) doOnce(ctx context.Context, method, fullURL string, body []byte
 	}
 	if c.cfg.BearerToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.cfg.BearerToken)
+	}
+	if c.cfg.InternalAPIKey != "" {
+		req.Header.Set("X-Internal-Api-Key", c.cfg.InternalAPIKey)
 	}
 	if opts.TenantID != "" {
 		req.Header.Set("X-Tenant-Id", opts.TenantID)
