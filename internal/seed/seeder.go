@@ -256,6 +256,7 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		if err != nil {
 			return err
 		}
+		s.cfg.Logger.Printf("[%s/%03d] provisioned tenant id=%s externalId=%s", a.Name, seq, tenant.ID, tenant.ExternalID)
 	}
 
 	// Per-tenant billing prerequisites that organization-service's normal
