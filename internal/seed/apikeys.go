@@ -2,6 +2,8 @@ package seed
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"time"
@@ -51,7 +53,9 @@ func accessorTypeForProductType(pt scenario.ProductType) string {
 //   - accessorId     — @NotBlank, the App or Agent id that owns this key.
 //     pricing-service does NOT validate that the row exists
 //     in customer-service (it just stamps the column), so
-//     loadgen synthesizes "loadgen-{app|agent}-{subId}".
+//     loadgen synthesizes "loadgen-{app|agent}-{hash(subId)}"
+//     (accessor_id is VARCHAR(36); a raw subscription UUID
+//     wouldn't fit alongside the prefix).
 //   - accessorType   — @NotBlank, APP | AGENT.
 //   - customerId     — @NotBlank, must match the subscription's customer.
 //   - subscriptionIds — @NotEmpty list. Subscription must be ACTIVE; key
@@ -140,11 +144,20 @@ func provisionAPIKey(ctx context.Context, c *Client, tenantID, seedKey, customer
 	// pricing-service stamps accessorId on the key without verifying the App
 	// or Agent row exists in customer-service, so a synthetic id is safe.
 	// Per-subscription scope keeps it stable across loadgen re-runs.
+	//
+	// accessor_id is VARCHAR(36) (V17__create_api_keys_and_bindings.sql) and
+	// subscriptionID is itself a 36-char UUID, so prefix+subscriptionID
+	// overflowed the column on every single call (409 data-integrity-violation,
+	// caught with no length guard since CreateApiKeyRequest.accessorId has no
+	// @Size). Hash the subscription id instead: still deterministic per
+	// subscription (required for the idempotent lookup-by-accessor below),
+	// but fits well within 36 chars for both prefixes.
 	accessorPrefix := "loadgen-app-"
 	if accessorType == "AGENT" {
 		accessorPrefix = "loadgen-agent-"
 	}
-	accessorID := accessorPrefix + subscriptionID
+	subHash := sha256.Sum256([]byte(subscriptionID))
+	accessorID := accessorPrefix + hex.EncodeToString(subHash[:10])
 
 	if existing, ok, err := lookupAPIKeyByAccessor(ctx, c, tenantID, customerID, accessorID); err != nil {
 		return apiKeyResponse{}, fmt.Errorf("lookup api-key for customer=%q accessor=%q: %w", customerID, accessorID, err)
