@@ -424,7 +424,7 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		}
 
 		rpSeedKey := seedKey(fmt.Sprintf("rateplan-%02d", cardIdx+1), a.Name, s.cfg.RunID, seq)
-		rpName := fmt.Sprintf("Loadgen Rate Plan %s — %s", a.Name, card.Name)
+		rpName := fmt.Sprintf("Loadgen Rate Plan %s - %s", a.Name, card.Name)
 		rp, err := provisionRatePlanWithName(ctx, c, tenant.ID, cardArchetype, cardProductIDs, rateMetrics, rpSeedKey, rpName)
 		if err != nil {
 			return err
@@ -458,7 +458,7 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 				cur = "USD"
 			}
 			offSeedKey := seedKey(fmt.Sprintf("offering-%02d-%s-%02d", cardIdx+1, cur, offIdx+1), a.Name, s.cfg.RunID, seq)
-			offName := fmt.Sprintf("Loadgen Offering %s — %s (%s)", a.Name, card.Name, cur)
+			offName := fmt.Sprintf("Loadgen Offering %s - %s (%s)", a.Name, card.Name, cur)
 			// If the spec named the offering, prefer that.
 			if off.Name != "" {
 				offName = off.Name
