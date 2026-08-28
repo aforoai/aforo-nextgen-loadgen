@@ -65,7 +65,7 @@ jobs:
       # and `aws s3 cp s3://aforo-loadgen-artifacts/aforo-loadgen-<sha> ...`
       # then repeat the install+restart steps below by hand.
       - name: pull latest + restart aforo-loadgen.service
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.LOADGEN_EC2_HOST }}
           username: ${{ secrets.LOADGEN_EC2_USERNAME }}
