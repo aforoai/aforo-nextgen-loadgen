@@ -61,26 +61,26 @@ jobs:
       # dependencies. If any repo needs an org invite, the checkout
       # step below fails with a clear error.
       - name: checkout loadgen
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: aforo-nextgen-loadgen
 
       - name: checkout aforo-metering-sdks (for mcp-test-server source)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: jayaforo/aforo-metering-sdks
           path: aforo-metering-sdks
           token: ${{ secrets.AFORO_LOADGEN_PAT || secrets.GITHUB_TOKEN }}
 
       - name: checkout aforo-gateway-plugins (for Kong plugin source)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: jayaforo/aforo-gateway-plugins
           path: aforo-gateway-plugins
           token: ${{ secrets.AFORO_LOADGEN_PAT || secrets.GITHUB_TOKEN }}
 
       - name: checkout aforo-nextgen-docker (for compose stack)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: aforoai/aforo-nextgen-docker
           path: aforo-nextgen-docker
