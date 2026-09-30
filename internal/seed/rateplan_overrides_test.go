@@ -48,9 +48,11 @@ func TestBuildRatePlanRequest_MetricConfigsOverride(t *testing.T) {
 		t.Errorf("Tokens Consumed: model=%q tiers=%d, want GRADUATED w/ 2 tiers (got %+v)", mc.Model, len(mc.Tiers), mc)
 	}
 
-	// GPU Hours: case-insensitive override → FLAT_RATE (rate=0)
-	if mc := byName["GPU Hours"]; mc.Model != scenario.PricingFlatRate {
-		t.Errorf("GPU Hours: model=%q, want FLAT_RATE — did case-insensitive matching regress? mc=%+v", mc.Model, mc)
+	// GPU Hours: case-insensitive override → per-metric FLAT_RATE means "don't bill
+	// this metric"; pricing rejects a FLAT_RATE rate of 0, so it goes out PER_UNIT at $0.
+	// (Not the archetype default, whose rate is non-zero.)
+	if mc := byName["GPU Hours"]; mc.Model != scenario.PricingPerUnit || mc.Rate == nil || *mc.Rate != 0 {
+		t.Errorf("GPU Hours: model=%q rate=%v, want PER_UNIT at 0 — did case-insensitive matching regress? mc=%+v", mc.Model, mc.Rate, mc)
 	}
 
 	// Agent Sessions: falls back to archetype PER_UNIT + PerUnitRateUSD

@@ -32,10 +32,7 @@ func linearCharge(units float64, r RateConfig) float64 {
 	var cost float64
 	if r.BlockSizeUnits > 0 && billable > 0 {
 		block := float64(r.BlockSizeUnits)
-		// Round to 6 dp before ceil so float noise (e.g. 2000.0000000001)
-		// can't bill an extra block. Weighted units are 6-dp values already.
-		blocks := math.Ceil(round6(billable / block))
-		cost = blocks * block * r.PerUnitRateUSD
+		cost = ceilBlocks(billable, r.BlockSizeUnits) * block * r.PerUnitRateUSD
 	} else {
 		cost = billable * r.PerUnitRateUSD
 	}
@@ -44,6 +41,31 @@ func linearCharge(units float64, r RateConfig) float64 {
 		cost = roundCents(r.MinFeeUSD)
 	}
 	return cost
+}
+
+// ceilBlocks is ceil(billable / blockSize) with billable taken at billing's
+// 6-dp scale (OutcomeWeighting's weighted units are 6-dp decimals and
+// PricingCalculator divides the exact decimal with RoundingMode.CEILING).
+// The division is done in integer micro-units: a float quotient rounded to
+// 6 dp — the previous approach — loses the fractional unit whenever
+// billable/blockSize has more than 6 significant decimals, e.g.
+// 2000.000001 / 1000 = 2.000000001 → 2.000000 → 2 blocks, where billing
+// bills 3. Falls back to a float ceil only when billable is too large for
+// int64 micro-units (> ~9.2e12 units), where 6-dp fractions are below
+// float64 resolution anyway.
+func ceilBlocks(billable float64, blockSize int64) float64 {
+	const maxMicros = float64(math.MaxInt64) / 2
+	micros := math.RoundToEven(billable * 1e6)
+	blockMicros := float64(blockSize) * 1e6
+	if micros >= maxMicros || blockMicros >= maxMicros {
+		return math.Ceil(round6(billable) / float64(blockSize))
+	}
+	bm, blk := int64(micros), int64(blockMicros)
+	q := bm / blk
+	if bm%blk != 0 {
+		q++
+	}
+	return float64(q)
 }
 
 // round6 rounds half-even to 6 decimal places — billing's OutcomeWeighting

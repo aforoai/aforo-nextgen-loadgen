@@ -3,6 +3,7 @@ package seed
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 
@@ -58,11 +59,10 @@ type metricConfigRequest struct {
 	OutcomeWeights map[string]float64 `json:"outcomeWeights,omitempty"`
 }
 
-// rateTierRequest mirrors MetricTierRequest. TierEnd is a pointer so an
-// open-ended STAIRCASE step can be sent as null (pricing rejects a bounded
-// step whose end is below its start, so the GRADUATED/VOLUME_TIERED "-1"
-// sentinel would fail STAIRCASE validation). GRADUATED/VOLUME_TIERED keep
-// sending -1 for their open-ended top tier, byte-identical to before.
+// rateTierRequest mirrors MetricTierRequest. Tiers are 1-based INCLUSIVE
+// [tierStart, tierEnd] for every tiered model (GRADUATED, VOLUME_TIERED,
+// STAIRCASE). TierEnd is a pointer so the open-ended top tier is sent as
+// JSON null — billing treats only null (or 0) as open-ended.
 type rateTierRequest struct {
 	TierStart int64   `json:"tierStart"`
 	TierEnd   *int64  `json:"tierEnd"`
@@ -218,9 +218,15 @@ func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metri
 		Currency:     "USD",
 		ProductIDs:   productIDs,
 	}
-	if a.PricingModel == scenario.PricingFlatRate {
+	// FLAT_RATE: pricing bills a FLAT_RATE metric's own rate once per period and
+	// rejects a FLAT_RATE metric rate of 0 ("Flat Fee rate must be greater than 0").
+	// So the fee rides on the first metric (see flatAssigned below) and every other
+	// metric is PER_UNIT at $0 — the plan still bills exactly flat_fee_usd per period.
+	// Only a plan with no metrics at all carries the fee as the plan-level baseFee.
+	if a.PricingModel == scenario.PricingFlatRate && len(metrics) == 0 {
 		body.BaseFee = rc.FlatFeeUSD
 	}
+	flatAssigned := false
 	// dimensionPricing rides on the plan (not per-metric) — pricing-service's
 	// RatePlan entity carries the map at the plan level (Rule 21). Empty maps
 	// stay off the wire via `omitempty`.
@@ -270,6 +276,16 @@ func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metri
 			if model == scenario.PricingOutcomeBased && !outcomeWeightable(m.AggregationType) {
 				model = scenario.PricingPerUnit
 			}
+			if model == scenario.PricingFlatRate {
+				if flatAssigned {
+					model = scenario.PricingPerUnit
+					mc.Model = model
+					mc.Rate = floatPtr(0)
+					body.MetricConfigs = append(body.MetricConfigs, mc)
+					continue
+				}
+				flatAssigned = true
+			}
 			mc.Model = model
 			applyArchetypeRateConfig(&mc, model, rc)
 		}
@@ -286,17 +302,17 @@ func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metri
 func applyArchetypeRateConfig(mc *metricConfigRequest, model scenario.PricingModel, rc scenario.RateConfig) {
 	switch model {
 	case scenario.PricingFlatRate:
-		// FLAT_RATE has no per-metric pricing — but the platform requires
-		// at least one metric on every plan for usage attribution. Set
-		// rate to 0 so the metric exists but contributes nothing to the bill.
-		mc.Rate = floatPtr(0)
+		// The whole per-period fee: billing bills a FLAT_RATE metric's rate once
+		// per period whatever the usage. buildRatePlanRequest assigns it to one
+		// metric only.
+		mc.Rate = floatPtr(rc.FlatFeeUSD)
 	case scenario.PricingPerUnit:
 		applyLinear(mc, rc.PerUnitRateUSD, rc.IncludedFreeUnits, rc.BlockSizeUnits, rc.MinFeeUSD)
 	case scenario.PricingOutcomeBased:
 		applyLinear(mc, rc.PerUnitRateUSD, rc.IncludedFreeUnits, rc.BlockSizeUnits, rc.MinFeeUSD)
 		mc.OutcomeWeights = upperCaseWeights(rc.OutcomeWeights)
 	case scenario.PricingPercentage:
-		mc.Rate = floatPtr(rc.PercentageRate)
+		mc.Rate = floatPtr(percentOf(rc.PercentageRate))
 		if rc.MinFeeUSD > 0 {
 			mc.MinFee = rc.MinFeeUSD
 		}
@@ -395,6 +411,10 @@ func upperCaseWeights(in map[string]float64) map[string]float64 {
 func applyMetricOverride(mc *metricConfigRequest, ov scenario.MetricOverride) {
 	switch ov.PricingModel {
 	case scenario.PricingFlatRate:
+		// Per-metric FLAT_RATE only means "don't bill this metric" (the validator
+		// rejects a non-zero fee here). Pricing rejects a FLAT_RATE rate of 0, so
+		// send it as PER_UNIT at $0 — same $0 on the invoice.
+		mc.Model = scenario.PricingPerUnit
 		mc.Rate = floatPtr(0)
 	case scenario.PricingPerUnit:
 		applyLinear(mc, ov.PerUnitRateUSD, ov.IncludedFreeUnits, ov.BlockSizeUnits, ov.MinFeeUSD)
@@ -404,7 +424,7 @@ func applyMetricOverride(mc *metricConfigRequest, ov scenario.MetricOverride) {
 	case scenario.PricingStaircase:
 		applyStaircase(mc, ov.StaircaseBands, ov.IncludedFreeUnits)
 	case scenario.PricingPercentage:
-		mc.Rate = floatPtr(ov.PercentageRate)
+		mc.Rate = floatPtr(percentOf(ov.PercentageRate))
 		if ov.MinFeeUSD > 0 {
 			mc.MinFee = ov.MinFeeUSD
 		}
@@ -422,24 +442,39 @@ func applyMetricOverride(mc *metricConfigRequest, ov scenario.MetricOverride) {
 	}
 }
 
+// tiersFromBands converts scenario GRADUATED / VOLUME_TIERED bands
+// (inclusive up_to_units, 0 = open-ended last band) into pricing's tier
+// encoding: 1-based INCLUSIVE [tierStart, tierEnd] with tierEnd null for the
+// open-ended top tier (PricingCalculator "Option B", pricing V10). So
+// [{up_to 1000}, {up_to 10000}, {up_to 0}] becomes (1,1000), (1001,10000),
+// (10001,null) — 1000 / 9000 / rest units, exactly what the validator's
+// graduated/volume math assumes.
+//
+// Two encodings used to be wrong here: tiers were 0-based ((0,1000),
+// (1000,10000)), which PricingCalculator sizes as to−from+1 — so every band
+// held one unit too many — and the open top tier was sent as tierEnd=-1,
+// which billing reads as a real bound (only null/0 mean open-ended) and
+// PricingCalculator.graduated skips as "inverted", so usage above the last
+// bounded tier billed $0.
 func tiersFromBands(bands []scenario.TierBand) []rateTierRequest {
 	out := make([]rateTierRequest, len(bands))
 	prevEnd := int64(0)
 	for i, b := range bands {
-		end := b.UpToUnits
-		// up_to_units == 0 means "infinity" / "the rest" by scenario convention.
-		if end == 0 {
-			end = -1
+		var end *int64
+		if b.UpToUnits > 0 {
+			e := b.UpToUnits
+			end = &e
 		}
-		endCopy := end
 		out[i] = rateTierRequest{
-			TierStart: prevEnd,
-			TierEnd:   &endCopy,
+			TierStart: prevEnd + 1,
+			TierEnd:   end,
 			UnitPrice: b.UnitPriceUSD,
 			FlatFee:   b.FlatFeeUSD,
 			SortOrder: i,
 		}
-		prevEnd = b.UpToUnits
+		if b.UpToUnits > 0 {
+			prevEnd = b.UpToUnits
+		}
 	}
 	return out
 }
@@ -494,6 +529,12 @@ func rateConfigSummary(a scenario.TenantArchetype) map[string]any {
 	rc := a.RateConfig
 	out := map[string]any{
 		"pricing_model": string(a.PricingModel),
+	}
+	// The billing validator routes HYBRID expectations through the funded
+	// wallet balance (billing.Calculate walletAvailable); record it so the
+	// estimate isn't computed against an empty wallet.
+	if rc.WalletInitialBalanceUSD > 0 {
+		out["wallet_initial_balance_usd"] = rc.WalletInitialBalanceUSD
 	}
 	switch a.PricingModel {
 	case scenario.PricingFlatRate:
@@ -571,3 +612,10 @@ func tierBandsAsMaps(bands []scenario.TierBand) []map[string]any {
 // FLAT_RATE archetypes instead of omitting the field via omitempty
 // (which causes pricing-service to reject with 400 "Rate is required").
 func floatPtr(v float64) *float64 { return &v }
+
+// percentOf converts a scenario percentage_rate (a fraction: 0.025 = 2.5%) to the
+// percent pricing-service expects (0–100: 2.5). Rounded to 6 dp so 0.025*100 goes
+// out as 2.5, not 2.5000000000000004.
+func percentOf(fraction float64) float64 {
+	return math.Round(fraction*100*1e6) / 1e6
+}

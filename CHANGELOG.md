@@ -28,6 +28,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`scenarios/ci-outcome-based.yaml`** — both models × 3 billing modes,
   plus an outcome + staircase two-card archetype.
 
+### Fixed — 2026-09-30 (review of the OUTCOME_BASED / STAIRCASE change)
+
+- **GRADUATED / VOLUME_TIERED tiers sent in pricing's encoding.** Tiers went
+  out 0-based (`(0,1000)`, `(1000,10000)`) with the open top tier as
+  `tierEnd: -1`. Pricing sizes a tier as `tierEnd − tierStart + 1` and billing
+  treats only `null`/`0` as open-ended, so each band held one unit too many
+  and GRADUATED billed nothing above the last bounded tier. Now 1-based
+  inclusive with a `null` open end: `(1,1000)`, `(1001,10000)`, `(10001,null)`.
+- **A rate card whose only config is `staircase_bands` / `outcome_weights`
+  kept it.** The seeder's private "is this card's rate config empty?" check
+  didn't know those fields, so such a card silently inherited the
+  archetype's config — `ci-outcome-based.yaml`'s `package` card would have
+  been sent as STAIRCASE with no tiers (pricing 400). The seeder now uses
+  `scenario.IsZeroRateConfig`.
+- **Billing validator:**
+  - Multi-card archetypes are estimated per customer with the card the
+    subscription is on (manifest offerings now record `rate_plan_id`); each
+    customer's billing mode drives the routing check.
+  - GRADUATED / VOLUME_TIERED tiers are read from the in-memory manifest too
+    (the orchestrator's hand-off); they used to parse as "no tiers" → $0.
+  - Block ceiling is computed on billing's 6-dp units (integer micro-units),
+    not a float quotient rounded to 6 dp.
+  - No usage → no charge for PER_UNIT / OUTCOME_BASED: billing writes no
+    line for a metric with no usage, so the min fee doesn't apply.
+  - HYBRID uses the funded wallet balance (now recorded in the manifest
+    rate-plan config).
+- STAIRCASE bands may be written in any order (pricing sorts them before
+  validating).
+
+### Fixed — 2026-09-30 (seeding against current pricing-service rules)
+- PERCENTAGE plans were seeded 100× too low: `percentage_rate` is a fraction (0.025 = 2.5%) but pricing takes a percent (0–100) and bills base × rate / 100. The seeder now sends `percentOf(rate)` (2.5). The validator rejects `percentage_rate > 1`; `soak-all-pricing-models.yaml` had 2.9 (290%) and now says 0.029.
+- FLAT_RATE plans no longer seed: pricing rejects a FLAT_RATE metric rate of 0 ("Flat Fee rate must be greater than 0"), which is what loadgen sent. The fee now rides on the first metric as FLAT_RATE (billed once per period), other metrics go PER_UNIT at $0, and `baseFee` is used only for a plan with no metrics. Per-metric FLAT_RATE overrides ("don't bill this metric") go out PER_UNIT at $0. Invoice totals are unchanged.
+
 ### Changed — 2026-09-30
 
 - Templates emit canonical upper-case statuses only (was lowercase

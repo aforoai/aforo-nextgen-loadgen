@@ -263,3 +263,46 @@ func TestCalculate_PerUnit_BlockAndMinFee(t *testing.T) {
 		t.Errorf("min fee: %v; want 20", res.Subtotal)
 	}
 }
+
+// TestLinearCharge_BlockCeilingAtSixDecimals: billing ceils the exact
+// 6-dp weighted units. 2000.000001 units / block 1000 = 2.000000001 → 3
+// blocks → 3000 × $0.01 = $30. Rounding the float QUOTIENT to 6 dp (the
+// old approach) gave 2 blocks = $20.
+func TestLinearCharge_BlockCeilingAtSixDecimals(t *testing.T) {
+	r := RateConfig{PerUnitRateUSD: 0.01, BlockSizeUnits: 1000}
+	cases := []struct {
+		units float64
+		want  float64
+	}{
+		{2000.000001, 30.00},
+		{2000, 20.00},
+		{2000.0000000001, 20.00}, // float noise below billing's 6-dp scale
+		{1, 10.00},
+		{999.5, 10.00},
+	}
+	for _, tc := range cases {
+		if got := linearCharge(tc.units, r); got != tc.want {
+			t.Errorf("linearCharge(%v) = %v, want %v", tc.units, got, tc.want)
+		}
+	}
+}
+
+// TestCalculate_NoUsageNoMinFee: billing writes no line for a metric with no
+// usage in the period (BillRunServiceImpl only synthesises FLAT_RATE), so a
+// PER_UNIT / OUTCOME_BASED min fee is NOT charged at zero events. Usage that
+// weighs to 0 units is still usage — the min fee applies.
+func TestCalculate_NoUsageNoMinFee(t *testing.T) {
+	rate := RateConfig{PerUnitRateUSD: 0.01, MinFeeUSD: 5, OutcomeWeights: map[string]float64{"ERROR": 0}}
+	for _, m := range []PricingModel{PerUnit, OutcomeBased} {
+		res, _ := Calculate(CalcInputs{Events: 0, Model: m, Mode: Postpaid, Rate: rate}, 0)
+		if res.Subtotal != 0 {
+			t.Errorf("%s with no usage = %v; want 0 (no line, no min fee)", m, res.Subtotal)
+		}
+	}
+	// 10 ERROR events weigh 0 → 0 units billed → min fee $5.00.
+	res, _ := Calculate(CalcInputs{Model: OutcomeBased, Mode: Postpaid, Rate: rate,
+		Outcomes: []OutcomeUsage{{Status: "ERROR", Quantity: 10, EventCount: 10}}, Aggregation: "COUNT"}, 0)
+	if res.Subtotal != 5 {
+		t.Errorf("all-zero-weight usage = %v; want 5.00 (min fee)", res.Subtotal)
+	}
+}

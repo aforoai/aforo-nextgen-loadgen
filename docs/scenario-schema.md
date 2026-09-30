@@ -182,7 +182,7 @@ edit is required; the golden test asserts every scenario in
 | :---------------- | :----------------------------------------------- |
 | `PER_UNIT`        | `per_unit_rate_usd > 0` (optional `included_free_units`, `block_size_units`, `min_fee_usd`) |
 | `FLAT_RATE`       | `flat_fee_usd > 0`                               |
-| `PERCENTAGE`      | `percentage_rate > 0` (optional `min_fee_usd`, `charge_base_per_event_usd`) |
+| `PERCENTAGE`      | `percentage_rate` in (0, 1] — a fraction, 0.029 = 2.9%; the seeder sends it to pricing as a percent (2.9) (optional `min_fee_usd`, `charge_base_per_event_usd`) |
 | `INCLUDED_QUOTA`  | `included_free_units > 0` and `per_unit_rate_usd > 0` (overage rate) |
 | `GRADUATED`       | `graduated_tiers: [...]` (len >= 1)              |
 | `VOLUME_TIERED`   | `volume_tiers: [...]` (len >= 1)                 |

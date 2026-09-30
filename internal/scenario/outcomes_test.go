@@ -89,6 +89,22 @@ func TestValidate_StaircaseBands_ValidAccepted(t *testing.T) {
 	if errs := validateArchetype(b); errs.HasErrors() {
 		t.Fatalf("bounded STAIRCASE rejected: %s", errs.Error())
 	}
+	// Pricing sorts steps by tierStart before validating (and
+	// PricingCalculator sorts before matching), so bands written out of
+	// order are valid there — and must be valid here.
+	c := staircaseArchetype([]StaircaseBand{
+		{FromUnits: 501, PriceUSD: 50},
+		{FromUnits: 1, ToUnits: 100, PriceUSD: 10},
+		{FromUnits: 101, ToUnits: 500, PriceUSD: 30},
+	})
+	if errs := validateArchetype(c); errs.HasErrors() {
+		t.Fatalf("out-of-order STAIRCASE bands rejected (pricing accepts them): %s", errs.Error())
+	}
+	// ...while a real gap is still caught.
+	d := staircaseArchetype([]StaircaseBand{{FromUnits: 102, PriceUSD: 20}, {FromUnits: 1, ToUnits: 100, PriceUSD: 10}})
+	if errs := validateArchetype(d); !hasErrorContaining(errs, "bands must be contiguous: from_units 102 must be 101") {
+		t.Fatalf("out-of-order gap not reported; got %s", errs.Error())
+	}
 }
 
 func TestValidate_StaircaseBands_Rules(t *testing.T) {
@@ -100,7 +116,7 @@ func TestValidate_StaircaseBands_Rules(t *testing.T) {
 		{"missing", nil, "requires at least one band"},
 		{"gap", []StaircaseBand{{1, 100, 10}, {102, 0, 20}}, "must be contiguous"},
 		{"overlap", []StaircaseBand{{1, 100, 10}, {100, 0, 20}}, "must be contiguous"},
-		{"open not last", []StaircaseBand{{1, 0, 10}, {101, 200, 20}}, "only valid on the LAST band"},
+		{"open not last", []StaircaseBand{{1, 0, 10}, {101, 200, 20}}, "only valid on the highest band"},
 		{"first starts high", []StaircaseBand{{5, 100, 10}}, "must start at 0 or 1"},
 		{"zero price", []StaircaseBand{{1, 100, 0}}, "price_usd 0 must be > 0"},
 		{"to below from", []StaircaseBand{{1, 100, 10}, {101, 50, 20}}, "is below from_units"},

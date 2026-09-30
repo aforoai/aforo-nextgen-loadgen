@@ -429,12 +429,19 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		if err != nil {
 			return err
 		}
+		planCfg := rateConfigSummary(cardArchetype)
+		// Customers on this card get a wallet funded with the card's balance,
+		// or the archetype's when the card sets none (see the customer loop
+		// below) — record the balance actually funded.
+		if cardArchetype.RateConfig.WalletInitialBalanceUSD == 0 && a.RateConfig.WalletInitialBalanceUSD > 0 {
+			planCfg["wallet_initial_balance_usd"] = a.RateConfig.WalletInitialBalanceUSD
+		}
 		mt.RatePlans = append(mt.RatePlans, ManifestRatePlan{
 			RatePlanID: rp.ID,
 			Name:       rp.Name,
 			SeedKey:    rpSeedKey,
 			Version:    rp.Version,
-			Config:     rateConfigSummary(cardArchetype),
+			Config:     planCfg,
 		})
 
 		// Offerings for this card: if the spec declared explicit
@@ -482,6 +489,7 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 				SeedKey:     offSeedKey,
 				BillingMode: perOfferingArchetype.BillingMode,
 				Currency:    cur,
+				RatePlanID:  rp.ID,
 			})
 		}
 		cardProvs[cardIdx] = cardProvisioning{RatePlan: rp, OffByCurrency: offByCurrency}
@@ -640,7 +648,7 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 // so any read of `a.Name` etc. still returns the archetype's identity.
 //
 // Whole-struct override for RateConfig — matches applyDefaults'
-// isZeroRateConfig-based inheritance (per-field inheritance would silently
+// scenario.IsZeroRateConfig-based inheritance (per-field inheritance would silently
 // drop tier / included-free config the operator meant to set at plan
 // level).
 func deriveCardArchetype(a scenario.TenantArchetype, card scenario.RateCardSpec) scenario.TenantArchetype {
@@ -651,7 +659,7 @@ func deriveCardArchetype(a scenario.TenantArchetype, card scenario.RateCardSpec)
 	if card.BillingMode != "" {
 		out.BillingMode = card.BillingMode
 	}
-	if !isZeroRateConfig(card.RateConfig) {
+	if !scenario.IsZeroRateConfig(card.RateConfig) {
 		out.RateConfig = card.RateConfig
 	}
 	if card.MetricConfigs != nil {
@@ -663,23 +671,6 @@ func deriveCardArchetype(a scenario.TenantArchetype, card scenario.RateCardSpec)
 	// Leave out.RateCards and out.ProductTypes untouched — the card doesn't
 	// override the archetype's identity.
 	return out
-}
-
-// isZeroRateConfig mirrors scenario.isZeroRateConfig — kept here as a
-// local so seeder.go doesn't need to import a helper from the scenario
-// package. Same predicate: whole-struct zero-value check.
-func isZeroRateConfig(rc scenario.RateConfig) bool {
-	return rc.FlatFeeUSD == 0 &&
-		rc.PerUnitRateUSD == 0 &&
-		rc.PercentageRate == 0 &&
-		rc.ChargeBasePerEventUSD == 0 &&
-		rc.MinFeeUSD == 0 &&
-		rc.IncludedFreeUnits == 0 &&
-		rc.BlockSizeUnits == 0 &&
-		len(rc.GraduatedTiers) == 0 &&
-		len(rc.VolumeTiers) == 0 &&
-		rc.WalletInitialBalanceUSD == 0 &&
-		rc.TrialDays == 0
 }
 
 // filterProductIDsForCard applies the card's ProductFilter to the

@@ -175,8 +175,20 @@ func Calculate(in CalcInputs, walletAvailable float64) (CalcResult, error) {
 func rate(in CalcInputs) (float64, []TierCharge, error) {
 	switch in.Model {
 	case PerUnit:
+		// Billing emits no line for a metric with no usage in the period
+		// (only FLAT_RATE is synthesised), so the min fee never applies to
+		// a customer with zero events.
+		if in.Events == 0 {
+			return 0, nil, nil
+		}
 		return perUnitCharge(in.Events, in.Rate), nil, nil
 	case OutcomeBased:
+		// Same no-usage rule; usage here is the raw event count or any
+		// per-status row. Events that all weigh 0 ARE usage — billing rates
+		// them at 0 units and the min fee applies.
+		if in.Events == 0 && !hasOutcomeUsage(in.Outcomes) {
+			return 0, nil, nil
+		}
 		units := float64(in.Events)
 		if w, ok := WeightOutcomes(in.Outcomes, in.Rate.OutcomeWeights, in.Aggregation); ok {
 			units = w.Weighted
@@ -200,6 +212,16 @@ func rate(in CalcInputs) (float64, []TierCharge, error) {
 	default:
 		return 0, nil, ErrInvalidConfig
 	}
+}
+
+// hasOutcomeUsage reports whether any per-status row carries usage.
+func hasOutcomeUsage(rows []OutcomeUsage) bool {
+	for _, o := range rows {
+		if o.Quantity != 0 || o.EventCount != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // applyDiscount enforces "discount cannot exceed subtotal" (DiscountStage

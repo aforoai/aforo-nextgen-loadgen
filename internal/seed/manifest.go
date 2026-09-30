@@ -121,6 +121,13 @@ type ManifestOffering struct {
 	SeedKey     string               `json:"seed_key"`
 	BillingMode scenario.BillingMode `json:"billing_mode"`
 	Currency    string               `json:"currency"`
+	// RatePlanID is the rate plan this offering wraps (one of the tenant's
+	// rate_plans[].rate_plan_id). The billing validator follows
+	// customer → subscription → offering → rate plan so a multi-card
+	// archetype is estimated with each customer's own card. Empty in
+	// manifests written before 2026-09-30 (validator falls back to the
+	// tenant's first rate plan).
+	RatePlanID string `json:"rate_plan_id,omitempty"`
 }
 
 // ManifestCustomer is one customer, with the subscriptions (and their keys)

@@ -59,9 +59,19 @@ func (v *validator) checkStaircaseBands(path []string, bands []StaircaseBand) {
 		v.addAt(path, "pricing_model=STAIRCASE requires at least one band in staircase_bands")
 		return
 	}
-	for i, b := range bands {
+	// Pricing sorts the steps by tierStart before checking them (and
+	// PricingCalculator sorts before matching), so bands may be written in
+	// any order; check them in ascending from_units order and report each
+	// problem at the band's own index.
+	order := make([]int, len(bands))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(x, y int) bool { return bands[order[x]].FromUnits < bands[order[y]].FromUnits })
+	for pos, i := range order {
+		b := bands[i]
 		p := append(append([]string{}, path...), indexSeg(i))
-		last := i == len(bands)-1
+		last := pos == len(order)-1
 		if math.IsNaN(b.PriceUSD) || math.IsInf(b.PriceUSD, 0) || b.PriceUSD <= 0 {
 			v.addAt(append(p, "price_usd"),
 				fmt.Sprintf("price_usd %v must be > 0 — a $0 step bills nothing for that band", b.PriceUSD))
@@ -69,21 +79,21 @@ func (v *validator) checkStaircaseBands(path []string, bands []StaircaseBand) {
 		if b.FromUnits < 0 {
 			v.addAt(append(p, "from_units"), fmt.Sprintf("from_units %d must be >= 0", b.FromUnits))
 		}
-		if i == 0 && b.FromUnits > 1 {
+		if pos == 0 && b.FromUnits > 1 {
 			v.addAt(append(p, "from_units"),
-				fmt.Sprintf("the first band must start at 0 or 1 (got %d) — lower usage would match no band", b.FromUnits))
+				fmt.Sprintf("the lowest band must start at 0 or 1 (got %d) — lower usage would match no band", b.FromUnits))
 		}
 		if b.ToUnits == 0 {
 			if !last {
 				v.addAt(append(p, "to_units"),
-					"to_units=0 (open-ended) is only valid on the LAST band")
+					"to_units=0 (open-ended) is only valid on the highest band")
 			}
 		} else if b.ToUnits < b.FromUnits {
 			v.addAt(append(p, "to_units"),
 				fmt.Sprintf("to_units %d is below from_units %d", b.ToUnits, b.FromUnits))
 		}
-		if i > 0 {
-			prev := bands[i-1]
+		if pos > 0 {
+			prev := bands[order[pos-1]]
 			if prev.ToUnits != 0 && b.FromUnits != prev.ToUnits+1 {
 				v.addAt(append(p, "from_units"),
 					fmt.Sprintf("bands must be contiguous: from_units %d must be %d (previous to_units + 1)",

@@ -81,7 +81,7 @@ tenants:
       subscription_state_mix:
         ACTIVE: 1.0
       rate_config:
-        percentage_rate: 2.9
+        percentage_rate: 0.029
         charge_base_per_event_usd: 50.0
 
     - name: soak-included-quota

@@ -161,6 +161,7 @@ func (s *Seeder) seedCatalogTenant(ctx context.Context, manifest *Manifest) erro
 			SeedKey:     offSeed,
 			BillingMode: scenario.BillingMode(o.BillingMode),
 			Currency:    cur,
+			RatePlanID:  plan.ID,
 		})
 	}
 
@@ -344,7 +345,7 @@ func provisionCatalogRatePlan(ctx context.Context, c *Client, tenantID, seedKey 
 	if rp.Currency != "" {
 		body.Currency = rp.Currency
 	}
-	// buildRatePlanRequest only sets BaseFee for FLAT_RATE. Map an
+	// buildRatePlanRequest sets BaseFee only for a FLAT_RATE plan with no metrics. Map an
 	// INCLUDED_QUOTA plan's platformFeeUsd onto baseFee so an enterprise
 	// included-quota plan surfaces its recurring platform fee instead of $0.
 	// Deploy-gated: if pricing-service rejects baseFee on a non-flat plan, the

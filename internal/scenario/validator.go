@@ -348,6 +348,10 @@ func (v *validator) checkTenants(s *Scenario) {
 						"pricing_model to FLAT_RATE, or use FLAT_RATE per-metric only to zero out a metric "+
 						"(flat_fee_usd: 0).", mc.FlatFeeUSD))
 			}
+			if mc.PricingModel == PricingPercentage && (mc.PercentageRate <= 0 || mc.PercentageRate > 1) {
+				v.addAt(append(p, "percentage_rate"),
+					fmt.Sprintf("per-metric PERCENTAGE needs percentage_rate as a fraction in (0, 1] (0.029 = 2.9%%), got %v", mc.PercentageRate))
+			}
 		}
 		// dimension_pricing multipliers must be strictly finite + positive —
 		// a 0 multiplier silently zeros every event carrying that dimension,
@@ -395,6 +399,10 @@ func (v *validator) checkTenants(s *Scenario) {
 					"pricing_model=PER_UNIT requires rate_config.per_unit_rate_usd > 0")
 			}
 		case PricingPercentage:
+			if a.RateConfig.PercentageRate > 1 {
+				v.addAt(append(basePath, "rate_config", "percentage_rate"),
+					fmt.Sprintf("percentage_rate is a fraction (0.029 = 2.9%%), got %v — above 1 would bill more than the transaction", a.RateConfig.PercentageRate))
+			}
 			if a.RateConfig.PercentageRate <= 0 {
 				v.addAt(append(basePath, "rate_config", "percentage_rate"),
 					"pricing_model=PERCENTAGE requires rate_config.percentage_rate > 0")
@@ -503,6 +511,10 @@ func (v *validator) checkRateCards(path []string, a TenantArchetype) {
 					"rate_cards[].pricing_model=PER_UNIT requires rate_config.per_unit_rate_usd > 0")
 			}
 		case PricingPercentage:
+			if rc.RateConfig.PercentageRate > 1 {
+				v.addAt(append(cardPath, "rate_config", "percentage_rate"),
+					fmt.Sprintf("percentage_rate is a fraction (0.029 = 2.9%%), got %v — above 1 would bill more than the transaction", rc.RateConfig.PercentageRate))
+			}
 			if rc.RateConfig.PercentageRate <= 0 {
 				v.addAt(append(cardPath, "rate_config", "percentage_rate"),
 					"rate_cards[].pricing_model=PERCENTAGE requires rate_config.percentage_rate > 0")

@@ -192,6 +192,16 @@ func TestValidate_TableDriven(t *testing.T) {
 			wantSubstr: "percentage_rate > 0",
 		},
 		{
+			// percentage_rate is a fraction; 2.9 would mean 290% of the transaction.
+			name: "PERCENTAGE rate written as a percent",
+			mutate: func(y string) string {
+				y = strings.Replace(y, "pricing_model: PER_UNIT", "pricing_model: PERCENTAGE", 1)
+				return strings.Replace(y, "rate_config:", "rate_config:\n        percentage_rate: 2.9", 1)
+			},
+			wantPath:   "tenants.archetypes[0].rate_config.percentage_rate",
+			wantSubstr: "is a fraction",
+		},
+		{
 			name: "INCLUDED_QUOTA without included_free_units",
 			mutate: func(y string) string {
 				return strings.Replace(y, "pricing_model: PER_UNIT", "pricing_model: INCLUDED_QUOTA", 1)

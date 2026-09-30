@@ -9,6 +9,13 @@ import "fmt"
 // intentionally NOT done — carrying an all-zero RateConfig alongside a
 // non-zero one would silently drop tier / included-free fields the
 // operator meant to set at plan level.
+//
+// IsZeroRateConfig is the exported form: the seeder's per-card archetype
+// derivation must use this exact predicate — a private copy there once
+// missed outcome_weights / staircase_bands, so a card whose only config was
+// its staircase bands silently inherited the archetype's rate config.
+func IsZeroRateConfig(rc RateConfig) bool { return isZeroRateConfig(rc) }
+
 func isZeroRateConfig(rc RateConfig) bool {
 	return rc.FlatFeeUSD == 0 &&
 		rc.PerUnitRateUSD == 0 &&
