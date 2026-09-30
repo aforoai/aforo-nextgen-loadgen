@@ -12,14 +12,14 @@ import (
 func TestEachProductTemplate(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 
-	api := apiTemplate(rng)
+	api := apiTemplate(rng, nil)
 	for _, k := range []string{"endpoint", "method", "status_code", "latency_ms", "request_bytes", "response_bytes"} {
 		if _, ok := api[k]; !ok {
 			t.Errorf("API template missing %q", k)
 		}
 	}
 
-	ai := aiAgentTemplate(rng)
+	ai := aiAgentTemplate(rng, mcpExecStatusPicker)
 	for _, k := range []string{
 		// camelCase keys — extractAiAgentFields reads these exact spellings.
 		"agentId", "executionStatus", "executionDurationMs",
@@ -42,14 +42,14 @@ func TestEachProductTemplate(t *testing.T) {
 		}
 	}
 
-	mcp := mcpServerTemplate(rng)
+	mcp := mcpServerTemplate(rng, mcpExecStatusPicker)
 	for _, k := range []string{"agent_id", "tool_name", "execution_status", "execution_duration_ms", "session_id", "transport"} {
 		if _, ok := mcp[k]; !ok {
 			t.Errorf("MCP_SERVER template missing %q", k)
 		}
 	}
 
-	ag := agenticAPITemplate(rng)
+	ag := agenticAPITemplate(rng, mcpExecStatusPicker)
 	for _, k := range []string{"trace_id", "agent_id", "endpoint", "latency_ms"} {
 		if _, ok := ag[k]; !ok {
 			t.Errorf("AGENTIC_API template missing %q", k)
@@ -93,7 +93,7 @@ func TestAIAgentCapabilityNameFromRegistry(t *testing.T) {
 	}
 	seen := make(map[string]bool)
 	for i := 0; i < 500; i++ {
-		ev := aiAgentTemplate(rng)
+		ev := aiAgentTemplate(rng, mcpExecStatusPicker)
 		cap, ok := ev["capability_name"].(string)
 		if !ok || cap == "" {
 			t.Fatalf("iter %d: capability_name absent or non-string: %v", i, ev["capability_name"])

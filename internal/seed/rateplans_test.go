@@ -134,15 +134,15 @@ func TestBuildRatePlanRequest_PerPricingModel(t *testing.T) {
 					t.Fatalf("got %d tiers, want 3", len(tiers))
 				}
 				// Tier 0: [0, 1000], price 0.010
-				if tiers[0].TierStart != 0 || tiers[0].TierEnd != 1000 || tiers[0].UnitPrice != 0.010 {
+				if tiers[0].TierStart != 0 || *tiers[0].TierEnd != 1000 || tiers[0].UnitPrice != 0.010 {
 					t.Errorf("tier 0: %+v", tiers[0])
 				}
 				// Tier 1: [1000, 10000], price 0.007
-				if tiers[1].TierStart != 1000 || tiers[1].TierEnd != 10000 || tiers[1].UnitPrice != 0.007 {
+				if tiers[1].TierStart != 1000 || *tiers[1].TierEnd != 10000 || tiers[1].UnitPrice != 0.007 {
 					t.Errorf("tier 1: %+v", tiers[1])
 				}
 				// Tier 2: [10000, -1 (infinity)], price 0.005
-				if tiers[2].TierStart != 10000 || tiers[2].TierEnd != -1 || tiers[2].UnitPrice != 0.005 {
+				if tiers[2].TierStart != 10000 || *tiers[2].TierEnd != -1 || tiers[2].UnitPrice != 0.005 {
 					t.Errorf("tier 2: %+v", tiers[2])
 				}
 			},

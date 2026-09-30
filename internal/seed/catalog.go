@@ -32,21 +32,21 @@ import (
 // modeled for validation + future build phases (invoices come from bill runs
 // over the usage backfill, not direct creation — see build-golden.sh).
 type DemoCatalog struct {
-	Version       string             `json:"version"`
-	Description   string             `json:"description,omitempty"`
-	Story         string             `json:"story,omitempty"`
-	Company       CatalogCompany     `json:"company"`
-	BillableUnits []CatalogUnit      `json:"billableUnits"`
-	Products      []CatalogProduct   `json:"products"`
-	RatePlans     []CatalogRatePlan  `json:"ratePlans"`
-	Offerings     []CatalogOffering  `json:"offerings"`
-	Customers     []CatalogCustomer  `json:"customers"`
-	Subscriptions []CatalogSub       `json:"subscriptions"`
-	Invoices      []CatalogInvoice   `json:"invoices,omitempty"`
-	CreditNotes   []CatalogCreditNote `json:"creditNotes,omitempty"`
-	CPQQuotes     []CatalogQuote     `json:"cpqQuotes,omitempty"`
-	Promotions    []CatalogPromotion `json:"promotions,omitempty"`
-	Storefront    *CatalogStorefront `json:"storefront,omitempty"`
+	Version       string               `json:"version"`
+	Description   string               `json:"description,omitempty"`
+	Story         string               `json:"story,omitempty"`
+	Company       CatalogCompany       `json:"company"`
+	BillableUnits []CatalogUnit        `json:"billableUnits"`
+	Products      []CatalogProduct     `json:"products"`
+	RatePlans     []CatalogRatePlan    `json:"ratePlans"`
+	Offerings     []CatalogOffering    `json:"offerings"`
+	Customers     []CatalogCustomer    `json:"customers"`
+	Subscriptions []CatalogSub         `json:"subscriptions"`
+	Invoices      []CatalogInvoice     `json:"invoices,omitempty"`
+	CreditNotes   []CatalogCreditNote  `json:"creditNotes,omitempty"`
+	CPQQuotes     []CatalogQuote       `json:"cpqQuotes,omitempty"`
+	Promotions    []CatalogPromotion   `json:"promotions,omitempty"`
+	Storefront    *CatalogStorefront   `json:"storefront,omitempty"`
 	UsageTrickle  *CatalogUsageTrickle `json:"usageTrickle,omitempty"`
 }
 
@@ -139,21 +139,21 @@ type CatalogCustomer struct {
 // RELATIVE dates (re-based to "now" at build time). Exactly the lifecycle-state
 // knob the run engine / transition step needs to drive it to its target state.
 type CatalogSub struct {
-	Key            string `json:"key"`
-	Name           string `json:"name"`
-	Customer       string `json:"customer"` // ref → customers[].key
-	Offering       string `json:"offering"` // ref → offerings[].key
-	PlanLabel      string `json:"planLabel,omitempty"`
-	LifecycleState string `json:"lifecycleState"`
-	StartedDaysAgo int    `json:"startedDaysAgo,omitempty"`
-	RenewsInDays   int    `json:"renewsInDays,omitempty"`
-	TrialEndsInDays int   `json:"trialEndsInDays,omitempty"`
-	ExpiresInDays  int    `json:"expiresInDays,omitempty"`
-	PausedDaysAgo  int    `json:"pausedDaysAgo,omitempty"`
-	CancelledDaysAgo int  `json:"cancelledDaysAgo,omitempty"`
-	SuspendedDaysAgo int  `json:"suspendedDaysAgo,omitempty"`
-	ExpiredDaysAgo int    `json:"expiredDaysAgo,omitempty"`
-	DunningAttempt int    `json:"dunningAttempt,omitempty"`
+	Key              string `json:"key"`
+	Name             string `json:"name"`
+	Customer         string `json:"customer"` // ref → customers[].key
+	Offering         string `json:"offering"` // ref → offerings[].key
+	PlanLabel        string `json:"planLabel,omitempty"`
+	LifecycleState   string `json:"lifecycleState"`
+	StartedDaysAgo   int    `json:"startedDaysAgo,omitempty"`
+	RenewsInDays     int    `json:"renewsInDays,omitempty"`
+	TrialEndsInDays  int    `json:"trialEndsInDays,omitempty"`
+	ExpiresInDays    int    `json:"expiresInDays,omitempty"`
+	PausedDaysAgo    int    `json:"pausedDaysAgo,omitempty"`
+	CancelledDaysAgo int    `json:"cancelledDaysAgo,omitempty"`
+	SuspendedDaysAgo int    `json:"suspendedDaysAgo,omitempty"`
+	ExpiredDaysAgo   int    `json:"expiredDaysAgo,omitempty"`
+	DunningAttempt   int    `json:"dunningAttempt,omitempty"`
 }
 
 type CatalogInvoice struct {
@@ -205,27 +205,27 @@ type CatalogPromotion struct {
 }
 
 type CatalogStorefront struct {
-	Name             string   `json:"name"`
-	Slug             string   `json:"slug,omitempty"`
-	BrandColor       string   `json:"brandColor,omitempty"`
-	AccentColor      string   `json:"accentColor,omitempty"`
-	HeroTitle        string   `json:"heroTitle,omitempty"`
-	HeroSubtitle     string   `json:"heroSubtitle,omitempty"`
-	LogoText         string   `json:"logoText,omitempty"`
-	SupportURL       string   `json:"supportUrl,omitempty"`
-	PublicOfferings  []string `json:"publicOfferings,omitempty"`
+	Name            string   `json:"name"`
+	Slug            string   `json:"slug,omitempty"`
+	BrandColor      string   `json:"brandColor,omitempty"`
+	AccentColor     string   `json:"accentColor,omitempty"`
+	HeroTitle       string   `json:"heroTitle,omitempty"`
+	HeroSubtitle    string   `json:"heroSubtitle,omitempty"`
+	LogoText        string   `json:"logoText,omitempty"`
+	SupportURL      string   `json:"supportUrl,omitempty"`
+	PublicOfferings []string `json:"publicOfferings,omitempty"`
 }
 
 type CatalogUsageTrickle struct {
-	Description           string             `json:"description,omitempty"`
-	HistoricalBackfillDays int               `json:"historicalBackfillDays,omitempty"`
-	RatePerMinute         int                `json:"ratePerMinute,omitempty"`
-	ActiveSubscriptions   []string           `json:"activeSubscriptions,omitempty"`
-	Metrics               []CatalogTrickleMetric `json:"metrics,omitempty"`
+	Description            string                 `json:"description,omitempty"`
+	HistoricalBackfillDays int                    `json:"historicalBackfillDays,omitempty"`
+	RatePerMinute          int                    `json:"ratePerMinute,omitempty"`
+	ActiveSubscriptions    []string               `json:"activeSubscriptions,omitempty"`
+	Metrics                []CatalogTrickleMetric `json:"metrics,omitempty"`
 }
 
 type CatalogTrickleMetric struct {
-	Unit                 string `json:"unit"`
+	Unit                  string  `json:"unit"`
 	PerEventQuantityRange []int64 `json:"perEventQuantityRange,omitempty"`
 }
 
@@ -489,6 +489,12 @@ func validateRateConfig(add func(string, ...any), where, model string, cfg Catal
 		validateTiers(add, where+" (GRADUATED)", cfg.Tiers)
 	case string(scenario.PricingVolumeTiered):
 		validateTiers(add, where+" (VOLUME_TIERED)", cfg.Tiers)
+	case string(scenario.PricingStaircase), string(scenario.PricingOutcomeBased):
+		// The catalog JSON has no fields for staircase bands or outcome
+		// weights, so these plans would reach pricing without them and 400.
+		// Reject here with a pointer to the scenario schema that supports them.
+		add("%s: %s is not supported in catalog mode yet — use a scenario rate card "+
+			"(rate_config.staircase_bands / rate_config.outcome_weights)", where, model)
 	}
 }
 

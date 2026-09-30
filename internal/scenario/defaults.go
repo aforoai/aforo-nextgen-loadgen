@@ -20,7 +20,9 @@ func isZeroRateConfig(rc RateConfig) bool {
 		len(rc.GraduatedTiers) == 0 &&
 		len(rc.VolumeTiers) == 0 &&
 		rc.WalletInitialBalanceUSD == 0 &&
-		rc.TrialDays == 0
+		rc.TrialDays == 0 &&
+		len(rc.OutcomeWeights) == 0 &&
+		len(rc.StaircaseBands) == 0
 }
 
 // applyDefaults fills in low-stakes defaults for fields the author may have

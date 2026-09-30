@@ -54,23 +54,45 @@ type EventTemplate func(rng *rand.Rand) map[string]any
 // scenario validator already rejects, but defensive at the generator layer
 // keeps the worker pool from panicking if a manifest contains a stale value.
 func TemplateForProductType(pt scenario.ProductType) EventTemplate {
+	return TemplateWithOutcomes(pt, nil)
+}
+
+// TemplateWithOutcomes is TemplateForProductType with a scenario-configured
+// execution-status distribution (outcome_mix / outcome_mix_by_product).
+// A nil picker keeps each template's built-in default: the API template
+// derives its status from status_code (gateway default table); the agentic
+// templates sample mcpExecStatusPicker. Every emitted status is one of the
+// 11 canonical upper-case values.
+func TemplateWithOutcomes(pt scenario.ProductType, outcomes *WeightedPicker) EventTemplate {
+	agentic := mcpExecStatusPicker
+	if outcomes != nil && outcomes.Len() > 0 {
+		agentic = *outcomes
+	} else {
+		outcomes = nil
+	}
 	switch pt {
-	case scenario.ProductAPI:
-		return apiTemplate
 	case scenario.ProductAIAgent:
-		return aiAgentTemplate
+		return func(rng *rand.Rand) map[string]any { return aiAgentTemplate(rng, agentic) }
 	case scenario.ProductMCPServer:
-		return mcpServerTemplate
+		return func(rng *rand.Rand) map[string]any { return mcpServerTemplate(rng, agentic) }
 	case scenario.ProductAgenticAPI:
-		return agenticAPITemplate
+		return func(rng *rand.Rand) map[string]any { return agenticAPITemplate(rng, agentic) }
 	default:
-		return apiTemplate
+		return func(rng *rand.Rand) map[string]any { return apiTemplate(rng, outcomes) }
 	}
 }
 
-func apiTemplate(rng *rand.Rand) map[string]any {
+// apiTemplate derives execution_status from status_code unless a configured
+// outcome picker is supplied, in which case the status is sampled from it
+// (status_code stays independent — the scenario author asked for a specific
+// outcome distribution, not a status-code one).
+func apiTemplate(rng *rand.Rand, outcomes *WeightedPicker) map[string]any {
 	statusCodeStr := defaultStatusPicker.Pick(rng)
 	statusCode, _ := strconv.Atoi(statusCodeStr)
+	status := outcomeForStatusCode(statusCode)
+	if outcomes != nil {
+		status = outcomes.Pick(rng)
+	}
 	// error_count derives from status_code — 4xx/5xx count as 1, else 0.
 	// Backend's COUNT aggregation on error_count sums this deterministically
 	// so scenario assertions on Error Requests bill the true 4xx/5xx count.
@@ -82,7 +104,7 @@ func apiTemplate(rng *rand.Rand) map[string]any {
 	// Kept explicit so the descriptor's COUNT aggregation on request_count
 	// has a numeric field to read rather than needing the null/absent-field
 	// COUNT fallback path.
-	return map[string]any{
+	body := map[string]any{
 		"endpoint":       genEndpoint(rng),
 		"method":         defaultMethodPicker.Pick(rng),
 		"status_code":    statusCode,
@@ -93,12 +115,16 @@ func apiTemplate(rng *rand.Rand) map[string]any {
 		"user_id":        genUserID(rng),
 		"error_count":    errorCount,
 	}
+	if status != "" {
+		body["execution_status"] = status
+	}
+	return body
 }
 
-func aiAgentTemplate(rng *rand.Rand) map[string]any {
+func aiAgentTemplate(rng *rand.Rand, statuses WeightedPicker) map[string]any {
 	in, out := genTokens(rng)
 	capability := defaultAgentCapabilities[rng.Intn(len(defaultAgentCapabilities))]
-	status := mcpExecStatusPicker.Pick(rng)
+	status := statuses.Pick(rng)
 	// Capability execution durations: quick classification / extraction, longer
 	// for generation / search / planning. Mirrors mcpServerTemplate's tool
 	// duration shaping so per-capability latency distributions look realistic.
@@ -117,7 +143,7 @@ func aiAgentTemplate(rng *rand.Rand) map[string]any {
 		kbQuery = 1
 	}
 	taskCompleted := 0
-	if status == "success" && (capability == "generate_response" ||
+	if status == "SUCCESS" && (capability == "generate_response" ||
 		capability == "translate_document" || capability == "summarize_email" ||
 		capability == "plan_actions" || capability == "execute_tool") {
 		taskCompleted = 1
@@ -170,25 +196,25 @@ func aiAgentTemplate(rng *rand.Rand) map[string]any {
 		// only consults body top-level + traceparent/x-trace-id headers,
 		// NEVER metadata.trace_id — leaving them here in metadata for
 		// analytics MV parity but the top-level copy is what routes).
-		"trace_id":        genTraceID(rng, defaultTraceIDCardinality),
-		"session_id":      genSessionID(rng, defaultSessionIDCardinality),
+		"trace_id":   genTraceID(rng, defaultTraceIDCardinality),
+		"session_id": genSessionID(rng, defaultSessionIDCardinality),
 		// Descriptor `key` fields that were previously absent — each is
 		// consumed by exactly one AI_AGENT metric per descriptors/ai_agent.json.
-		"session_count":          1,
-		"step_count":             genStepCount(rng),
-		"total_tokens":           in + out,
-		"tool_call_count":        toolCallCount,
-		"execution_minutes":      genExecutionMinutes(rng),
-		"gpu_hours":              gpuHours,
-		"kb_query_count":         kbQuery,
-		"task_completed_count":   taskCompleted,
-		"concurrent_agents":      genConcurrentGauge(rng, 1, 32),
+		"session_count":        1,
+		"step_count":           genStepCount(rng),
+		"total_tokens":         in + out,
+		"tool_call_count":      toolCallCount,
+		"execution_minutes":    genExecutionMinutes(rng),
+		"gpu_hours":            gpuHours,
+		"kb_query_count":       kbQuery,
+		"task_completed_count": taskCompleted,
+		"concurrent_agents":    genConcurrentGauge(rng, 1, 32),
 	}
 }
 
-func mcpServerTemplate(rng *rand.Rand) map[string]any {
+func mcpServerTemplate(rng *rand.Rand, statuses WeightedPicker) map[string]any {
 	tool := defaultMCPTools[rng.Intn(len(defaultMCPTools))]
-	status := mcpExecStatusPicker.Pick(rng)
+	status := statuses.Pick(rng)
 	// Tool execution durations: short for read-only, longer for queries/AI.
 	dur := genLatencyMs(rng)
 	if tool == "vector_search" || tool == "summarize" || tool == "extract_entities" {
@@ -210,11 +236,11 @@ func mcpServerTemplate(rng *rand.Rand) map[string]any {
 		inTokens = 20 + rng.Intn(41)
 		outTokens = 10 + rng.Intn(31)
 	}
-	// error_count derives from execution_status — success → 0, everything
-	// else (error / timeout / unauthorized / rate_limited / validation_error)
-	// counts as one error toward the MCP Errors COUNT metric.
+	// error_count derives from execution_status — see isErrorOutcome
+	// (SUCCESS / PARTIAL / PENDING / HITL_REQUIRED → 0, every other status
+	// counts as one error toward the MCP Errors COUNT metric).
 	errorCount := 0
-	if status != "success" {
+	if isErrorOutcome(status) {
 		errorCount = 1
 	}
 	// MCP Session Duration is minutes-scaled; derived from ms so the two
@@ -232,8 +258,8 @@ func mcpServerTemplate(rng *rand.Rand) map[string]any {
 		// session_id, not traceId) — cardinality matches AI_AGENT so the
 		// two agentic surfaces produce a similar events-per-session shape.
 		// generator.produce() lifts session_id → Envelope.SessionID.
-		"session_id":            genSessionID(rng, defaultSessionIDCardinality),
-		"transport":             mcpTransportPicker.Pick(rng),
+		"session_id": genSessionID(rng, defaultSessionIDCardinality),
+		"transport":  mcpTransportPicker.Pick(rng),
 		// Descriptor `key` fields absent from the historical template —
 		// each is the sole event-source for its MCP metric per
 		// descriptors/mcp_server.json.
@@ -247,8 +273,9 @@ func mcpServerTemplate(rng *rand.Rand) map[string]any {
 	}
 }
 
-func agenticAPITemplate(rng *rand.Rand) map[string]any {
+func agenticAPITemplate(rng *rand.Rand, statuses WeightedPicker) map[string]any {
 	in, out := genTokens(rng)
+	status := statuses.Pick(rng)
 	// Agentic API events run 1-N tool calls per HTTP request; realistic
 	// distribution has 1 tool call being most common, occasional deep
 	// chains. `agent_step_count` is the SUM-key for Agentic Steps; each
@@ -263,26 +290,27 @@ func agenticAPITemplate(rng *rand.Rand) map[string]any {
 		// SessionAggregatorService's agentic-sessions Kafka listener sees
 		// a non-null traceId and creates an agentic_sessions row instead
 		// of early-returning at line 80-82.
-		"trace_id":         genTraceID(rng, defaultTraceIDCardinality),
-		"agent_id":         genAgentID(rng, 32),
-		"endpoint":         genEndpoint(rng),
-		"latency_ms":       genLatencyMs(rng),
+		"trace_id":   genTraceID(rng, defaultTraceIDCardinality),
+		"agent_id":   genAgentID(rng, 32),
+		"endpoint":   genEndpoint(rng),
+		"latency_ms": genLatencyMs(rng),
 		// Descriptor `key` fields — every AGENTIC_API metric per
 		// descriptors/agentic_api.json now has a source in the payload.
-		"request_count":      1,
-		"agent_step_count":   toolCalls,
-		"tool_call_count":    toolCalls,
-		"input_tokens":       in,
-		"output_tokens":      out,
-		"response_bytes":     genResponseBytes(rng),
-		"user_id":            genUserID(rng),
+		"request_count":    1,
+		"agent_step_count": toolCalls,
+		"tool_call_count":  toolCalls,
+		"input_tokens":     in,
+		"output_tokens":    out,
+		"response_bytes":   genResponseBytes(rng),
+		"user_id":          genUserID(rng),
+		"execution_status": status,
 		// endpoint_path drives per-endpoint dimension-pricing (see the
 		// P0-4 fix in aforo-nextgen-billing-service) and per-endpoint
 		// PreBillAnomalyScorer baseline (P0-3 in aforo-nextgen-usage-
 		// ingestor-service). Emitting it here lets the loadgen contract
 		// test assert one of the two dimension-key surfaces per product
 		// type (MCP: tool_name; AGENTIC_API: endpoint_path).
-		"endpoint_path":      genEndpoint(rng),
+		"endpoint_path": genEndpoint(rng),
 	}
 }
 
@@ -328,6 +356,14 @@ type Envelope struct {
 	// (per ProductTypeEventExtractor Javadoc: "AI_AGENT: traceId +
 	// sessionId"). Lifted from metadata["session_id"] by
 	// generator.produce() for the same reason as TraceID.
-	SessionID string         `json:"sessionId,omitempty"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
+	SessionID string `json:"sessionId,omitempty"`
+	// ExecutionStatus is the top-level IngestUsageEventRequest.executionStatus.
+	// It is the ONLY status field the ingestor reads for every product type
+	// (UsageMapper.normalizeStatus); the metadata fallbacks are per-type
+	// (AI_AGENT / MCP_SERVER read metadata.executionStatus camelCase, API and
+	// AGENTIC_API read none). Lifted by generator.produce() from the
+	// template's execution_status / executionStatus. Always canonical
+	// upper-case; omitted when the template had no status.
+	ExecutionStatus string         `json:"executionStatus,omitempty"`
+	Metadata        map[string]any `json:"metadata,omitempty"`
 }

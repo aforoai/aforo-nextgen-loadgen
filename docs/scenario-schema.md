@@ -180,16 +180,72 @@ edit is required; the golden test asserts every scenario in
 
 | Pricing model     | Required `rate_config` fields                    |
 | :---------------- | :----------------------------------------------- |
-| `PER_UNIT`        | `per_unit_rate_usd > 0`                          |
+| `PER_UNIT`        | `per_unit_rate_usd > 0` (optional `included_free_units`, `block_size_units`, `min_fee_usd`) |
 | `FLAT_RATE`       | `flat_fee_usd > 0`                               |
 | `PERCENTAGE`      | `percentage_rate > 0` (optional `min_fee_usd`, `charge_base_per_event_usd`) |
 | `INCLUDED_QUOTA`  | `included_free_units > 0` and `per_unit_rate_usd > 0` (overage rate) |
 | `GRADUATED`       | `graduated_tiers: [...]` (len >= 1)              |
 | `VOLUME_TIERED`   | `volume_tiers: [...]` (len >= 1)                 |
+| `STAIRCASE`       | `staircase_bands: [...]` (len >= 1, contiguous; optional `included_free_units`) |
+| `OUTCOME_BASED`   | `per_unit_rate_usd > 0` and `outcome_weights: {...}` (optional `included_free_units`, `block_size_units`, `min_fee_usd`) |
 
 A tier band is `{ up_to_units: <int>, unit_price_usd: <float>,
 flat_fee_usd?: <float> }`. The last tier's `up_to_units: 0` means
 "unbounded".
+
+**`STAIRCASE` bands.** Each band is `{ from_units, to_units, price_usd }`,
+1-based and inclusive (`{1, 100}` is units 1–100), billed as the flat
+`price_usd` of the band the billable total lands in. Rules (mirrored from
+pricing-service): the first band starts at 0 or 1, bands are contiguous
+(`from_units` = previous `to_units` + 1), only the last band may be
+open-ended (`to_units` omitted / 0), and every `price_usd > 0`.
+
+```yaml
+pricing_model: STAIRCASE
+rate_config:
+  staircase_bands:
+    - { from_units: 1, to_units: 100, price_usd: 10.00 }
+    - { from_units: 101, to_units: 500, price_usd: 30.00 }
+    - { from_units: 501, price_usd: 50.00 }
+```
+
+**`OUTCOME_BASED` weights.** `outcome_weights` maps an execution status to
+a weight in [0, 1]; keys are the 11 canonical statuses (`SUCCESS, PARTIAL,
+TIMEOUT, ERROR, VALIDATION_FAILED, FAILED, FAILURE, CANCELLED, PENDING,
+BLOCKED, HITL_REQUIRED`, any case, no two keys for the same status), and at
+least one weight must be > 0. Billing weights units per status (SUM metrics
+weight quantity, COUNT metrics weight event count; a status without a
+weight — and an event without a status — counts at 1.0), then prices like
+`PER_UNIT`. OUTCOME_BASED needs a SUM or COUNT billable unit, so an
+archetype-wide OUTCOME_BASED prices the product type's MAX /
+COUNT_DISTINCT / PERCENTILE_95 metrics `PER_UNIT` (same rate, no weights).
+Both models are rejected in catalog mode (`--catalog`) for now.
+
+```yaml
+pricing_model: OUTCOME_BASED
+rate_config:
+  per_unit_rate_usd: 0.02
+  included_free_units: 100
+  outcome_weights: { SUCCESS: 1.0, PARTIAL: 0.5, HITL_REQUIRED: 0.0 }
+```
+
+### Execution-status mix (`outcome_mix`)
+
+Every template sends a canonical upper-case `executionStatus`. By default
+the API template derives it from its `status_code` (the gateways' default
+table: 2xx/3xx → SUCCESS, 408/504 → TIMEOUT, 499 → CANCELLED, 400/422 →
+VALIDATION_FAILED, 401/403/429 → BLOCKED, other 4xx/5xx → ERROR) and the
+agentic templates sample SUCCESS .92 / ERROR .04 / TIMEOUT .02 / BLOCKED
+.015 / VALIDATION_FAILED .005. Override with shares that sum to 1.0:
+
+```yaml
+outcome_mix: { SUCCESS: 0.9, PARTIAL: 0.05, HITL_REQUIRED: 0.05 }
+outcome_mix_by_product:                 # optional, wins over outcome_mix
+  MCP_SERVER: { SUCCESS: 0.8, ERROR: 0.2 }
+```
+
+The billing validator splits each customer's event count by the same mix
+to compute the expected OUTCOME_BASED total. See `scenarios/ci-outcome-based.yaml`.
 
 **`PERCENTAGE` charge base.** PERCENTAGE bills `events × charge_base × rate`.
 Set `charge_base_per_event_usd` to the average per-event amount you want

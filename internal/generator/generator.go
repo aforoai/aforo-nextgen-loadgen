@@ -116,12 +116,16 @@ type Generator struct {
 	ingestPicker  WeightedPicker
 	payloadPicker PayloadSizePicker
 	negPlanner    *NegativePathPlanner
-	stats         *Stats
-	now           func() time.Time
-	out           chan *Event
-	done          chan struct{}
-	rng           *rand.Rand
-	startedAt     time.Time
+	// templates holds one EventTemplate per product type, built once with
+	// the scenario's outcome_mix / outcome_mix_by_product (nil picker when
+	// the scenario configures none — the template's built-in default).
+	templates map[scenario.ProductType]EventTemplate
+	stats     *Stats
+	now       func() time.Time
+	out       chan *Event
+	done      chan struct{}
+	rng       *rand.Rand
+	startedAt time.Time
 }
 
 // indexedTenant is the per-tenant resolved bundle the generator picks from.
@@ -212,6 +216,7 @@ func NewGenerator(cfg Config) (*Generator, error) {
 		ingestPicker:  ingestPicker,
 		payloadPicker: payloadPicker,
 		negPlanner:    negPlanner,
+		templates:     templatesFor(cfg.Scenario),
 		stats:         &Stats{},
 		now:           cfg.Now,
 		out:           make(chan *Event, cfg.BufferSize),
@@ -305,7 +310,11 @@ func (g *Generator) produce(eventTime time.Time) (*Event, error) {
 		return nil, nil
 	}
 
-	body := TemplateForProductType(productKind)(g.rng)
+	tmpl, ok := g.templates[productKind]
+	if !ok {
+		tmpl = TemplateForProductType(productKind)
+	}
+	body := tmpl(g.rng)
 	size := g.payloadPicker.Pick(g.rng)
 	ApplyPayloadSize(body, size, g.rng)
 
@@ -356,6 +365,7 @@ func (g *Generator) produce(eventTime time.Time) (*Event, error) {
 	// .routeLegacy for the consumer contract.
 	envelope.TraceID = stringField(body, "trace_id")
 	envelope.SessionID = stringField(body, "session_id")
+	envelope.ExecutionStatus = executionStatusOf(body)
 
 	evt := &Event{
 		Envelope:      envelope,
@@ -388,6 +398,35 @@ func (g *Generator) produce(eventTime time.Time) (*Event, error) {
 }
 
 // --- helpers ---
+
+// templatesFor builds the per-product-type templates for a scenario. A
+// product type gets a configured outcome picker only when the scenario sets
+// outcome_mix or outcome_mix_by_product for it; otherwise the template's
+// built-in default applies (see TemplateWithOutcomes).
+func templatesFor(sc *scenario.Scenario) map[scenario.ProductType]EventTemplate {
+	out := make(map[scenario.ProductType]EventTemplate, len(scenario.AllProductTypes))
+	for _, pt := range scenario.AllProductTypes {
+		var picker *WeightedPicker
+		if mix, configured := sc.EffectiveOutcomeMix(pt); configured && len(mix) > 0 {
+			p := NewWeightedPicker(mix)
+			picker = &p
+		}
+		out[pt] = TemplateWithOutcomes(pt, picker)
+	}
+	return out
+}
+
+// executionStatusOf returns the template's execution status (snake_case
+// execution_status for API / MCP_SERVER / AGENTIC_API, camelCase
+// executionStatus for AI_AGENT) as a canonical upper-case string, or "".
+func executionStatusOf(body map[string]any) string {
+	for _, k := range []string{"execution_status", "executionStatus"} {
+		if v := stringField(body, k); v != "" {
+			return scenario.NormalizeExecutionStatus(v)
+		}
+	}
+	return ""
+}
 
 // resolveQuantity returns the Envelope.Quantity value for one event.
 //

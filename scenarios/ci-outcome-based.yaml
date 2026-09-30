@@ -1,0 +1,176 @@
+# ci-outcome-based — OUTCOME_BASED + STAIRCASE coverage
+#
+# Purpose: exercise the two pricing models matrix-billing predates. Every
+# (STAIRCASE | OUTCOME_BASED) × (POSTPAID | PREPAID | HYBRID) combination
+# appears once; together with matrix-billing's 6×3 base matrix that covers
+# all 8 pricing models × 3 billing modes (locked by
+# TestGolden_PricingBillingMatrixCoversAllCombos).
+#
+# Coverage:
+#   - outcome_mix drives the canonical upper-case execution_status the
+#     generator sends as top-level executionStatus; MCP_SERVER gets its own
+#     error-heavier mix via outcome_mix_by_product.
+#   - OUTCOME_BASED weights (1 / 0.5 / 0 ...) with an included-free
+#     allowance, a block size and a minimum fee — the full PER_UNIT math
+#     billing applies after weighting.
+#   - STAIRCASE bands are contiguous, 1-based inclusive, open-ended top band.
+#   - One archetype carries two rate cards on the same product: an
+#     outcome-based card and a staircase card (70/30 customer split).
+#
+# OUTCOME_BASED needs a SUM or COUNT billable unit; the seeder prices each
+# product type's MAX / COUNT_DISTINCT / PERCENTILE_95 metrics PER_UNIT
+# (same rate, no weights) so pricing accepts the plan.
+
+schema_version: 2
+name: ci-outcome-based
+description: >-
+  OUTCOME_BASED and STAIRCASE under POSTPAID, PREPAID and HYBRID, with a
+  configured execution-status mix and a two-card (outcome + staircase)
+  archetype.
+target_tps: 20
+duration: 60s
+seed: 930
+
+# 90% SUCCESS / 5% PARTIAL / 5% HITL_REQUIRED for every product type…
+outcome_mix:
+  SUCCESS: 0.9
+  PARTIAL: 0.05
+  HITL_REQUIRED: 0.05
+# …except MCP_SERVER, which also sees failures.
+outcome_mix_by_product:
+  MCP_SERVER:
+    SUCCESS: 0.8
+    ERROR: 0.1
+    TIMEOUT: 0.05
+    BLOCKED: 0.05
+
+tenants:
+  count: 6
+  distribution: uniform
+  archetypes:
+    # ---------- OUTCOME_BASED × 3 billing modes ----------
+
+    - name: outcome-postpaid
+      weight: 0.17
+      pricing_model: OUTCOME_BASED
+      billing_mode: POSTPAID
+      product_types: [AI_AGENT]
+      customer_count: 10
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        per_unit_rate_usd: 0.02
+        included_free_units: 100
+        block_size_units: 10
+        min_fee_usd: 5.00
+        outcome_weights:
+          SUCCESS: 1.0
+          PARTIAL: 0.5
+          HITL_REQUIRED: 0.0
+      # Two cards on the same AI_AGENT product.
+      rate_cards:
+        - name: outcome
+          pricing_model: OUTCOME_BASED
+          customer_share: 0.7
+        - name: package
+          pricing_model: STAIRCASE
+          rate_config:
+            staircase_bands:
+              - { from_units: 1, to_units: 1000, price_usd: 49.00 }
+              - { from_units: 1001, to_units: 10000, price_usd: 199.00 }
+              - { from_units: 10001, price_usd: 499.00 }
+          customer_share: 0.3
+
+    - name: outcome-prepaid
+      weight: 0.17
+      pricing_model: OUTCOME_BASED
+      billing_mode: PREPAID
+      product_types: [MCP_SERVER]
+      customer_count: 10
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        per_unit_rate_usd: 0.01
+        outcome_weights:
+          SUCCESS: 1.0
+          ERROR: 0.0
+          TIMEOUT: 0.0
+          BLOCKED: 0.0
+        wallet_initial_balance_usd: 500.00
+
+    - name: outcome-hybrid
+      weight: 0.17
+      pricing_model: OUTCOME_BASED
+      billing_mode: HYBRID
+      product_types: [AGENTIC_API]
+      customer_count: 10
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        per_unit_rate_usd: 0.005
+        included_free_units: 1000
+        outcome_weights:
+          SUCCESS: 1.0
+          PARTIAL: 0.25
+        wallet_initial_balance_usd: 250.00
+
+    # ---------- STAIRCASE × 3 billing modes ----------
+
+    - name: staircase-postpaid
+      weight: 0.17
+      pricing_model: STAIRCASE
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 10
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        staircase_bands:
+          - { from_units: 1, to_units: 100, price_usd: 10.00 }
+          - { from_units: 101, to_units: 500, price_usd: 30.00 }
+          - { from_units: 501, price_usd: 50.00 }
+
+    - name: staircase-prepaid
+      weight: 0.16
+      pricing_model: STAIRCASE
+      billing_mode: PREPAID
+      product_types: [API]
+      customer_count: 10
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        staircase_bands:
+          - { from_units: 1, to_units: 1000, price_usd: 25.00 }
+          - { from_units: 1001, price_usd: 100.00 }
+        wallet_initial_balance_usd: 500.00
+
+    - name: staircase-hybrid
+      weight: 0.16
+      pricing_model: STAIRCASE
+      billing_mode: HYBRID
+      product_types: [API]
+      customer_count: 10
+      currency_mix: { USD: 1.0 }
+      subscription_state_mix: { ACTIVE: 1.0 }
+      rate_config:
+        included_free_units: 50
+        staircase_bands:
+          - { from_units: 1, to_units: 200, price_usd: 20.00 }
+          - { from_units: 201, price_usd: 60.00 }
+        wallet_initial_balance_usd: 100.00
+
+time_pattern: constant
+
+product_mix:
+  API: 0.5
+  AI_AGENT: 0.2
+  MCP_SERVER: 0.15
+  AGENTIC_API: 0.15
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0

@@ -86,7 +86,7 @@ var productTypeContracts = map[scenario.ProductType][]contractCheck{
 		{key: "tool_name", mustBeString: true, mustBeNonEmpty: true, consumer: "billing-service AggregateStage.enrichWithDimensionData (per-tool multipliers)"},
 		// Extractor identity + status fields for MCP.
 		{key: "agent_id", mustBeString: true, mustBeNonEmpty: true, consumer: "ProductTypeEventExtractor MCP path (agent_id)"},
-		{key: "execution_status", mustBeString: true, mustBeNonEmpty: true, consumer: "ProductTypeEventExtractor MCP path (execution_status)"},
+		{key: "execution_status", mustBeString: true, mustBeNonEmpty: true, consumer: "generator.produce lifts it to top-level executionStatus (the ingestor does not read metadata.execution_status)"},
 		{key: "execution_duration_ms", mustBeNonEmpty: true, consumer: "ProductTypeEventExtractor MCP path (execution_duration_ms)"},
 	},
 	scenario.ProductAgenticAPI: {

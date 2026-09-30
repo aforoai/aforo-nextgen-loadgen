@@ -73,7 +73,7 @@ func TestAIAgentTemplateEmitsTraceID(t *testing.T) {
 	rng := rand.New(rand.NewSource(2026_07_22))
 	const iterations = 200
 	for i := 0; i < iterations; i++ {
-		ev := aiAgentTemplate(rng)
+		ev := aiAgentTemplate(rng, mcpExecStatusPicker)
 		trace, ok := ev["trace_id"].(string)
 		if !ok {
 			t.Fatalf("iter %d: AI_AGENT event missing trace_id or non-string type: %T", i, ev["trace_id"])
@@ -92,7 +92,7 @@ func TestAgenticAPITemplateEmitsTraceID(t *testing.T) {
 	rng := rand.New(rand.NewSource(2026_07_22))
 	const iterations = 200
 	for i := 0; i < iterations; i++ {
-		ev := agenticAPITemplate(rng)
+		ev := agenticAPITemplate(rng, mcpExecStatusPicker)
 		trace, ok := ev["trace_id"].(string)
 		if !ok {
 			t.Fatalf("iter %d: AGENTIC_API event missing trace_id or non-string type: %T", i, ev["trace_id"])
@@ -116,7 +116,7 @@ func TestAIAgentEventsGroupBySharedTraceID(t *testing.T) {
 	const iterations = 3_000
 	seen := make(map[string]int, defaultTraceIDCardinality)
 	for i := 0; i < iterations; i++ {
-		ev := aiAgentTemplate(rng)
+		ev := aiAgentTemplate(rng, mcpExecStatusPicker)
 		trace, _ := ev["trace_id"].(string)
 		seen[trace]++
 	}
@@ -141,7 +141,7 @@ func TestAgenticAPIEventsGroupBySharedTraceID(t *testing.T) {
 	const iterations = 3_000
 	seen := make(map[string]int, defaultTraceIDCardinality)
 	for i := 0; i < iterations; i++ {
-		ev := agenticAPITemplate(rng)
+		ev := agenticAPITemplate(rng, mcpExecStatusPicker)
 		trace, _ := ev["trace_id"].(string)
 		seen[trace]++
 	}
@@ -171,7 +171,7 @@ func TestAgenticAPITemplateEmitsEndpointPath(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
 	const iterations = 100
 	for i := 0; i < iterations; i++ {
-		ev := agenticAPITemplate(rng)
+		ev := agenticAPITemplate(rng, mcpExecStatusPicker)
 		ep, ok := ev["endpoint_path"].(string)
 		if !ok {
 			t.Fatalf("iter %d: AGENTIC_API event missing endpoint_path or non-string type: %T", i, ev["endpoint_path"])

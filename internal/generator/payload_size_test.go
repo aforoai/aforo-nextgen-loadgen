@@ -46,7 +46,7 @@ func TestApplyPayloadSizeBytes(t *testing.T) {
 		{PayloadMedium, 1500, 3000},
 		{PayloadLarge, 17_000, 25_000},
 	} {
-		body := apiTemplate(rng)
+		body := apiTemplate(rng, nil)
 		ApplyPayloadSize(body, tc.size, rng)
 		buf, err := json.Marshal(body)
 		if err != nil {

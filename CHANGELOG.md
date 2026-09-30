@@ -11,6 +11,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-09-30 (OUTCOME_BASED + STAIRCASE)
+
+- **`STAIRCASE` and `OUTCOME_BASED` pricing models** in the scenario schema
+  (`rate_config.staircase_bands`, `rate_config.outcome_weights`; also on
+  `metric_configs` and `rate_cards`), with validation mirrored from
+  pricing-service. Additive — `schema_version` stays 2. The seeder sends
+  `outcomeWeights` (keys upper-cased) and staircase `tiers` (flat fee per
+  band, open-ended end as `null`); archetype-wide OUTCOME_BASED prices
+  non-SUM/COUNT metrics PER_UNIT so pricing accepts the plan. Catalog mode
+  rejects both models for now.
+- **`outcome_mix` / `outcome_mix_by_product`** — configurable
+  execution-status distribution per product template.
+- **Billing validator** computes OUTCOME_BASED (billing's OutcomeWeighting,
+  then PER_UNIT math) and STAIRCASE (band price) expectations.
+- **`scenarios/ci-outcome-based.yaml`** — both models × 3 billing modes,
+  plus an outcome + staircase two-card archetype.
+
+### Changed — 2026-09-30
+
+- Templates emit canonical upper-case statuses only (was lowercase
+  `success` / `unauthorized` / `rate_limited` …, two of which aren't
+  canonical and were dropped by the ingestor). `unauthorized` +
+  `rate_limited` now map to `BLOCKED`, `validation_error` to
+  `VALIDATION_FAILED`. The API and AGENTIC_API templates now carry a status
+  too, and every event sends it as top-level `executionStatus` (the MCP
+  template's `metadata.execution_status` was never read by the ingestor).
+- `PER_UNIT` now sends `blockSize` / `minFee` when set, and the validator
+  applies them (PricingCalculator.perUnit honours both).
+
 ### Added — 2026-07-11 (AI_AGENT descriptor per-capability coverage)
 
 - **`ai_agent_rest` ingestion path.** New driver at

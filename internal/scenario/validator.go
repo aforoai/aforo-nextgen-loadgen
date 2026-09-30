@@ -166,6 +166,7 @@ func (v *validator) run() {
 	v.checkProductMix(s)
 	v.checkIngestionPaths(s)
 	v.checkPayloadVariation(s)
+	v.checkOutcomeMixes(s)
 	v.checkNegativePaths(s)
 	v.checkLifecycle(s)
 	v.checkPayments(s)
@@ -318,6 +319,16 @@ func (v *validator) checkTenants(s *Scenario) {
 				}
 				validateTierBandOrdering(v, append(p, "volume_tiers"), mc.VolumeTiers)
 			}
+			if mc.PricingModel == PricingOutcomeBased {
+				if !(mc.PerUnitRateUSD > 0) {
+					v.addAt(append(p, "per_unit_rate_usd"),
+						"pricing_model OUTCOME_BASED requires per_unit_rate_usd > 0")
+				}
+				v.checkOutcomeWeights(append(p, "outcome_weights"), mc.OutcomeWeights)
+			}
+			if mc.PricingModel == PricingStaircase {
+				v.checkStaircaseBands(append(p, "staircase_bands"), mc.StaircaseBands)
+			}
 			// FLAT_RATE at the per-metric level has NO wire mapping: pricing-
 			// service's metricConfigRequest carries `rate`/`minFee`/`tiers`/
 			// `includedFree`/`blockSize`, but no per-metric flat-fee field.
@@ -405,6 +416,8 @@ func (v *validator) checkTenants(s *Scenario) {
 					"pricing_model=VOLUME_TIERED requires at least one tier in rate_config.volume_tiers")
 			}
 			validateTierBandOrdering(v, append(basePath, "rate_config", "volume_tiers"), a.RateConfig.VolumeTiers)
+		case PricingOutcomeBased, PricingStaircase:
+			v.checkModelSpecificConfig(basePath, a.PricingModel, a.RateConfig, "")
 		}
 
 		// v2 RateCards validation (2026-07-22). By this point applyDefaults has
@@ -511,6 +524,8 @@ func (v *validator) checkRateCards(path []string, a TenantArchetype) {
 					"rate_cards[].pricing_model=VOLUME_TIERED requires rate_config.volume_tiers")
 			}
 			validateTierBandOrdering(v, append(cardPath, "rate_config", "volume_tiers"), rc.RateConfig.VolumeTiers)
+		case PricingOutcomeBased, PricingStaircase:
+			v.checkModelSpecificConfig(cardPath, rc.PricingModel, rc.RateConfig, "rate_cards[].")
 		}
 		// Offering currencies.
 		for j, off := range rc.Offerings {

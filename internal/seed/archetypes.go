@@ -262,6 +262,11 @@ func expectedBillingFormula(a scenario.TenantArchetype) string {
 		return fmt.Sprintf("graduated tiers (%d bands) — staircase pricing", len(rc.GraduatedTiers))
 	case scenario.PricingVolumeTiered:
 		return fmt.Sprintf("volume tiers (%d bands) — qualifying-band rate * total volume", len(rc.VolumeTiers))
+	case scenario.PricingStaircase:
+		return fmt.Sprintf("staircase (%d bands) — flat price of the band the total lands in", len(rc.StaircaseBands))
+	case scenario.PricingOutcomeBased:
+		return fmt.Sprintf("sum(units_per_status * weight, %d weights, unweighted status = 1) then per-unit %.6f USD",
+			len(rc.OutcomeWeights), rc.PerUnitRateUSD)
 	}
 	return string(a.PricingModel)
 }

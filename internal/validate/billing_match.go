@@ -163,6 +163,9 @@ type archBucket struct {
 	billingMode  scenario.BillingMode
 	rate         scenario.RateConfig
 	customers    []seed.ManifestCustomer
+	// productType is the archetype's first product type — used to pick the
+	// outcome mix the OUTCOME_BASED estimate splits events by.
+	productType scenario.ProductType
 }
 
 // groupByArchetype returns the manifest's archetype → bucket index.
@@ -180,6 +183,9 @@ func groupByArchetype(m *seed.Manifest) map[string]*archBucket {
 				pricingModel: t.PricingModel,
 				billingMode:  t.BillingMode,
 				rate:         findRateConfig(t),
+			}
+			if len(t.Products) > 0 {
+				b.productType = t.Products[0].ProductType
 			}
 			out[t.Archetype] = b
 		}
@@ -215,6 +221,31 @@ func rateConfigFromMap(m map[string]any) scenario.RateConfig {
 	}
 	if v, ok := m["volume_tiers"]; ok {
 		r.VolumeTiers = tiersFromAny(v)
+	}
+	if v, ok := m["outcome_weights"].(map[string]any); ok {
+		r.OutcomeWeights = make(map[string]float64, len(v))
+		for k := range v {
+			r.OutcomeWeights[k] = floatField(v, k)
+		}
+	}
+	// The manifest config holds []map[string]any in memory (straight from
+	// the seeder) and []any after a JSON round-trip — accept both.
+	var bandMaps []map[string]any
+	switch v := m["staircase_bands"].(type) {
+	case []map[string]any:
+		bandMaps = v
+	case []any:
+		for _, item := range v {
+			bm, _ := item.(map[string]any)
+			bandMaps = append(bandMaps, bm)
+		}
+	}
+	for _, bm := range bandMaps {
+		r.StaircaseBands = append(r.StaircaseBands, scenario.StaircaseBand{
+			FromUnits: int64Field(bm, "from_units"),
+			ToUnits:   int64Field(bm, "to_units"),
+			PriceUSD:  floatField(bm, "price_usd"),
+		})
 	}
 	return r
 }
@@ -321,9 +352,20 @@ func computeExpected(bucket *archBucket, cust seed.ManifestCustomer, events int6
 			BlockSizeUnits:    bucket.rate.BlockSizeUnits,
 			GraduatedTiers:    graduated,
 			VolumeTiers:       volume,
+			OutcomeWeights:    bucket.rate.OutcomeWeights,
+			StaircaseBands:    convertStaircase(bucket.rate.StaircaseBands),
 		},
 		Discount: convertDiscount(cust.Discount),
 		TaxPct:   resolveTaxPct(sc, cust),
+	}
+	if bucket.pricingModel == scenario.PricingOutcomeBased {
+		// Only an event count is known per customer, so split it by the
+		// outcome mix the generator emits for this product type and weight
+		// it as a COUNT unit (one unit per event) — billing's
+		// OutcomeWeighting on the expected per-status counts.
+		mix, _ := sc.EffectiveOutcomeMix(bucket.productType)
+		in.Outcomes = billing.ExpectedOutcomes(events, mix)
+		in.Aggregation = "COUNT"
 	}
 
 	walletAvailable := bucket.rate.WalletInitialBalanceUSD
@@ -346,6 +388,17 @@ func convertTiers(r scenario.RateConfig) []billing.Tier {
 			UnitPrice: t.UnitPriceUSD,
 			FlatFee:   t.FlatFeeUSD,
 		})
+	}
+	return out
+}
+
+func convertStaircase(bands []scenario.StaircaseBand) []billing.Band {
+	if len(bands) == 0 {
+		return nil
+	}
+	out := make([]billing.Band, len(bands))
+	for i, b := range bands {
+		out[i] = billing.Band{From: b.FromUnits, To: b.ToUnits, Price: b.PriceUSD}
 	}
 	return out
 }

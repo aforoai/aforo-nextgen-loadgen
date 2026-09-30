@@ -3,6 +3,8 @@ package generator
 import (
 	"fmt"
 	"math/rand"
+
+	"github.com/aforoai/aforo-nextgen-loadgen/internal/scenario"
 )
 
 // Field-generation helpers shared by all product templates. We aim for
@@ -102,15 +104,55 @@ var mcpTransportPicker = NewWeightedPicker(map[string]float64{
 	"websocket": 0.05,
 })
 
-// MCP execution status — biased to success but with realistic error mix.
-var mcpExecStatusPicker = NewWeightedPicker(map[string]float64{
-	"success":          0.92,
-	"error":            0.04,
-	"timeout":          0.02,
-	"unauthorized":     0.01,
-	"rate_limited":     0.005,
-	"validation_error": 0.005,
-})
+// Default execution-status picker for the agentic templates (AI_AGENT,
+// MCP_SERVER, AGENTIC_API) — canonical upper-case statuses only. Built from
+// scenario.DefaultOutcomeMix so the generator and the billing validator's
+// OUTCOME_BASED estimate share one table. It is the historical lowercase mix
+// mapped onto canonical statuses (unauthorized + rate_limited → BLOCKED,
+// validation_error → VALIDATION_FAILED); the old lowercase values were
+// either upper-cased by the ingestor or — for unauthorized / rate_limited,
+// which aren't canonical — dropped as unknown.
+var mcpExecStatusPicker = NewWeightedPicker(scenario.DefaultOutcomeMix(scenario.ProductAIAgent))
+
+// outcomeForStatusCode maps an HTTP status code to an execution status with
+// the gateway plugins' default table (decided 2026-09-30):
+//
+//	2xx / 3xx        → SUCCESS
+//	408 / 504        → TIMEOUT
+//	499              → CANCELLED
+//	400 / 422        → VALIDATION_FAILED
+//	401 / 403 / 429  → BLOCKED
+//	other 4xx / 5xx  → ERROR
+//	anything else    → "" (undeterminable — no status sent)
+func outcomeForStatusCode(code int) string {
+	switch {
+	case code >= 200 && code < 400:
+		return "SUCCESS"
+	case code == 408 || code == 504:
+		return "TIMEOUT"
+	case code == 499:
+		return "CANCELLED"
+	case code == 400 || code == 422:
+		return "VALIDATION_FAILED"
+	case code == 401 || code == 403 || code == 429:
+		return "BLOCKED"
+	case code >= 400 && code < 600:
+		return "ERROR"
+	}
+	return ""
+}
+
+// isErrorOutcome reports whether a status counts toward the error_count
+// metrics. SUCCESS, PARTIAL, PENDING and HITL_REQUIRED are not errors; every
+// other canonical status is. With the default mix this is identical to the
+// historical "anything but success" rule.
+func isErrorOutcome(status string) bool {
+	switch status {
+	case "SUCCESS", "PARTIAL", "PENDING", "HITL_REQUIRED":
+		return false
+	}
+	return true
+}
 
 // Endpoint generator — deterministic per-tenant cardinality. We model a
 // tenant having ~100 distinct API endpoints in production. Format:

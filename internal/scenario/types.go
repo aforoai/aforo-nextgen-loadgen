@@ -20,6 +20,7 @@ package scenario
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -61,8 +62,9 @@ var AllProductTypes = []ProductType{
 	ProductAPI, ProductAIAgent, ProductMCPServer, ProductAgenticAPI,
 }
 
-// PricingModel enumerates the six pricing models supported by the platform's
-// PricingCalculatorService. Mirrors values in pricing-service.
+// PricingModel enumerates the eight pricing models supported by the platform's
+// PricingCalculator (aforo-common com.aforo.billing.common.rating). Mirrors
+// values in pricing-service.
 type PricingModel string
 
 const (
@@ -72,12 +74,49 @@ const (
 	PricingIncludedQuota PricingModel = "INCLUDED_QUOTA"
 	PricingGraduated     PricingModel = "GRADUATED"
 	PricingVolumeTiered  PricingModel = "VOLUME_TIERED"
+	// PricingStaircase bills the flat price of the band the billable total
+	// lands in (no per-unit component). Bands come from
+	// RateConfig.StaircaseBands.
+	PricingStaircase PricingModel = "STAIRCASE"
+	// PricingOutcomeBased weights each unit by its execution status
+	// (RateConfig.OutcomeWeights) and then prices like PER_UNIT.
+	PricingOutcomeBased PricingModel = "OUTCOME_BASED"
 )
 
 // AllPricingModels is the canonical order — used by matrix scenarios.
+// STAIRCASE and OUTCOME_BASED are appended (not interleaved) so any code that
+// indexes the first six keeps its historical order.
 var AllPricingModels = []PricingModel{
 	PricingPerUnit, PricingFlatRate, PricingPercentage,
 	PricingIncludedQuota, PricingGraduated, PricingVolumeTiered,
+	PricingStaircase, PricingOutcomeBased,
+}
+
+// ExecutionStatuses is the canonical execution-status set (exactly 11,
+// upper-case). Must match aforo-common contracts/execution-statuses.json,
+// usage-ingestor ExecutionStatuses.ALLOWED and pricing
+// RatePlanServiceImpl.OUTCOME_STATUS_KEYS. Used for outcome_weights keys,
+// outcome_mix keys, and the generator's emitted execution_status.
+var ExecutionStatuses = []string{
+	"SUCCESS", "PARTIAL", "TIMEOUT", "ERROR", "VALIDATION_FAILED", "FAILED",
+	"FAILURE", "CANCELLED", "PENDING", "BLOCKED", "HITL_REQUIRED",
+}
+
+// NormalizeExecutionStatus trims + upper-cases a status. Returns "" for blank.
+func NormalizeExecutionStatus(s string) string {
+	return strings.ToUpper(strings.TrimSpace(s))
+}
+
+// IsExecutionStatus reports whether s (any case, surrounding whitespace
+// ignored) is one of the 11 canonical statuses.
+func IsExecutionStatus(s string) bool {
+	n := NormalizeExecutionStatus(s)
+	for _, x := range ExecutionStatuses {
+		if n == x {
+			return true
+		}
+	}
+	return false
 }
 
 // BillingMode enumerates Aforo's three billing modes.
@@ -194,17 +233,26 @@ type Scenario struct {
 	ProductMix       ProductMix       `yaml:"product_mix,omitempty"`
 	IngestionPaths   IngestionPaths   `yaml:"ingestion_paths,omitempty"`
 	PayloadVariation PayloadVariation `yaml:"payload_variation,omitempty"`
-	NegativePaths    NegativePaths    `yaml:"negative_paths,omitempty"`
-	Lifecycle        LifecycleProfile `yaml:"lifecycle,omitempty"`
-	Payments         Payments         `yaml:"payments,omitempty"`
-	Tax              Tax              `yaml:"tax,omitempty"`
-	ERP              ERP              `yaml:"erp,omitempty"`
-	CreditNotes      CreditNotes      `yaml:"credit_notes,omitempty"`
-	Wallet           Wallet           `yaml:"wallet,omitempty"`
-	FX               FX               `yaml:"fx,omitempty"`
-	Chaos            Chaos            `yaml:"chaos,omitempty"`
-	Assertions       Assertions       `yaml:"assertions,omitempty"`
-	Metadata         map[string]any   `yaml:"metadata,omitempty"`
+	// OutcomeMix is the execution_status distribution the generator emits
+	// for EVERY product type (status → share, shares sum to 1.0, keys are
+	// canonical statuses, any case). Optional — when unset each product
+	// template uses its built-in default (see DefaultOutcomeMix).
+	//
+	//	outcome_mix: {SUCCESS: 0.9, PARTIAL: 0.05, HITL_REQUIRED: 0.05}
+	OutcomeMix map[string]float64 `yaml:"outcome_mix,omitempty"`
+	// OutcomeMixByProduct overrides OutcomeMix for one product type.
+	OutcomeMixByProduct map[ProductType]map[string]float64 `yaml:"outcome_mix_by_product,omitempty"`
+	NegativePaths       NegativePaths                      `yaml:"negative_paths,omitempty"`
+	Lifecycle           LifecycleProfile                   `yaml:"lifecycle,omitempty"`
+	Payments            Payments                           `yaml:"payments,omitempty"`
+	Tax                 Tax                                `yaml:"tax,omitempty"`
+	ERP                 ERP                                `yaml:"erp,omitempty"`
+	CreditNotes         CreditNotes                        `yaml:"credit_notes,omitempty"`
+	Wallet              Wallet                             `yaml:"wallet,omitempty"`
+	FX                  FX                                 `yaml:"fx,omitempty"`
+	Chaos               Chaos                              `yaml:"chaos,omitempty"`
+	Assertions          Assertions                         `yaml:"assertions,omitempty"`
+	Metadata            map[string]any                     `yaml:"metadata,omitempty"`
 }
 
 // Tenants describes the tenant population to provision.
@@ -404,6 +452,9 @@ type MetricOverride struct {
 	FlatFeeUSD        float64      `yaml:"flat_fee_usd,omitempty"`
 	GraduatedTiers    []TierBand   `yaml:"graduated_tiers,omitempty"`
 	VolumeTiers       []TierBand   `yaml:"volume_tiers,omitempty"`
+	// OutcomeWeights / StaircaseBands — see RateConfig.
+	OutcomeWeights map[string]float64 `yaml:"outcome_weights,omitempty"`
+	StaircaseBands []StaircaseBand    `yaml:"staircase_bands,omitempty"`
 }
 
 // RateConfig holds the pricing-model-specific knobs for an archetype.
@@ -431,6 +482,27 @@ type RateConfig struct {
 	VolumeTiers             []TierBand `yaml:"volume_tiers,omitempty"`
 	WalletInitialBalanceUSD float64    `yaml:"wallet_initial_balance_usd,omitempty"`
 	TrialDays               int        `yaml:"trial_days,omitempty"`
+
+	// OutcomeWeights drives OUTCOME_BASED: execution status → weight in
+	// [0, 1]. Keys are canonical statuses (any case). At least one weight
+	// must be > 0. A status without a weight — and an event without a
+	// status — bills at 1.0 (billing's OutcomeWeighting). Sent to pricing
+	// as metricConfigs[].outcomeWeights (keys upper-cased).
+	OutcomeWeights map[string]float64 `yaml:"outcome_weights,omitempty"`
+	// StaircaseBands drives STAIRCASE: contiguous 1-based inclusive bands,
+	// each with a flat price. Sent to pricing as metricConfigs[].tiers with
+	// flatFee = price_usd.
+	StaircaseBands []StaircaseBand `yaml:"staircase_bands,omitempty"`
+}
+
+// StaircaseBand is one step of a STAIRCASE rate. FromUnits/ToUnits are
+// inclusive (pricing's Option B, 1-based: {1,100} is units 1..100). ToUnits 0
+// means open-ended and is only valid on the last band. Bands must be
+// contiguous: each FromUnits == previous ToUnits + 1.
+type StaircaseBand struct {
+	FromUnits int64   `yaml:"from_units"`
+	ToUnits   int64   `yaml:"to_units,omitempty"`
+	PriceUSD  float64 `yaml:"price_usd"`
 }
 
 // TierBand is one band of a GRADUATED or VOLUME_TIERED rate.

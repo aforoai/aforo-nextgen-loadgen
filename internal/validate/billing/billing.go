@@ -28,6 +28,8 @@ const (
 	IncludedQuota PricingModel = "INCLUDED_QUOTA"
 	Graduated     PricingModel = "GRADUATED"
 	VolumeTiered  PricingModel = "VOLUME_TIERED"
+	Staircase     PricingModel = "STAIRCASE"
+	OutcomeBased  PricingModel = "OUTCOME_BASED"
 )
 
 // Mode mirrors scenario.BillingMode (renamed locally to avoid the
@@ -60,6 +62,10 @@ type RateConfig struct {
 	BlockSizeUnits    int64
 	GraduatedTiers    []Tier
 	VolumeTiers       []Tier
+	// OutcomeWeights is the OUTCOME_BASED status → weight map (any key case).
+	OutcomeWeights map[string]float64
+	// StaircaseBands are the STAIRCASE steps (1-based inclusive).
+	StaircaseBands []Band
 }
 
 // Discount captures a single applied discount. Type is "PERCENTAGE" or
@@ -76,11 +82,19 @@ type Discount struct {
 type CalcInputs struct {
 	Events        int64
 	ChargeBaseUSD float64 // for PERCENTAGE
-	Model         PricingModel
-	Rate          RateConfig
-	Discount      *Discount
-	TaxPct        float64 // 0.0 = no tax (mock or not configured)
-	Mode          Mode
+	// Outcomes is the per-status usage split used by OUTCOME_BASED. When
+	// empty (or when Aggregation can't be split by status) OUTCOME_BASED
+	// bills Events unweighted — billing's fallback when the by-outcome
+	// lookup returns nothing.
+	Outcomes []OutcomeUsage
+	// Aggregation is the metric's aggregation type (SUM / COUNT / MAX /
+	// AVG / UNIQUE). Empty is treated as SUM, like billing's legacy rows.
+	Aggregation string
+	Model       PricingModel
+	Rate        RateConfig
+	Discount    *Discount
+	TaxPct      float64 // 0.0 = no tax (mock or not configured)
+	Mode        Mode
 }
 
 // CalcResult is the staged output: (Subtotal, Discount, Taxable, Tax, Total)
@@ -162,6 +176,15 @@ func rate(in CalcInputs) (float64, []TierCharge, error) {
 	switch in.Model {
 	case PerUnit:
 		return perUnitCharge(in.Events, in.Rate), nil, nil
+	case OutcomeBased:
+		units := float64(in.Events)
+		if w, ok := WeightOutcomes(in.Outcomes, in.Rate.OutcomeWeights, in.Aggregation); ok {
+			units = w.Weighted
+		}
+		return linearCharge(units, in.Rate), nil, nil
+	case Staircase:
+		amt, br := staircaseCharge(float64(in.Events), in.Rate.IncludedFreeUnits, in.Rate.StaircaseBands)
+		return amt, br, nil
 	case FlatRate:
 		return flatRateCharge(in.Rate), nil, nil
 	case Percentage:

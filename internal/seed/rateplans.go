@@ -52,11 +52,20 @@ type metricConfigRequest struct {
 	BillingTiming string            `json:"billingTiming,omitempty"`
 	Tiers         []rateTierRequest `json:"tiers,omitempty"`
 	OvBehavior    string            `json:"ovBehavior,omitempty"`
+	// OutcomeWeights maps to MetricConfigRequest.outcomeWeights (OUTCOME_BASED
+	// only). Keys are sent upper-cased; pricing validates them against the 11
+	// canonical statuses and requires at least one weight > 0.
+	OutcomeWeights map[string]float64 `json:"outcomeWeights,omitempty"`
 }
 
+// rateTierRequest mirrors MetricTierRequest. TierEnd is a pointer so an
+// open-ended STAIRCASE step can be sent as null (pricing rejects a bounded
+// step whose end is below its start, so the GRADUATED/VOLUME_TIERED "-1"
+// sentinel would fail STAIRCASE validation). GRADUATED/VOLUME_TIERED keep
+// sending -1 for their open-ended top tier, byte-identical to before.
 type rateTierRequest struct {
 	TierStart int64   `json:"tierStart"`
-	TierEnd   int64   `json:"tierEnd"`
+	TierEnd   *int64  `json:"tierEnd"`
 	UnitPrice float64 `json:"unitPrice"`
 	FlatFee   float64 `json:"flatFee,omitempty"`
 	SortOrder int     `json:"sortOrder"`
@@ -250,8 +259,19 @@ func buildRatePlanRequest(a scenario.TenantArchetype, productIDs []string, metri
 			mc.Model = ov.PricingModel
 			applyMetricOverride(&mc, ov)
 		} else {
-			mc.Model = a.PricingModel
-			applyArchetypeRateConfig(&mc, a.PricingModel, rc)
+			model := a.PricingModel
+			// OUTCOME_BASED needs a SUM or COUNT billable unit — pricing
+			// rejects the whole plan otherwise (validateOutcomeAggregation),
+			// and every product type ships at least one MAX / COUNT_DISTINCT /
+			// PERCENTILE_95 metric. An archetype-wide OUTCOME_BASED therefore
+			// prices those metrics PER_UNIT with the same rate / allowance /
+			// block / min fee (no weights) — what an operator does in the
+			// wizard. Metrics with an unknown aggregation keep OUTCOME_BASED.
+			if model == scenario.PricingOutcomeBased && !outcomeWeightable(m.AggregationType) {
+				model = scenario.PricingPerUnit
+			}
+			mc.Model = model
+			applyArchetypeRateConfig(&mc, model, rc)
 		}
 		body.MetricConfigs = append(body.MetricConfigs, mc)
 	}
@@ -271,10 +291,10 @@ func applyArchetypeRateConfig(mc *metricConfigRequest, model scenario.PricingMod
 		// rate to 0 so the metric exists but contributes nothing to the bill.
 		mc.Rate = floatPtr(0)
 	case scenario.PricingPerUnit:
-		mc.Rate = floatPtr(rc.PerUnitRateUSD)
-		if rc.IncludedFreeUnits > 0 {
-			mc.IncludedFree = rc.IncludedFreeUnits
-		}
+		applyLinear(mc, rc.PerUnitRateUSD, rc.IncludedFreeUnits, rc.BlockSizeUnits, rc.MinFeeUSD)
+	case scenario.PricingOutcomeBased:
+		applyLinear(mc, rc.PerUnitRateUSD, rc.IncludedFreeUnits, rc.BlockSizeUnits, rc.MinFeeUSD)
+		mc.OutcomeWeights = upperCaseWeights(rc.OutcomeWeights)
 	case scenario.PricingPercentage:
 		mc.Rate = floatPtr(rc.PercentageRate)
 		if rc.MinFeeUSD > 0 {
@@ -294,7 +314,79 @@ func applyArchetypeRateConfig(mc *metricConfigRequest, model scenario.PricingMod
 		mc.Tiers = tiersFromBands(rc.GraduatedTiers)
 	case scenario.PricingVolumeTiered:
 		mc.Tiers = tiersFromBands(rc.VolumeTiers)
+	case scenario.PricingStaircase:
+		applyStaircase(mc, rc.StaircaseBands, rc.IncludedFreeUnits)
 	}
+}
+
+// outcomeWeightable reports whether a metric aggregation can carry
+// OUTCOME_BASED pricing (SUM or COUNT; blank = unknown, allowed).
+func outcomeWeightable(aggregation string) bool {
+	switch strings.ToUpper(strings.TrimSpace(aggregation)) {
+	case "", "SUM", "COUNT":
+		return true
+	}
+	return false
+}
+
+// applyLinear stamps the PER_UNIT / OUTCOME_BASED knobs. Both models price
+// through PricingCalculator.perUnit, which honours includedFree, blockSize
+// and minFee — so all three are sent when set (PER_UNIT used to drop
+// blockSize/minFee, which made a scenario's block/min-fee silently not
+// reach pricing).
+func applyLinear(mc *metricConfigRequest, rate float64, includedFree, blockSize int64, minFee float64) {
+	mc.Rate = floatPtr(rate)
+	if includedFree > 0 {
+		mc.IncludedFree = includedFree
+	}
+	if blockSize > 0 {
+		mc.BlockSize = blockSize
+	}
+	if minFee > 0 {
+		mc.MinFee = minFee
+	}
+}
+
+// applyStaircase sends STAIRCASE bands as tiers: tierStart/tierEnd are the
+// band bounds (1-based inclusive, end null when open), flatFee is the band
+// price, unitPrice 0. STAIRCASE has no rate, so none is sent.
+func applyStaircase(mc *metricConfigRequest, bands []scenario.StaircaseBand, includedFree int64) {
+	mc.Tiers = tiersFromStaircase(bands)
+	if includedFree > 0 {
+		mc.IncludedFree = includedFree
+	}
+}
+
+func tiersFromStaircase(bands []scenario.StaircaseBand) []rateTierRequest {
+	out := make([]rateTierRequest, len(bands))
+	for i, b := range bands {
+		var end *int64
+		if b.ToUnits > 0 {
+			e := b.ToUnits
+			end = &e
+		}
+		out[i] = rateTierRequest{
+			TierStart: b.FromUnits,
+			TierEnd:   end,
+			UnitPrice: 0,
+			FlatFee:   b.PriceUSD,
+			SortOrder: i,
+		}
+	}
+	return out
+}
+
+// upperCaseWeights copies an outcome-weight map with trimmed upper-case keys
+// (the canonical form pricing stores). Returns nil for an empty map.
+func upperCaseWeights(in map[string]float64) map[string]float64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]float64, len(in))
+	for k, v := range in {
+		out[scenario.NormalizeExecutionStatus(k)] = v
+	}
+	return out
 }
 
 // applyMetricOverride stamps a per-metric MetricOverride onto a metric
@@ -305,10 +397,12 @@ func applyMetricOverride(mc *metricConfigRequest, ov scenario.MetricOverride) {
 	case scenario.PricingFlatRate:
 		mc.Rate = floatPtr(0)
 	case scenario.PricingPerUnit:
-		mc.Rate = floatPtr(ov.PerUnitRateUSD)
-		if ov.IncludedFreeUnits > 0 {
-			mc.IncludedFree = ov.IncludedFreeUnits
-		}
+		applyLinear(mc, ov.PerUnitRateUSD, ov.IncludedFreeUnits, ov.BlockSizeUnits, ov.MinFeeUSD)
+	case scenario.PricingOutcomeBased:
+		applyLinear(mc, ov.PerUnitRateUSD, ov.IncludedFreeUnits, ov.BlockSizeUnits, ov.MinFeeUSD)
+		mc.OutcomeWeights = upperCaseWeights(ov.OutcomeWeights)
+	case scenario.PricingStaircase:
+		applyStaircase(mc, ov.StaircaseBands, ov.IncludedFreeUnits)
 	case scenario.PricingPercentage:
 		mc.Rate = floatPtr(ov.PercentageRate)
 		if ov.MinFeeUSD > 0 {
@@ -337,9 +431,10 @@ func tiersFromBands(bands []scenario.TierBand) []rateTierRequest {
 		if end == 0 {
 			end = -1
 		}
+		endCopy := end
 		out[i] = rateTierRequest{
 			TierStart: prevEnd,
-			TierEnd:   end,
+			TierEnd:   &endCopy,
 			UnitPrice: b.UnitPriceUSD,
 			FlatFee:   b.FlatFeeUSD,
 			SortOrder: i,
@@ -403,8 +498,34 @@ func rateConfigSummary(a scenario.TenantArchetype) map[string]any {
 	switch a.PricingModel {
 	case scenario.PricingFlatRate:
 		out["flat_fee_usd"] = rc.FlatFeeUSD
-	case scenario.PricingPerUnit:
+	case scenario.PricingPerUnit, scenario.PricingOutcomeBased:
 		out["per_unit_rate_usd"] = rc.PerUnitRateUSD
+		if rc.IncludedFreeUnits > 0 {
+			out["included_free_units"] = rc.IncludedFreeUnits
+		}
+		if rc.BlockSizeUnits > 0 {
+			out["block_size_units"] = rc.BlockSizeUnits
+		}
+		if rc.MinFeeUSD > 0 {
+			out["min_fee_usd"] = rc.MinFeeUSD
+		}
+		if a.PricingModel == scenario.PricingOutcomeBased {
+			w := make(map[string]any, len(rc.OutcomeWeights))
+			for k, v := range upperCaseWeights(rc.OutcomeWeights) {
+				w[k] = v
+			}
+			out["outcome_weights"] = w
+		}
+	case scenario.PricingStaircase:
+		bands := make([]map[string]any, len(rc.StaircaseBands))
+		for i, b := range rc.StaircaseBands {
+			bands[i] = map[string]any{
+				"from_units": b.FromUnits,
+				"to_units":   b.ToUnits,
+				"price_usd":  b.PriceUSD,
+			}
+		}
+		out["staircase_bands"] = bands
 		if rc.IncludedFreeUnits > 0 {
 			out["included_free_units"] = rc.IncludedFreeUnits
 		}
