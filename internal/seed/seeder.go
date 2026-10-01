@@ -290,8 +290,6 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 	if productsPerType <= 0 {
 		productsPerType = 1
 	}
-	totalProducts := len(a.ProductTypes) * productsPerType
-	productIDs := make([]string, 0, totalProducts)
 
 	// Rate-plan metric dedup: two paths produce duplicate metricName entries
 	// in the rate plan otherwise, both of which pricing-service rejects with
@@ -326,7 +324,6 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 			if err != nil {
 				return err
 			}
-			productIDs = append(productIDs, prod.ID)
 
 			// Metrics are tenant-scoped (NOT product-scoped) on the catalog side,
 			// so bulk-seeding for productsPerType > 1 returns the SAME metric

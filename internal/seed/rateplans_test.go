@@ -182,7 +182,7 @@ func TestBuildRatePlanRequest_PerPricingModel(t *testing.T) {
 			// (rename pass — see CONVENTIONS.md "Wire-format alignment").
 			// The deterministic backend identity for cross-day idempotency
 			// is now Name; the Idempotency-Key header is set by
-			// provisionRatePlan via the caller's seedKey, not by this builder.
+			// provisionRatePlanWithName via the caller's seedKey, not by this builder.
 			req := buildRatePlanRequest(tc.a, productIDs, metrics)
 			if len(req.ProductIDs) != 1 || req.ProductIDs[0] != "prod-1" {
 				t.Errorf("ProductIDs = %v", req.ProductIDs)

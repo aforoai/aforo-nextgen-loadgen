@@ -274,15 +274,15 @@ func buildArguments(tool string) map[string]any {
 	}
 }
 
-// canonicalMcpJsonRPCName is used by the registry + validator + generator
+// canonicalMcpJSONRPCName is used by the registry + validator + generator
 // weighting logic. Exported as a const so drift between call sites is
 // caught at compile time.
-const canonicalMcpJsonRPCName = "mcp_jsonrpc"
+const canonicalMcpJSONRPCName = "mcp_jsonrpc"
 
 // Compile-time guard — Name() must return the canonical string.
 var _ = func() bool {
-	if !strings.EqualFold((&MCPJsonRPC{}).Name(), canonicalMcpJsonRPCName) {
-		panic("mcp_jsonrpc: Name() diverged from canonicalMcpJsonRPCName")
+	if !strings.EqualFold((&MCPJsonRPC{}).Name(), canonicalMcpJSONRPCName) {
+		panic("mcp_jsonrpc: Name() diverged from canonicalMcpJSONRPCName")
 	}
 	return true
 }()

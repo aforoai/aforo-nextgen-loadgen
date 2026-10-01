@@ -299,7 +299,10 @@ func (v *validator) checkTenants(s *Scenario) {
 		// metric. Validate the pricing model on each override; unknown
 		// values silently regressing to PER_UNIT would hide operator typos.
 		for name, mc := range a.MetricConfigs {
-			p := append(basePath, "metric_configs", name)
+			// Copy first: appending to basePath directly can hand two loop
+			// iterations the same backing array, so one error's path would
+			// be overwritten by the next.
+			p := append(append([]string{}, basePath...), "metric_configs", name)
 			if !isValidPricingModel(mc.PricingModel) {
 				v.addAt(append(p, "pricing_model"),
 					fmt.Sprintf("pricing_model %q is not one of: %s",

@@ -10,8 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aforoai/aforo-nextgen-loadgen/internal/aforo"
 	"github.com/spf13/cobra"
+
+	"github.com/aforoai/aforo-nextgen-loadgen/internal/aforo"
 )
 
 type BillRunRequest struct {
@@ -166,9 +167,9 @@ Examples:
 	cmd.Flags().IntVar(&pollInterval, "poll-interval", 2, "seconds between status polls")
 	cmd.Flags().IntVar(&maxWaitSeconds, "max-wait", 300, "maximum seconds to wait for completion")
 
-	cmd.MarkFlagRequired("tenant-id")
-	cmd.MarkFlagRequired("period-start")
-	cmd.MarkFlagRequired("period-end")
+	_ = cmd.MarkFlagRequired("tenant-id")
+	_ = cmd.MarkFlagRequired("period-start")
+	_ = cmd.MarkFlagRequired("period-end")
 
 	return cmd
 }

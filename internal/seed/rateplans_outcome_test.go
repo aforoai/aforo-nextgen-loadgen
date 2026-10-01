@@ -23,7 +23,8 @@ func TestBuildRatePlanRequest_OutcomeBased(t *testing.T) {
 			IncludedFreeUnits: 100,
 			BlockSizeUnits:    10,
 			MinFeeUSD:         5,
-			OutcomeWeights:    map[string]float64{"success": 1, " Partial ": 0.5, "HITL_REQUIRED": 0},
+			//nolint:gocritic // the padded, mixed-case key is the point: weights keys are trimmed and upper-cased
+			OutcomeWeights: map[string]float64{"success": 1, " Partial ": 0.5, "HITL_REQUIRED": 0},
 		},
 	}
 	metrics := []ManifestMetric{

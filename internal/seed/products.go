@@ -93,15 +93,8 @@ type productResponse struct {
 //     service has no externalId column on products) and NOT a backend
 //     identity field. The deterministic backend identity is `name`,
 //     which lookupProductByName queries against. See CONVENTIONS.md.
-func provisionProduct(ctx context.Context, c *Client, tenantID, seedKey string, archetype string, pt scenario.ProductType) (productResponse, error) {
-	// Historical single-product-per-type name shape. New callers that create
-	// multiple products of the same type should use provisionProductNamed
-	// with an explicit ordinal-suffixed name.
-	name := fmt.Sprintf("Loadgen Product %s %s", archetype, pt)
-	return provisionProductNamed(ctx, c, tenantID, seedKey, name, archetype, pt)
-}
-
-// provisionProductNamed is the underlying create-with-lookup helper. Callers
+//
+// provisionProductNamed is the create-with-lookup helper. Callers
 // pass an explicit product name so a single archetype+tenant can host
 // multiple products of the same type (Issue 2 — ProductsPerType > 1).
 // Name MUST NOT contain square brackets — catalog-service's

@@ -91,11 +91,8 @@ type offeringResponse struct {
 //     uniqueness contract. So seedKey plays two roles: (a) HTTP
 //     Idempotency-Key header value, (b) the `code` body field. The natural
 //     identity used by lookupOfferingByCode is `code`. See CONVENTIONS.md.
-func provisionOffering(ctx context.Context, c *Client, tenantID, seedKey string, a scenario.TenantArchetype, ratePlanID, currency string) (offeringResponse, error) {
-	return provisionOfferingWithName(ctx, c, tenantID, seedKey, a, ratePlanID, currency, "")
-}
-
-// provisionOfferingWithName is the v2 provisioning entry point. When
+//
+// provisionOfferingWithName is the provisioning entry point. When
 // `nameOverride` is non-empty, that value is used as the offering display
 // name (the `code` still comes from `seedKey`, which the caller MUST
 // generate deterministically per rate-card × currency so cross-day

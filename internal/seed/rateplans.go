@@ -142,11 +142,8 @@ type ratePlanResponse struct {
 // Parameters:
 //   - seedKey: loadgen-internal opaque deterministic string sent as the
 //     HTTP Idempotency-Key header. See CONVENTIONS.md.
-func provisionRatePlan(ctx context.Context, c *Client, tenantID string, a scenario.TenantArchetype, productIDs []string, metrics []ManifestMetric, seedKey string) (ratePlanResponse, error) {
-	return provisionRatePlanWithName(ctx, c, tenantID, a, productIDs, metrics, seedKey, "")
-}
-
-// provisionRatePlanWithName is the v2 provisioning entry point. When
+//
+// provisionRatePlanWithName is the provisioning entry point. When
 // `nameOverride` is non-empty, that value is used as the rate plan name
 // (bypassing the default "Loadgen Rate Plan {archetype}" derivation) so a
 // single archetype can provision multiple distinct rate plans via
