@@ -20,11 +20,11 @@ import (
 type Config struct {
 	ListenAddr string
 
-	Auth         Authenticator
-	Index        RunsIndex
-	Storage      ManifestStore
-	Runner       *LocalRunner
-	ScenarioCat  ScenarioCatalog
+	Auth        Authenticator
+	Index       RunsIndex
+	Storage     ManifestStore
+	Runner      *LocalRunner
+	ScenarioCat ScenarioCatalog
 	// GrafanaURLFn computes a run's dashboard deep-link scoped to its time
 	// window. from is the run start; to is the run end, or nil while the
 	// run is still in flight (dashboard tracks to "now").

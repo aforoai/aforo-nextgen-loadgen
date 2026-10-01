@@ -165,10 +165,10 @@ func TestResolveQuantity_FallsBackOnManifestWithoutDescriptorFields(t *testing.T
 // not (they degenerate to Quantity=1 by design).
 func TestResolveQuantity_CoerceNumeric(t *testing.T) {
 	cases := []struct {
-		desc     string
-		v        any
-		want     float64
-		wantOK   bool
+		desc   string
+		v      any
+		want   float64
+		wantOK bool
 	}{
 		{"float64", float64(42.5), 42.5, true},
 		{"float32", float32(5.5), 5.5, true},

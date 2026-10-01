@@ -76,9 +76,9 @@ const AIAgentWireDefaultEndSession = 20
 // input_tokens, output_tokens — so the test server has enough context to
 // dispatch deterministically without needing to reach back into loadgen.
 type AIAgentWire struct {
-	url            string
-	client         *http.Client
-	endAfter       int
+	url      string
+	client   *http.Client
+	endAfter int
 
 	// Session cache: (tenant_id, agent_id) → (sessionId, invocationCount).
 	// Guarded by mu because the runner spins many goroutines against this
@@ -106,8 +106,8 @@ func sessionKey(tenantID, agentID string) string {
 
 // wireSession is the per-agent cache entry. Held under AIAgentWire.mu.
 type wireSession struct {
-	id        string
-	invCount  int
+	id       string
+	invCount int
 }
 
 // AIAgentWireConfig lets tests override construction defaults. Runtime code

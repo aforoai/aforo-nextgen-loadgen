@@ -40,18 +40,18 @@ type BillRunResponse struct {
 
 func newBillRunCmd() *cobra.Command {
 	var (
-		target             string
-		tenantID           string
-		periodStart        string
-		periodEnd          string
-		periodLabel        string
-		targetScope        string
-		autoFinalize       bool
-		environment        string
-		notes              string
-		tokenEnv           string
-		pollInterval       int
-		maxWaitSeconds     int
+		target         string
+		tenantID       string
+		periodStart    string
+		periodEnd      string
+		periodLabel    string
+		targetScope    string
+		autoFinalize   bool
+		environment    string
+		notes          string
+		tokenEnv       string
+		pollInterval   int
+		maxWaitSeconds int
 	)
 
 	cmd := &cobra.Command{
@@ -83,7 +83,7 @@ Examples:
 			if token == "" {
 				return fmt.Errorf("env var %s is not set", tokenEnv)
 			}
-			
+
 			targetURL, err := aforo.ResolveTarget(target)
 			if err != nil {
 				return fmt.Errorf("resolve target: %w", err)

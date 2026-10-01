@@ -78,10 +78,10 @@ func (f *fakeAgentServer) handler() http.Handler {
 			w.Header().Set("X-Session-Id", sessID)
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"sessionId":       sessID,
-				"agentId":         req.AgentID,
-				"startedAt":       "2026-07-12T00:00:00Z",
-				"idleTimeoutSec":  900,
+				"sessionId":      sessID,
+				"agentId":        req.AgentID,
+				"startedAt":      "2026-07-12T00:00:00Z",
+				"idleTimeoutSec": 900,
 			})
 
 		case r.Method == http.MethodPost && r.URL.Path == "/agent/invoke":

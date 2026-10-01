@@ -24,13 +24,13 @@ func TestTenantExternalID_LengthAndFormat(t *testing.T) {
 	// Real-world archetype names + a torture-test string that mixes case,
 	// underscores, and non-slug punctuation.
 	archetypes := []string{
-		"gt",                              // shortest realistic (2 chars)
-		"mtx-flat",                        // simple hyphenated (8 chars)
-		"complete-fresh",                  // ~14 chars — the case that hit
-		"complete_fresh_seed_extra_long",  // 30 chars w/ underscores
-		"MixedCase.Punctuation!",          // strip non-alphanumerics
-		strings.Repeat("longname", 4),     // 32 chars, pure ascii
-		"",                                // degenerate: empty name
+		"gt",                             // shortest realistic (2 chars)
+		"mtx-flat",                       // simple hyphenated (8 chars)
+		"complete-fresh",                 // ~14 chars — the case that hit
+		"complete_fresh_seed_extra_long", // 30 chars w/ underscores
+		"MixedCase.Punctuation!",         // strip non-alphanumerics
+		strings.Repeat("longname", 4),    // 32 chars, pure ascii
+		"",                               // degenerate: empty name
 	}
 	// Realistic runIDs — matches newRunID's shape.
 	runIDs := []string{

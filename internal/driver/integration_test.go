@@ -67,9 +67,9 @@ func newIntegrationDriver(t *testing.T) *RESTDirect {
 func baseEvent() *generator.Event {
 	return &generator.Event{
 		Envelope: generator.Envelope{
-			OccurredAt: time.Now().UTC(),
-			CustomerID:     "loadgen-int-cust",
-			ProductType:    "API",
+			OccurredAt:  time.Now().UTC(),
+			CustomerID:  "loadgen-int-cust",
+			ProductType: "API",
 			Metadata: map[string]any{
 				"endpoint":       "/api/v1/health",
 				"method":         "GET",
