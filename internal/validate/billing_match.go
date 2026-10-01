@@ -15,7 +15,10 @@ import (
 
 // runBillingMatch is Check 5 — for each archetype × each customer:
 //
-//  1. Compute expected revenue from events × pricing-model formula.
+//  1. Compute expected revenue: each metric of the customer's plan priced
+//     with its own config from the run's per-metric usage, summed
+//     (expectedFor); run results without per-metric usage fall back to
+//     the customer's estimated event count × the plan-level formula.
 //  2. Apply discount per customer.discount.
 //  3. Apply tax per scenario.tax.
 //  4. Trigger a bill run for the tenant (idempotent on archetype).
@@ -61,6 +64,11 @@ func (v *Validator) runBillingMatch(ctx context.Context) *CheckResult {
 		DriftPct     float64 `json:"drift_pct"`
 		Match        bool    `json:"match"`
 		Reason       string  `json:"reason,omitempty"`
+		// Method is "per_metric" when the expectation was priced metric by
+		// metric from the run's per-metric usage; empty for the event-count
+		// estimate (run results without per_tenant_metric).
+		Method  string         `json:"method,omitempty"`
+		Metrics []metricExpect `json:"metrics,omitempty"`
 	}
 	type archOutcome struct {
 		Archetype       string        `json:"archetype"`
@@ -98,7 +106,7 @@ func (v *Validator) runBillingMatch(ctx context.Context) *CheckResult {
 		eventsPerCust := eventsPerCustomerEstimate(v.in.Run, bucket)
 
 		for _, cust := range bucket.customers {
-			expected, err := computeExpected(bucket, cust, eventsPerCust[cust.CustomerID], v.in.Scenario)
+			expected, lines, err := expectedFor(bucket, cust, eventsPerCust[cust.CustomerID], v.in.Run, v.in.Scenario)
 			if err != nil {
 				out.Customers = append(out.Customers, custOutcome{
 					CustomerID: cust.CustomerID,
@@ -136,6 +144,10 @@ func (v *Validator) runBillingMatch(ctx context.Context) *CheckResult {
 				DriftPct:     drift,
 				Match:        match,
 			}
+			if lines != nil {
+				oc.Method = "per_metric"
+				oc.Metrics = lines
+			}
 			if !match {
 				oc.Reason = fmt.Sprintf("drift %.6f > tolerance %.6f", drift, tolerance)
 				out.AllMatch = false
@@ -170,9 +182,17 @@ type archBucket struct {
 	billingMode  scenario.BillingMode
 	rate         scenario.RateConfig
 	customers    []seed.ManifestCustomer
-	// productType is the archetype's first product type — used to pick the
-	// outcome mix the OUTCOME_BASED estimate splits events by.
+	// archetype is the scenario archetype name the bucket was built for.
+	archetype string
+	// productType is the archetype's first product type — the outcome mix
+	// the OUTCOME_BASED estimate splits events by, unless the customer's
+	// rate card names its own product_filter (see outcomeProductType).
 	productType scenario.ProductType
+	// tenants indexes each tenant's rate-plan metrics and traffic shares;
+	// customerTenant maps a customer to its tenant. Both feed the
+	// per-metric expectation (perMetricInputs).
+	tenants        map[string]*bucketTenant
+	customerTenant map[string]string
 	// plans / offerings index every rate plan and offering of the
 	// archetype's tenants so planFor can price each customer with the
 	// card their subscription is on (a multi-card archetype has one rate
@@ -183,12 +203,28 @@ type archBucket struct {
 
 // bucketPlan is one rate plan's model + config, parsed from the manifest.
 type bucketPlan struct {
+	name         string
 	pricingModel scenario.PricingModel
 	rate         scenario.RateConfig
 }
 
+// bucketTenant is one tenant's view for the per-metric expectation.
+type bucketTenant struct {
+	// metrics are the billable units every rate plan of the tenant prices
+	// (seed.RatePlanMetrics).
+	metrics []seed.ManifestMetric
+	// weights is each customer's share of the tenant's traffic: the number
+	// of usable keys (non-revoked, on a non-stale subscription) — the
+	// generator picks uniformly among those. totalWeight is their sum.
+	weights     map[string]int
+	totalWeight int
+}
+
 // customerPlan is the pricing a customer is billed under.
 type customerPlan struct {
+	// name is the manifest rate plan's name; empty when the plan was not
+	// resolved through an offering (archetype fallback).
+	name         string
 	pricingModel scenario.PricingModel
 	billingMode  scenario.BillingMode
 	rate         scenario.RateConfig
@@ -218,7 +254,7 @@ func (b *archBucket) planFor(cust seed.ManifestCustomer) customerPlan {
 		if model == "" {
 			model = b.pricingModel
 		}
-		return customerPlan{pricingModel: model, billingMode: mode, rate: p.rate}
+		return customerPlan{name: p.name, pricingModel: model, billingMode: mode, rate: p.rate}
 	}
 	return customerPlan{pricingModel: b.pricingModel, billingMode: b.billingMode, rate: b.rate}
 }
@@ -234,6 +270,7 @@ func groupByArchetype(m *seed.Manifest) map[string]*archBucket {
 		b, ok := out[t.Archetype]
 		if !ok {
 			b = &archBucket{
+				archetype:    t.Archetype,
 				tenantID:     t.TenantID,
 				pricingModel: t.PricingModel,
 				billingMode:  t.BillingMode,
@@ -244,11 +281,14 @@ func groupByArchetype(m *seed.Manifest) map[string]*archBucket {
 			}
 			b.plans = map[string]bucketPlan{}
 			b.offerings = map[string]seed.ManifestOffering{}
+			b.tenants = map[string]*bucketTenant{}
+			b.customerTenant = map[string]string{}
 			out[t.Archetype] = b
 		}
 		for _, rp := range t.RatePlans {
 			model, _ := rp.Config["pricing_model"].(string)
 			b.plans[rp.RatePlanID] = bucketPlan{
+				name:         rp.Name,
 				pricingModel: scenario.PricingModel(model),
 				rate:         rateConfigFromMap(rp.Config),
 			}
@@ -257,8 +297,34 @@ func groupByArchetype(m *seed.Manifest) map[string]*archBucket {
 			b.offerings[off.OfferingID] = off
 		}
 		b.customers = append(b.customers, t.Customers...)
+
+		bt := &bucketTenant{metrics: seed.RatePlanMetrics(t.Products), weights: map[string]int{}}
+		for _, c := range t.Customers {
+			w := usableKeys(c)
+			bt.weights[c.CustomerID] = w
+			bt.totalWeight += w
+			b.customerTenant[c.CustomerID] = t.TenantID
+		}
+		b.tenants[t.TenantID] = bt
 	}
 	return out
+}
+
+// usableKeys counts the keys the generator can send a customer's traffic
+// with: non-revoked keys on non-stale subscriptions (generator.indexTenants).
+func usableKeys(c seed.ManifestCustomer) int {
+	n := 0
+	for _, sub := range c.Subscriptions {
+		if sub.Stale {
+			continue
+		}
+		for _, k := range sub.APIKeys {
+			if !k.Revoked {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // findRateConfig pulls the RateConfig from the first rate plan we find for
@@ -408,15 +474,6 @@ func eventsPerCustomerEstimate(run *runner.RunResult, bucket *archBucket) map[st
 func computeExpected(bucket *archBucket, cust seed.ManifestCustomer, events int64, sc *scenario.Scenario) (billing.CalcResult, error) {
 	plan := bucket.planFor(cust)
 	rc := plan.rate
-	tiers := convertTiers(rc)
-	var graduated, volume []billing.Tier
-	if plan.pricingModel == scenario.PricingGraduated {
-		graduated = tiers
-	}
-	if plan.pricingModel == scenario.PricingVolumeTiered {
-		volume = tiers
-	}
-
 	// PERCENTAGE archetypes bill (events × charge_base × rate). Pull the
 	// per-event charge base from the scenario when set, fall back to 1.0
 	// (which reduces PERCENTAGE to events × rate) so older scenarios that
@@ -430,33 +487,47 @@ func computeExpected(bucket *archBucket, cust seed.ManifestCustomer, events int6
 		ChargeBaseUSD: float64(events) * chargeBasePerEvent,
 		Model:         billing.PricingModel(plan.pricingModel),
 		Mode:          billing.Mode(plan.billingMode),
-		Rate: billing.RateConfig{
-			FlatFeeUSD:        rc.FlatFeeUSD,
-			PerUnitRateUSD:    rc.PerUnitRateUSD,
-			PercentageRate:    rc.PercentageRate,
-			MinFeeUSD:         rc.MinFeeUSD,
-			IncludedFreeUnits: rc.IncludedFreeUnits,
-			BlockSizeUnits:    rc.BlockSizeUnits,
-			GraduatedTiers:    graduated,
-			VolumeTiers:       volume,
-			OutcomeWeights:    rc.OutcomeWeights,
-			StaircaseBands:    convertStaircase(rc.StaircaseBands),
-		},
-		Discount: convertDiscount(cust.Discount),
-		TaxPct:   resolveTaxPct(sc, cust),
+		Rate:          billingRate(plan.pricingModel, rc),
+		Discount:      convertDiscount(cust.Discount),
+		TaxPct:        resolveTaxPct(sc, cust),
 	}
 	if plan.pricingModel == scenario.PricingOutcomeBased {
 		// Only an event count is known per customer, so split it by the
 		// outcome mix the generator emits for this product type and weight
 		// it as a COUNT unit (one unit per event) — billing's
 		// OutcomeWeighting on the expected per-status counts.
-		mix, _ := sc.EffectiveOutcomeMix(bucket.productType)
+		mix, _ := sc.EffectiveOutcomeMix(bucket.outcomeProductType(plan, sc))
 		in.Outcomes = billing.ExpectedOutcomes(events, mix)
 		in.Aggregation = "COUNT"
 	}
 
 	walletAvailable := rc.WalletInitialBalanceUSD
 	return billing.Calculate(in, walletAvailable)
+}
+
+// billingRate converts a scenario rate config into the billing model's,
+// keeping only the tier list the pricing model reads.
+func billingRate(model scenario.PricingModel, rc scenario.RateConfig) billing.RateConfig {
+	tiers := convertTiers(rc)
+	var graduated, volume []billing.Tier
+	if model == scenario.PricingGraduated {
+		graduated = tiers
+	}
+	if model == scenario.PricingVolumeTiered {
+		volume = tiers
+	}
+	return billing.RateConfig{
+		FlatFeeUSD:        rc.FlatFeeUSD,
+		PerUnitRateUSD:    rc.PerUnitRateUSD,
+		PercentageRate:    rc.PercentageRate,
+		MinFeeUSD:         rc.MinFeeUSD,
+		IncludedFreeUnits: rc.IncludedFreeUnits,
+		BlockSizeUnits:    rc.BlockSizeUnits,
+		GraduatedTiers:    graduated,
+		VolumeTiers:       volume,
+		OutcomeWeights:    rc.OutcomeWeights,
+		StaircaseBands:    convertStaircase(rc.StaircaseBands),
+	}
 }
 
 func convertTiers(r scenario.RateConfig) []billing.Tier {

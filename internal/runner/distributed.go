@@ -258,6 +258,7 @@ func mergeResults(cfg Config, results []*RunResult) *RunResult {
 		for k, v := range r.PerProductType {
 			merged.PerProductType[k] += v
 		}
+		merged.PerTenantMetric = mergeMetricUsage(merged.PerTenantMetric, r.PerTenantMetric)
 		for k, v := range r.PerIngestionPath {
 			merged.PerIngestionPath[k] += v
 		}

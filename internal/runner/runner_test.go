@@ -156,6 +156,23 @@ func TestRunnerEndToEndAgainstFakeIngestor(t *testing.T) {
 		t.Errorf("run.json reports 0 events generated")
 	}
 
+	// Per-metric usage: only accepted events, attributed to the tenant's
+	// metric, with the per-status rows adding up to the metric total.
+	usage, ok := parsed.PerTenantMetric["t-smoke"]["api_calls"]
+	if !ok {
+		t.Fatalf("run.json per_tenant_metric missing t-smoke/api_calls: %+v", parsed.PerTenantMetric)
+	}
+	if usage.Events != parsed.EventsSucceeded {
+		t.Errorf("per_tenant_metric events=%d, want events_succeeded=%d", usage.Events, parsed.EventsSucceeded)
+	}
+	var statusEvents int64
+	for _, row := range usage.ByStatus {
+		statusEvents += row.Events
+	}
+	if statusEvents != usage.Events {
+		t.Errorf("by_status events sum to %d, want %d", statusEvents, usage.Events)
+	}
+
 	// per_archetype.json should exist.
 	if _, err := os.Stat(filepath.Join(out, "per_archetype.json")); err != nil {
 		t.Errorf("per_archetype.json missing: %v", err)

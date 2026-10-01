@@ -11,6 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — 2026-10-01 (billing_match prices every metric)
+
+- **`run.json` carries per-metric usage** — `per_tenant_metric`
+  (tenant id → metric name → `{events, quantity, max_quantity, by_status}`),
+  counting only accepted (2xx) events. Additive; merged across partitions
+  in in-process distributed runs.
+- **`billing_match` prices each metric of a plan with its own config** —
+  own free allowance, block size, min fee, tiers, bands and outcome
+  weights — and sums the lines, instead of pricing the tenant's whole event
+  count as one metric. SUM metrics are rated on quantity, COUNT on events;
+  OUTCOME_BASED uses the recorded per-status split. A customer's share of
+  the tenant's usage follows its usable keys (stale customers expect $0).
+  The report adds `method: "per_metric"` and a `metrics[]` breakdown per
+  customer. A run result without `per_tenant_metric` (older files, the
+  coordinator/worker protocol, catalog-mode manifests) is estimated the old
+  way.
+- **Outcome mix per rate card** uses the card's `product_filter` (first
+  entry) when set, falling back to the archetype's first product type.
+
 ### Added — 2026-09-30 (OUTCOME_BASED + STAIRCASE)
 
 - **`STAIRCASE` and `OUTCOME_BASED` pricing models** in the scenario schema

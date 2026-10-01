@@ -76,7 +76,8 @@ type Runner struct {
 	cbOpened       []time.Time
 	bpEvtMu        sync.Mutex
 	scenarioYAML   []byte
-	perTenantStore *perTenantStore // Session 8 — per-tenant fairness histograms
+	perTenantStore *perTenantStore   // Session 8 — per-tenant fairness histograms
+	metricUsage    *metricUsageStore // accepted usage per tenant per billable unit
 	fairnessGate   *driver.FairnessGate
 	deferredCount  atomic.Int64 // events deferred by the fairness gate
 	driverRegistry *driver.Registry
@@ -191,6 +192,7 @@ func New(cfg Config) (*Runner, error) {
 		pacer:          pacer,
 		histogram:      hist,
 		perTenantStore: newPerTenantStore(),
+		metricUsage:    newMetricUsageStore(),
 		driverRegistry: driverRegistry,
 	}
 	if cfg.FairnessMinShareFraction > 0 {
@@ -416,6 +418,11 @@ func (r *Runner) onResult(res driver.Result) {
 		if r.perTenantStore != nil {
 			r.perTenantStore.Record(res.Event.TenantID, ipath, pt, res.Latency)
 		}
+		// Accepted usage per billable unit — what billing will rate.
+		if r.metricUsage != nil {
+			env := res.Event.Envelope
+			r.metricUsage.Record(res.Event.TenantID, env.MetricName, env.Quantity, env.ExecutionStatus)
+		}
 	} else {
 		switch {
 		case res.IsExpectedFailure():
@@ -528,6 +535,9 @@ func (r *Runner) buildResult(genErr error) *RunResult {
 		PerTenant:          atomicMap(&r.perTenant),
 		PerProductType:     atomicMap(&r.perProductType),
 		PerIngestionPath:   atomicMap(&r.perPath),
+	}
+	if r.metricUsage != nil {
+		res.PerTenantMetric = r.metricUsage.Snapshot()
 	}
 	if r.perTenantStore != nil {
 		res.PerTenantP99Ms = r.perTenantStore.PerTenantP99()

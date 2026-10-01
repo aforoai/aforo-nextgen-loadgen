@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	hdrhistogram "github.com/HdrHistogram/hdrhistogram-go"
@@ -50,6 +51,13 @@ type RunResult struct {
 	PerProductType     map[string]int64                     `json:"per_product_type"`
 	PerIngestionPath   map[string]int64                     `json:"per_ingestion_path,omitempty"` // Session 8
 
+	// PerTenantMetric is the accepted (2xx) usage per billable unit:
+	// tenant_id → metric name → usage. The billing validator prices each
+	// metric with its own config from this instead of pricing the tenant's
+	// whole event count as one metric. Absent in run.json files written
+	// before 2026-10-01 — the validator then estimates the old way.
+	PerTenantMetric map[string]map[string]MetricUsage `json:"per_tenant_metric,omitempty"`
+
 	// Session 8 — per-tenant fairness summary. Computed when the runner
 	// has per-tenant histograms recorded; nil otherwise.
 	PerTenantP99Ms        map[string]float64            `json:"per_tenant_p99_ms,omitempty"`
@@ -67,6 +75,139 @@ type RunResult struct {
 	CircuitBreakerOpenedAt []time.Time `json:"circuit_breaker_opened_at,omitempty"`
 
 	Errors []string `json:"errors,omitempty"`
+}
+
+// MetricUsage is the usage loadgen sent for one billable unit of one tenant
+// and the platform accepted (2xx). Rejected events — negative paths, 4xx,
+// 5xx, transport failures — are not counted, because billing never sees
+// them.
+type MetricUsage struct {
+	// Events is the number of accepted events (the unit of a COUNT metric).
+	Events int64 `json:"events"`
+	// Quantity is the summed Envelope.Quantity (the unit of a SUM metric).
+	Quantity float64 `json:"quantity"`
+	// MaxQuantity is the largest single-event quantity (a MAX metric).
+	MaxQuantity float64 `json:"max_quantity,omitempty"`
+	// ByStatus splits Events / Quantity by the event's execution status
+	// (canonical upper-case; "" = sent without a status). OUTCOME_BASED
+	// metrics are weighted from this.
+	ByStatus map[string]StatusUsage `json:"by_status,omitempty"`
+}
+
+// StatusUsage is one execution-status row of MetricUsage.ByStatus.
+type StatusUsage struct {
+	Events   int64   `json:"events"`
+	Quantity float64 `json:"quantity"`
+}
+
+// add folds one accepted event into the usage.
+func (u *MetricUsage) add(quantity float64, status string) {
+	u.Events++
+	u.Quantity += quantity
+	if quantity > u.MaxQuantity {
+		u.MaxQuantity = quantity
+	}
+	if u.ByStatus == nil {
+		u.ByStatus = map[string]StatusUsage{}
+	}
+	row := u.ByStatus[status]
+	row.Events++
+	row.Quantity += quantity
+	u.ByStatus[status] = row
+}
+
+// merge folds another partition's usage for the same metric into u.
+func (u *MetricUsage) merge(o MetricUsage) {
+	u.Events += o.Events
+	u.Quantity += o.Quantity
+	if o.MaxQuantity > u.MaxQuantity {
+		u.MaxQuantity = o.MaxQuantity
+	}
+	if len(o.ByStatus) > 0 && u.ByStatus == nil {
+		u.ByStatus = map[string]StatusUsage{}
+	}
+	for status, row := range o.ByStatus {
+		cur := u.ByStatus[status]
+		cur.Events += row.Events
+		cur.Quantity += row.Quantity
+		u.ByStatus[status] = cur
+	}
+}
+
+// metricUsageStore accumulates PerTenantMetric during a run.
+type metricUsageStore struct {
+	mu sync.Mutex
+	m  map[string]map[string]*MetricUsage
+}
+
+func newMetricUsageStore() *metricUsageStore {
+	return &metricUsageStore{m: map[string]map[string]*MetricUsage{}}
+}
+
+// Record adds one accepted event. Events without a tenant or metric name
+// are ignored — there is nothing to attribute them to.
+func (s *metricUsageStore) Record(tenantID, metric string, quantity float64, status string) {
+	if tenantID == "" || metric == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	byMetric := s.m[tenantID]
+	if byMetric == nil {
+		byMetric = map[string]*MetricUsage{}
+		s.m[tenantID] = byMetric
+	}
+	u := byMetric[metric]
+	if u == nil {
+		u = &MetricUsage{}
+		byMetric[metric] = u
+	}
+	u.add(quantity, status)
+}
+
+// Snapshot returns a deep copy, or nil when nothing was recorded (so
+// run.json omits the field).
+func (s *metricUsageStore) Snapshot() map[string]map[string]MetricUsage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.m) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]MetricUsage, len(s.m))
+	for tenant, byMetric := range s.m {
+		cp := make(map[string]MetricUsage, len(byMetric))
+		for metric, u := range byMetric {
+			var c MetricUsage
+			c.merge(*u)
+			cp[metric] = c
+		}
+		out[tenant] = cp
+	}
+	return out
+}
+
+// mergeMetricUsage folds src into dst (allocating dst when needed) and
+// returns it.
+func mergeMetricUsage(dst, src map[string]map[string]MetricUsage) map[string]map[string]MetricUsage {
+	if len(src) == 0 {
+		return dst
+	}
+	if dst == nil {
+		dst = make(map[string]map[string]MetricUsage, len(src))
+	}
+	for tenant, byMetric := range src {
+		cur := dst[tenant]
+		if cur == nil {
+			cur = make(map[string]MetricUsage, len(byMetric))
+			dst[tenant] = cur
+		}
+		for metric, u := range byMetric {
+			c := cur[metric]
+			c.merge(u)
+			cur[metric] = c
+		}
+	}
+	return dst
 }
 
 // Save writes the run result + ancillary artifacts to a directory.

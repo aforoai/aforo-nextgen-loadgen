@@ -424,7 +424,7 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		}
 
 		rpSeedKey := seedKey(fmt.Sprintf("rateplan-%02d", cardIdx+1), a.Name, s.cfg.RunID, seq)
-		rpName := fmt.Sprintf("Loadgen Rate Plan %s - %s", a.Name, card.Name)
+		rpName := CardRatePlanName(a.Name, card.Name)
 		rp, err := provisionRatePlanWithName(ctx, c, tenant.ID, cardArchetype, cardProductIDs, rateMetrics, rpSeedKey, rpName)
 		if err != nil {
 			return err

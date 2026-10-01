@@ -146,17 +146,22 @@ func Calculate(in CalcInputs, walletAvailable float64) (CalcResult, error) {
 	if err != nil {
 		return CalcResult{}, err
 	}
+	return finish(subtotal, breakdown, in.Discount, in.TaxPct, in.Mode, walletAvailable), nil
+}
+
+// finish runs the Discount → Tax → Route stages on a rated subtotal.
+func finish(subtotal float64, breakdown []TierCharge, d *Discount, taxPct float64, mode Mode, walletAvailable float64) CalcResult {
 	subtotal = roundCents(subtotal)
 
-	discount := applyDiscount(subtotal, in.Discount)
+	discount := applyDiscount(subtotal, d)
 	discount = roundCents(discount)
 	taxable := subtotal - discount
 
-	tax := taxable * in.TaxPct
+	tax := taxable * taxPct
 	tax = roundCents(tax)
 	total := taxable + tax
 
-	wallet, invoice := route(total, in.Mode, walletAvailable)
+	wallet, invoice := route(total, mode, walletAvailable)
 
 	return CalcResult{
 		Subtotal:       subtotal,
@@ -168,7 +173,7 @@ func Calculate(in CalcInputs, walletAvailable float64) (CalcResult, error) {
 		InvoiceUSD:     invoice,
 		TierBreakdown:  breakdown,
 		StageOrder:     []string{"rate", "discount", "tax", "route"},
-	}, nil
+	}
 }
 
 // rate dispatches to the per-model pure functions.
