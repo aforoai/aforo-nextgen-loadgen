@@ -47,6 +47,15 @@ type SeederConfig struct {
 	// correctly but were filtered out at the tenant boundary.
 	ReuseTenantID string
 
+	// ProvisionIngestKeys, when true, creates one organization-service API
+	// key with the usage:ingest scope per tenant and records it on the
+	// manifest (ManifestTenant.IngestKey). The run engine needs it: the
+	// per-subscription pricing-service keys are not accepted by
+	// usage-ingestor. The CLI defaults this to true; the zero value keeps
+	// library callers and tests that do not model organization-service
+	// unchanged.
+	ProvisionIngestKeys bool
+
 	// Catalog, when non-nil, switches the seeder into DEMO catalog-mode
 	// (DEMO-P1, strategy §6.6 / Req #1): instead of the archetype generator's
 	// synthetic "Loadgen …" names, the seeder creates EXACTLY the human,
@@ -279,6 +288,15 @@ func (s *Seeder) seedOneTenant(ctx context.Context, manifest *Manifest, a scenar
 		Archetype:    a.Name,
 		PricingModel: a.PricingModel,
 		BillingMode:  a.BillingMode,
+	}
+
+	if s.cfg.ProvisionIngestKeys {
+		ik, err := provisionIngestKey(ctx, c, tenant.ID, seedKey("ingest-key", a.Name, s.cfg.RunID, seq))
+		if err != nil {
+			return err
+		}
+		mt.IngestKey = &ik
+		s.cfg.Logger.Printf("[%s/%03d] created ingest key id=%s prefix=%s", a.Name, seq, ik.KeyID, ik.KeyPrefix)
 	}
 
 	// N products per product type in the archetype (per Issue 2). Default

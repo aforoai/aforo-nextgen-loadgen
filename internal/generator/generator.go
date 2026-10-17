@@ -50,6 +50,13 @@ type EventAuth struct {
 	Token        string
 	ClientID     string
 	IsFabricated bool
+	// IngestKey is the tenant's organization-service key with scope
+	// usage:ingest (seed.ManifestIngestKey). When set, HTTP drivers send it
+	// as X-API-Key and do NOT send Token: usage-ingestor's ApiKeyAuthFilter
+	// validates keys against organization-service only, so the
+	// per-subscription pricing-service key in Token is answered 401.
+	// Negative-path injectors that test bad credentials clear it.
+	IngestKey string
 }
 
 // Stats are exposed by the Generator so the metrics layer can increment
@@ -373,8 +380,9 @@ func (g *Generator) produce(eventTime time.Time) (*Event, error) {
 		Archetype:     t.tenant.Archetype,
 		PayloadSize:   size,
 		Auth: EventAuth{
-			Token:    triple.key.Secret,
-			ClientID: triple.key.ClientID,
+			Token:     triple.key.Secret,
+			ClientID:  triple.key.ClientID,
+			IngestKey: ingestKeyOf(t.tenant),
 		},
 		GeneratedAt: g.now(),
 		// In-memory routing fields — propagated to HTTP headers by the
@@ -679,6 +687,7 @@ func ingestionWeightsFor(p scenario.IngestionPaths) map[string]float64 {
 		"mcp_jsonrpc":      p.MCPJsonRPC,
 		"ai_agent_rest":    p.AIAgentREST,
 		"ai_agent_wire":    p.AIAgentWire,
+		"rest_batch":       p.RestBatch,
 	}
 }
 
@@ -689,4 +698,14 @@ func indexOfNegPath(k NegativePathKind) int {
 		}
 	}
 	return -1
+}
+
+// ingestKeyOf returns the tenant's usage:ingest key, or "" when the manifest
+// has none (seeded with --provision-ingest-keys=false, or written before the
+// field existed).
+func ingestKeyOf(t *seed.ManifestTenant) string {
+	if t == nil || t.IngestKey == nil {
+		return ""
+	}
+	return t.IngestKey.RawKey
 }

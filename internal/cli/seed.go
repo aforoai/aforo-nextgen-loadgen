@@ -22,19 +22,21 @@ import (
 )
 
 type seedFlags struct {
-	scenarioFlag      string
-	target            string
-	out               string
-	dryRun            bool
-	clean             bool
-	cleanFromFile     string
-	archetypesOnly    []string
-	concurrency       int
-	maxConcurrency    int
-	minIntervalMS     int
-	tokenEnv          string
-	provisionWebhooks bool
-	reuseTenantID     string
+	provisionIngestKeys bool
+	allowProduction     bool
+	scenarioFlag        string
+	target              string
+	out                 string
+	dryRun              bool
+	clean               bool
+	cleanFromFile       string
+	archetypesOnly      []string
+	concurrency         int
+	maxConcurrency      int
+	minIntervalMS       int
+	tokenEnv            string
+	provisionWebhooks   bool
+	reuseTenantID       string
 	// tenantID is the alias for reuseTenantID surfaced 2026-07-22 so
 	// operators can spell the intent as `--tenant-id`, matching how the
 	// UI, docs, and product code refer to the field. Either flag is
@@ -72,7 +74,9 @@ Examples:
 	}
 	cmd.Flags().StringVar(&f.scenarioFlag, "scenario", "", "path to scenario YAML (built-in name also accepted, e.g. matrix-billing)")
 	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, ci, or a full URL")
+	cmd.Flags().BoolVar(&f.allowProduction, "allow-production", false, "allow sending traffic to production *.aforo.ai hosts (the staging target points there too); also "+aforo.AllowProductionEnv)
 	cmd.Flags().StringVar(&f.out, "out", "manifest.json", "manifest.json output path")
+	cmd.Flags().BoolVar(&f.provisionIngestKeys, "provision-ingest-keys", true, "create one organization-service API key with scope usage:ingest per tenant and record it in the manifest; `run` sends it as X-API-Key (per-subscription keys are refused by usage-ingestor)")
 	cmd.Flags().BoolVar(&f.dryRun, "dry-run", false, "print per-archetype counts and intended API calls without sending them")
 	cmd.Flags().BoolVar(&f.clean, "clean", false, "archive entities recorded in --out manifest, then exit")
 	cmd.Flags().StringVar(&f.cleanFromFile, "clean-from", "", "alternative manifest path to clean (defaults to --out)")
@@ -104,6 +108,11 @@ func runSeed(ctx context.Context, out, errOut io.Writer, f *seedFlags) error {
 	target, err := aforo.ResolveTarget(f.target)
 	if err != nil {
 		return err
+	}
+	if !f.dryRun {
+		if err := aforo.GuardProduction(target, f.allowProduction); err != nil {
+			return err
+		}
 	}
 	token := os.Getenv(f.tokenEnv)
 
@@ -208,6 +217,8 @@ func runSeed(ctx context.Context, out, errOut io.Writer, f *seedFlags) error {
 		ManifestPath:   manifestPath,
 		Concurrency:    f.concurrency,
 		ReuseTenantID:  reuseTenantID,
+		// Default true: `run` needs a usage:ingest key per tenant.
+		ProvisionIngestKeys: f.provisionIngestKeys,
 	})
 	if err != nil {
 		return err
@@ -315,8 +326,8 @@ func runCleanFlow(ctx context.Context, out, errOut io.Writer, c *seed.Client, f 
 		return fmt.Errorf("load manifest %s: %w", path, err)
 	}
 	res := seed.Clean(ctx, c, m)
-	fmt.Fprintf(out, "clean: archived %d tenants, %d customers, %d offerings, %d rate plans, %d products, %d wallets; canceled %d subscriptions\n",
-		res.TenantsArchived, res.CustomersArchived, res.OfferingsArchived, res.RatePlansArchived, res.ProductsArchived, res.WalletsArchived, res.SubscriptionsCanceled)
+	fmt.Fprintf(out, "clean: archived %d tenants, %d customers, %d offerings, %d rate plans, %d products, %d wallets; canceled %d subscriptions; revoked %d ingest keys\n",
+		res.TenantsArchived, res.CustomersArchived, res.OfferingsArchived, res.RatePlansArchived, res.ProductsArchived, res.WalletsArchived, res.SubscriptionsCanceled, res.IngestKeysRevoked)
 	if len(res.Errors) > 0 {
 		for _, e := range res.Errors {
 			fmt.Fprintln(errOut, e.Error())

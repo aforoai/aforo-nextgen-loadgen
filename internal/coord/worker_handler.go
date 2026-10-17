@@ -98,6 +98,11 @@ func (h *RunnerWorkerHandler) Accept(ctx context.Context, a *Assignment) Accepta
 	if err != nil {
 		return Acceptance{Accepted: false, WorkerID: h.WorkerID, Reason: "target resolve: " + err.Error()}
 	}
+	// Workers have no CLI flag of their own: production is reachable only
+	// when the worker process carries the explicit env acknowledgement.
+	if err := aforo.GuardProduction(target, false); err != nil {
+		return Acceptance{Accepted: false, WorkerID: h.WorkerID, Reason: err.Error()}
+	}
 
 	// Skew check — informational. Coordinator passes its Now; we
 	// compare to ours. >5min is a config bug; we accept anyway and

@@ -35,18 +35,19 @@ import (
 )
 
 type paymentsFlags struct {
-	scenarioFlag string
-	target       string
-	manifest     string
-	out          string
-	tokenEnv     string
-	stripeMode   string
-	taxEngine    string
-	erpProviders []string
-	dryRun       bool
-	maxInvoices  int
-	workers      int
-	postWindow   string
+	allowProduction bool
+	scenarioFlag    string
+	target          string
+	manifest        string
+	out             string
+	tokenEnv        string
+	stripeMode      string
+	taxEngine       string
+	erpProviders    []string
+	dryRun          bool
+	maxInvoices     int
+	workers         int
+	postWindow      string
 }
 
 func newPaymentsCommand(_ *GlobalFlags) *cobra.Command {
@@ -90,6 +91,7 @@ runs. Run 'aforo-loadgen validate' against the same --out directory.`,
 	}
 	cmd.Flags().StringVar(&f.scenarioFlag, "scenario", "", "path to scenario YAML or built-in name")
 	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, ci, or full URL")
+	cmd.Flags().BoolVar(&f.allowProduction, "allow-production", false, "allow sending traffic to production *.aforo.ai hosts (the staging target points there too); also "+aforo.AllowProductionEnv)
 	cmd.Flags().StringVar(&f.manifest, "manifest", "manifest.json", "path to manifest from `aforo-loadgen seed`")
 	cmd.Flags().StringVar(&f.out, "out", "", "output directory (default: runs/<scenario>-payments-<unix>)")
 	cmd.Flags().StringVar(&f.tokenEnv, "token-env", "AFORO_ADMIN_TOKEN", "env var holding the admin bearer token")
@@ -151,6 +153,11 @@ func runPayments(ctx context.Context, out, errOut io.Writer, f *paymentsFlags) e
 	target, err := aforo.ResolveTarget(f.target)
 	if err != nil {
 		return err
+	}
+	if !f.dryRun {
+		if err := aforo.GuardProduction(target, f.allowProduction); err != nil {
+			return err
+		}
 	}
 	token := os.Getenv(f.tokenEnv)
 

@@ -222,16 +222,19 @@ func (d Duration) Std() time.Duration { return time.Duration(d) }
 // Sub-trees default to their zero value when omitted. Validation enforces
 // cross-field invariants — see validator.go.
 type Scenario struct {
-	SchemaVersion    int              `yaml:"schema_version"`
-	Name             string           `yaml:"name"`
-	Description      string           `yaml:"description,omitempty"`
-	TargetTPS        int              `yaml:"target_tps"`
-	Duration         Duration         `yaml:"duration"`
-	Seed             int64            `yaml:"seed,omitempty"`
-	Tenants          Tenants          `yaml:"tenants"`
-	TimePattern      TimePattern      `yaml:"time_pattern,omitempty"`
-	ProductMix       ProductMix       `yaml:"product_mix,omitempty"`
-	IngestionPaths   IngestionPaths   `yaml:"ingestion_paths,omitempty"`
+	SchemaVersion  int            `yaml:"schema_version"`
+	Name           string         `yaml:"name"`
+	Description    string         `yaml:"description,omitempty"`
+	TargetTPS      int            `yaml:"target_tps"`
+	Duration       Duration       `yaml:"duration"`
+	Seed           int64          `yaml:"seed,omitempty"`
+	Tenants        Tenants        `yaml:"tenants"`
+	TimePattern    TimePattern    `yaml:"time_pattern,omitempty"`
+	ProductMix     ProductMix     `yaml:"product_mix,omitempty"`
+	IngestionPaths IngestionPaths `yaml:"ingestion_paths,omitempty"`
+	// RESTBatch sizes the rest_batch ingestion path. Ignored unless
+	// ingestion_paths.rest_batch > 0.
+	RESTBatch        RESTBatch        `yaml:"rest_batch,omitempty"`
 	PayloadVariation PayloadVariation `yaml:"payload_variation,omitempty"`
 	// OutcomeMix is the execution_status distribution the generator emits
 	// for EVERY product type (status → share, shares sum to 1.0, keys are
@@ -569,6 +572,10 @@ type IngestionPaths struct {
 	// Pair with product_mix.AI_AGENT=1.0 and a running instance of
 	// aforo-metering-sdks/agent-test-server.
 	AIAgentWire float64 `yaml:"ai_agent_wire,omitempty"`
+	// RestBatch posts events to usage-ingestor POST /v1/ingest/batch, one
+	// tenant per request, sized by Scenario.RESTBatch. Same envelope and
+	// credentials as rest_direct.
+	RestBatch float64 `yaml:"rest_batch,omitempty"`
 }
 
 // Sum is the weight total — used by the validator.
@@ -577,7 +584,20 @@ func (p IngestionPaths) Sum() float64 {
 		p.GatewayKong + p.GatewayApigee + p.GatewayAWS + p.GatewayAzure +
 		p.GatewayMuleSoft + p.GatewayAPISIX + p.GatewayTyk + p.GatewayGravitee +
 		p.GatewayEnvoy + p.WebhookReceiver + p.CSVUpload + p.MCPJsonRPC +
-		p.AIAgentREST + p.AIAgentWire
+		p.AIAgentREST + p.AIAgentWire + p.RestBatch
+}
+
+// RESTBatch configures the rest_batch driver.
+//
+//	rest_batch: {size: 100, max_wait: 100ms}
+//
+// size is events per POST /v1/ingest/batch (1..1000; the server rejects a
+// larger batch whole — IngestBatchRequest @Size(max = 1000)). max_wait is
+// how long an event waits for its batch to fill. Zero values default to
+// 100 events and 100ms.
+type RESTBatch struct {
+	Size    int      `yaml:"size,omitempty"`
+	MaxWait Duration `yaml:"max_wait,omitempty"`
 }
 
 // PayloadVariation chooses the size mix of generated event bodies.

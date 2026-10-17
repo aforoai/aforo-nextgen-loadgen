@@ -164,7 +164,11 @@ func (d *AIAgentREST) Submit(ctx context.Context, e *generator.Event) Result {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	if e.Auth.Token != "" {
+	// Same credential rule as rest_direct: the tenant ingest key wins, because
+	// usage-ingestor accepts only organization-service keys.
+	if e.Auth.IngestKey != "" {
+		req.Header.Set("X-API-Key", e.Auth.IngestKey)
+	} else if e.Auth.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+e.Auth.Token)
 	}
 	// TenantID / CustomerID / EventID all flow via headers (mirrors

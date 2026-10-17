@@ -83,8 +83,14 @@ func marshalEvent(e *generator.Event) ([]byte, bool, error) {
 
 // applyAuthHeaders sets the credential headers consistently across drivers.
 // Per-event Auth.Token is used when set, otherwise the AdminToken fallback.
+//
+// The tenant ingest key (Auth.IngestKey) wins: it is sent as X-API-Key and
+// the per-subscription Token is not sent, because usage-ingestor accepts only
+// organization-service keys (aforo-common ApiKeyAuthFilter).
 func applyAuthHeaders(req *http.Request, e *generator.Event, adminToken string) {
-	if e.Auth.Token != "" {
+	if e.Auth.IngestKey != "" {
+		req.Header.Set("X-API-Key", e.Auth.IngestKey)
+	} else if e.Auth.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+e.Auth.Token)
 	} else if adminToken != "" {
 		req.Header.Set("Authorization", "Bearer "+adminToken)

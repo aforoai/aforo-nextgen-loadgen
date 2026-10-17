@@ -41,18 +41,19 @@ type BillRunResponse struct {
 
 func newBillRunCmd() *cobra.Command {
 	var (
-		target         string
-		tenantID       string
-		periodStart    string
-		periodEnd      string
-		periodLabel    string
-		targetScope    string
-		autoFinalize   bool
-		environment    string
-		notes          string
-		tokenEnv       string
-		pollInterval   int
-		maxWaitSeconds int
+		target          string
+		tenantID        string
+		periodStart     string
+		periodEnd       string
+		periodLabel     string
+		targetScope     string
+		autoFinalize    bool
+		environment     string
+		notes           string
+		tokenEnv        string
+		pollInterval    int
+		maxWaitSeconds  int
+		allowProduction bool
 	)
 
 	cmd := &cobra.Command{
@@ -88,6 +89,9 @@ Examples:
 			targetURL, err := aforo.ResolveTarget(target)
 			if err != nil {
 				return fmt.Errorf("resolve target: %w", err)
+			}
+			if err := aforo.GuardProduction(targetURL, allowProduction); err != nil {
+				return err
 			}
 			baseURL, err := targetURL.URL(aforo.ServiceBilling)
 			if err != nil {
@@ -155,6 +159,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&target, "target", "local", "target environment: local, staging, prod, or full URL")
+	cmd.Flags().BoolVar(&allowProduction, "allow-production", false, "allow sending traffic to production *.aforo.ai hosts (the staging target points there too); also "+aforo.AllowProductionEnv)
 	cmd.Flags().StringVar(&tenantID, "tenant-id", "", "tenant ID to run billing for (required)")
 	cmd.Flags().StringVar(&periodStart, "period-start", "", "billing period start (ISO 8601, required)")
 	cmd.Flags().StringVar(&periodEnd, "period-end", "", "billing period end (ISO 8601, required)")

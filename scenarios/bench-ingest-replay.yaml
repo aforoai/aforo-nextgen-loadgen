@@ -1,0 +1,59 @@
+# bench-ingest-replay — idempotent replay of 100,000 events
+#
+# Purpose: send exactly the same 100,000 events twice and prove the second
+# pass stores nothing. Step 1: `run` this scenario (200 events/s x 500 s =
+# 100,000 events). Step 2: `replay --run-output <step 1 dir>` — same seed and
+# same manifest regenerate the same idempotency keys. Expected: zero new
+# usage_events rows (SQL in the runbook, step D).
+#
+# Duration is fixed in the file on purpose: `replay` reads the recorded
+# scenario, which keeps target_tps but not a --duration override.
+#
+# Dedup path under test (usage-ingestor UsageIngestionServiceImpl.ingest):
+# Redis key usage:idem:<tenant>:<key> (24 h TTL), then the PostgreSQL unique
+# index idx_usage_events_idempotency ON usage_events(tenant_id, idempotency_key).
+
+schema_version: 2
+name: bench-ingest-replay
+description: 100,000-event idempotent replay check — run once, replay once, expect zero new rows.
+target_tps: 200
+duration: 500s
+seed: 20261019
+
+tenants:
+  count: 20
+  distribution: uniform
+  archetypes:
+    - name: bench-api-replay
+      weight: 1.0
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 10
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+time_pattern: constant
+
+product_mix:
+  API: 1.0
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0
+
+assertions:
+  events_lost_max: 0
+  cross_tenant_leakage_max: 0
+
+metadata:
+  tier: benchmark
+  notes: Never run against production.

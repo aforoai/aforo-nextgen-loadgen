@@ -203,6 +203,9 @@ func injectWrongAuth(e *Event, _ *mathrand.Rand) error {
 	}
 	fab := "sk_live_fab_" + hex.EncodeToString(buf)
 	e.Auth.Token = fab
+	// The fabricated key must be the credential actually sent; a valid
+	// ingest key would otherwise win and the event would be accepted.
+	e.Auth.IngestKey = ""
 	e.Auth.IsFabricated = true
 	e.NegativePath = NPWrongAuth
 	return nil
@@ -231,6 +234,7 @@ func (p *NegativePathPlanner) injectStaleKey(e *Event, rng *mathrand.Rand) error
 	key := keys[keyIdx]
 	e.Auth.Token = key.Secret
 	e.Auth.ClientID = key.ClientID
+	e.Auth.IngestKey = ""
 	e.Auth.IsFabricated = false
 	e.SubscriptionID = sub.SubscriptionID
 	e.NegativePath = NPStaleKey

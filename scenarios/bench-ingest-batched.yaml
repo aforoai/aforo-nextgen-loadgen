@@ -1,0 +1,73 @@
+# bench-ingest-batched — ingest benchmark, POST /v1/ingest/batch
+#
+# Purpose: the same rate steps as bench-ingest-unbatched (50 / 200 / 500 /
+# 1000 / 2000 events/s, 10 minutes each, set with `run --target-tps N`), sent
+# as batches of up to 100 events per request through the rest_batch driver.
+# Runbook: docs/runbooks/2026-10-17-ingest-billrun-benchmark.md (workspace root).
+#
+# Sizing:
+#   - 10 tenants x 100 customers. A batch is single-tenant (the ingest key
+#     decides the tenant), so fewer, busier tenants are what let batches
+#     fill: at 2000/s each tenant produces ~200 events/s, one full batch every
+#     ~0.5 s. At low steps max_wait sends partial batches; record the real
+#     average batch size as events / requests (runbook step B3).
+#   - The per-tenant limiter (1000 requests/min per instance) counts one batch
+#     as one request; the per-customer limiter does not apply because a batch
+#     carries no X-Customer-Id.
+#   - A waiting event holds a loadgen worker. Run with --workers of at least
+#     tenants x size (10 x 100 = 1000) plus headroom, e.g. --workers 1200.
+#
+# size 100 is below the synchronous batch path's switch-over: usage-ingestor
+# routes batches larger than aforo.batch.threshold (100) to BatchIngestionEngine
+# only when aforo.batch.sync-engine-enabled=true (default false), so with
+# defaults every batch is stored one event per transaction
+# (UsageIngestionServiceImpl.ingestBatch).
+
+schema_version: 2
+name: bench-ingest-batched
+description: Ingest benchmark — POST /v1/ingest/batch, 100 events per request; step the rate with --target-tps.
+target_tps: 50
+duration: 10m
+seed: 20261018
+
+tenants:
+  count: 10
+  distribution: uniform
+  archetypes:
+    - name: bench-api-perunit-batch
+      weight: 1.0
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 100
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+time_pattern: constant
+
+product_mix:
+  API: 1.0
+
+ingestion_paths:
+  rest_batch: 1.0
+
+rest_batch:
+  size: 100
+  max_wait: 500ms
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0
+
+assertions:
+  events_lost_max: 0
+  cross_tenant_leakage_max: 0
+
+metadata:
+  tier: benchmark
+  notes: Never run against production. Above 1000 events/s `run` needs --i-know-what-im-doing.

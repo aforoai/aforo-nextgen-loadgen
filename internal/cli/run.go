@@ -23,6 +23,8 @@ import (
 )
 
 type runFlags struct {
+	targetTPS        int
+	allowProduction  bool
 	scenarioFlag     string
 	target           string
 	manifest         string
@@ -64,8 +66,10 @@ Examples:
 	}
 	cmd.Flags().StringVar(&f.scenarioFlag, "scenario", "", "path to scenario YAML (built-in name also accepted, e.g. ci-smoke)")
 	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, ci, or full URL")
+	cmd.Flags().BoolVar(&f.allowProduction, "allow-production", false, "allow sending traffic to production *.aforo.ai hosts (the staging target points there too); also "+aforo.AllowProductionEnv)
 	cmd.Flags().StringVar(&f.manifest, "manifest", "manifest.json", "path to manifest from `aforo-loadgen seed`")
 	cmd.Flags().StringVar(&f.out, "out", "", "run output directory (default: runs/<run-id>)")
+	cmd.Flags().IntVar(&f.targetTPS, "target-tps", 0, "override scenario.target_tps (events/s); the same seeded manifest can then be stepped through several rates")
 	cmd.Flags().StringVar(&f.duration, "duration", "", "override scenario.duration (e.g. 30s, 5m)")
 	cmd.Flags().IntVar(&f.workers, "workers", 32, "driver worker pool size (per partition)")
 	cmd.Flags().IntVar(&f.partitions, "partitions", 1, "number of tenant-partitioned runners (Session 8 — distributed mode)")
@@ -74,7 +78,7 @@ Examples:
 	cmd.Flags().IntVar(&f.pprofPort, "pprof-port", 0, "if > 0, /debug/pprof/* is served on the metrics-addr port")
 	cmd.Flags().StringVar(&f.tokenEnv, "token-env", "AFORO_ADMIN_TOKEN", "env var holding an admin bearer token (used as fallback when an event has no per-key token)")
 	cmd.Flags().Float64Var(&f.fairnessMinShare, "fairness-min-share", 0, "tenant fairness scheduler — fraction of uniform-fair share each tenant is guaranteed (0 disables)")
-	cmd.Flags().BoolVar(&f.iKnowWhatImDoing, "i-know-what-im-doing", false, "bypass safety checks (e.g. running long walk-tier scenarios against --target=local)")
+	cmd.Flags().BoolVar(&f.iKnowWhatImDoing, "i-know-what-im-doing", false, "bypass safety checks (long walk-tier scenarios against --target=local; target_tps above 1000)")
 	return cmd
 }
 
@@ -84,6 +88,10 @@ Examples:
 // thrash a laptop's CPU + disk and can corrupt running services in the
 // docker-compose stack.
 const localLongRunGuardThreshold = time.Hour
+
+// highTPSThreshold mirrors server.HighTPSThreshold (internal/server/types.go).
+// Kept as a separate constant so cli does not import the server package.
+const highTPSThreshold = 1000
 
 func runRun(ctx context.Context, out, errOut io.Writer, f *runFlags) error {
 	if f.scenarioFlag == "" {
@@ -95,6 +103,14 @@ func runRun(ctx context.Context, out, errOut io.Writer, f *runFlags) error {
 	doc, err := loadScenario(f.scenarioFlag)
 	if err != nil {
 		return err
+	}
+	if f.targetTPS < 0 {
+		return fmt.Errorf("--target-tps must be >= 0")
+	}
+	if f.targetTPS > 0 {
+		// Applied before validation so the override is checked by the same
+		// rules as a value written in the file.
+		doc.Scenario.TargetTPS = f.targetTPS
 	}
 	if errs := scenario.Validate(doc); errs.HasErrors() {
 		for _, e := range errs {
@@ -110,6 +126,9 @@ func runRun(ctx context.Context, out, errOut io.Writer, f *runFlags) error {
 
 	target, err := aforo.ResolveTarget(f.target)
 	if err != nil {
+		return err
+	}
+	if err := aforo.GuardProduction(target, f.allowProduction); err != nil {
 		return err
 	}
 
@@ -132,6 +151,14 @@ func runRun(ctx context.Context, out, errOut io.Writer, f *runFlags) error {
 	if target.Name == "local" && effectiveDuration > localLongRunGuardThreshold && !f.iKnowWhatImDoing {
 		return fmt.Errorf("refusing to run %s against --target=local for %s (>%s).\n  Walk-tier scenarios are sized for staging; running locally for this duration\n  will saturate the laptop and risk corrupting the docker-compose backend.\n  Re-run with --i-know-what-im-doing to override, or shorten with --duration",
 			doc.Scenario.Name, effectiveDuration, localLongRunGuardThreshold)
+	}
+
+	// High-TPS guardrail — the same 1000-TPS threshold the trigger server
+	// enforces with acknowledge_high_tps=true (server.HighTPSThreshold).
+	if doc.Scenario.TargetTPS > highTPSThreshold && !f.iKnowWhatImDoing {
+		return fmt.Errorf("refusing to run %s at target_tps=%d (> %d) without --i-know-what-im-doing.\n"+
+			"  Above %d events/s a run can saturate a shared environment; confirm the target is sized and isolated for it",
+			doc.Scenario.Name, doc.Scenario.TargetTPS, highTPSThreshold, highTPSThreshold)
 	}
 
 	if f.partitions < 1 {

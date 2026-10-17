@@ -13,24 +13,25 @@ component, and what the on-wire request looks like.
 
 | Path key (scenario YAML) | Driver | Endpoint | Body | Auth | Identification headers |
 |--------------------------|--------|----------|------|------|------------------------|
-| `rest_direct` | `RESTDirect` | `POST /v1/ingest` | Envelope JSON | Bearer | (none — direct call) |
-| `sdk_node` | `SDKNode` | `POST /v1/ingest` | Envelope JSON | Bearer | `User-Agent: aforo-metering-node/<v>` + `X-SDK-Lang: node` + `X-SDK-Version: <v>` |
-| `sdk_python` | `SDKPython` | `POST /v1/ingest` | Envelope JSON | Bearer | `User-Agent: aforo-metering-python/<v>` + `X-SDK-Lang: python` |
-| `sdk_java` | `SDKJava` | `POST /v1/ingest` | Envelope JSON | Bearer | `User-Agent: com.aforo.metering/<v>` + `X-SDK-Lang: java` |
-| `sdk_go` | `SDKGo` | `POST /v1/ingest` | Envelope JSON | Bearer | `User-Agent: metering-go/<v>` + `X-SDK-Lang: go` |
-| `gateway_kong` | `GatewayKong` | `POST /v1/ingest` | Envelope JSON | Bearer | `X-Forwarded-By: kong` + `X-Kong-*` set |
-| `gateway_apigee` | `GatewayApigee` | `POST /v1/ingest` | Envelope JSON | Bearer | `X-Forwarded-By: apigee` + `X-ApigeeProxy-Name`, `X-Apigee-Sharedflow` |
-| `gateway_aws` | `GatewayAWS` | `POST /v1/ingest` | Envelope JSON | Bearer | `X-Forwarded-By: aws-apigw` + `X-Apigateway-Api-Id` + `X-Amzn-Trace-Id` |
-| `gateway_azure` | `GatewayAzure` | `POST /v1/ingest` | Envelope JSON | Bearer | `X-Forwarded-By: azure-apim` + `X-AzureAPIM-*` |
-| `gateway_mulesoft` | `GatewayMuleSoft` | `POST /v1/ingest` | Envelope JSON | Bearer | `X-Forwarded-By: mulesoft-cloudhub` + `X-MuleSoft-*` |
-| `gateway_apisix` | `GatewayAPISIX` | `POST /v1/ingest` | Envelope JSON | Bearer | `X-Forwarded-By: apisix` + `X-APISIX-*` (stub adapter — synthesized from public docs) |
-| `gateway_tyk` | `GatewayTyk` | `POST /v1/ingest` | Envelope JSON | Bearer | `X-Forwarded-By: tyk` + `X-Tyk-*` (stub) |
-| `gateway_gravitee` | `GatewayGravitee` | `POST /v1/ingest` | Envelope JSON | Bearer | `X-Forwarded-By: gravitee` + `X-Gravitee-*` (stub) |
-| `gateway_envoy` | `GatewayEnvoy` | `POST /v1/ingest` | Envelope JSON | Bearer | `X-Forwarded-By: envoy` + `X-Envoy-*` (stub) |
+| `rest_direct` | `RESTDirect` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` tenant ingest key (Bearer per-subscription key only for manifests without `ingest_key`) | (none — direct call) |
+| `rest_batch` | `RESTBatch` | `POST /v1/ingest/batch` | `{"events":[Envelope…]}`, one tenant per request, `rest_batch.size` events | `X-API-Key` tenant ingest key | (none — direct call) |
+| `sdk_node` | `SDKNode` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `User-Agent: aforo-metering-node/<v>` + `X-SDK-Lang: node` + `X-SDK-Version: <v>` |
+| `sdk_python` | `SDKPython` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `User-Agent: aforo-metering-python/<v>` + `X-SDK-Lang: python` |
+| `sdk_java` | `SDKJava` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `User-Agent: com.aforo.metering/<v>` + `X-SDK-Lang: java` |
+| `sdk_go` | `SDKGo` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `User-Agent: metering-go/<v>` + `X-SDK-Lang: go` |
+| `gateway_kong` | `GatewayKong` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `X-Forwarded-By: kong` + `X-Kong-*` set |
+| `gateway_apigee` | `GatewayApigee` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `X-Forwarded-By: apigee` + `X-ApigeeProxy-Name`, `X-Apigee-Sharedflow` |
+| `gateway_aws` | `GatewayAWS` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `X-Forwarded-By: aws-apigw` + `X-Apigateway-Api-Id` + `X-Amzn-Trace-Id` |
+| `gateway_azure` | `GatewayAzure` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `X-Forwarded-By: azure-apim` + `X-AzureAPIM-*` |
+| `gateway_mulesoft` | `GatewayMuleSoft` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `X-Forwarded-By: mulesoft-cloudhub` + `X-MuleSoft-*` |
+| `gateway_apisix` | `GatewayAPISIX` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `X-Forwarded-By: apisix` + `X-APISIX-*` (stub adapter — synthesized from public docs) |
+| `gateway_tyk` | `GatewayTyk` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `X-Forwarded-By: tyk` + `X-Tyk-*` (stub) |
+| `gateway_gravitee` | `GatewayGravitee` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `X-Forwarded-By: gravitee` + `X-Gravitee-*` (stub) |
+| `gateway_envoy` | `GatewayEnvoy` | `POST /v1/ingest` | Envelope JSON | `X-API-Key` ingest key (else Bearer) | `X-Forwarded-By: envoy` + `X-Envoy-*` (stub) |
 | `webhook_receiver` | `Webhook` | `POST /v1/ingest/webhook/{sourceId}` | Envelope JSON | HMAC-SHA256 | `X-Hub-Signature-256: sha256=<hex>` |
-| `csv_upload` | `CSVUpload` | `POST /v1/ingest/upload` | multipart/form-data CSV | Bearer | `Content-Type: multipart/form-data` + `defaultMetricName`, `defaultCustomerId` form fields |
+| `csv_upload` | `CSVUpload` | `POST /v1/ingest/upload` | multipart/form-data CSV | `X-API-Key` ingest key (else Bearer) | `Content-Type: multipart/form-data` + `defaultMetricName`, `defaultCustomerId` form fields |
 | `mcp_jsonrpc` | `MCPJsonRPC` | `POST` at `AFORO_LOADGEN_MCP_URL` (**not** `/v1/ingest`) | JSON-RPC 2.0 `tools/call` envelope | Bearer (forwarded — target is a real MCP server, not the ingest endpoint) | `Mcp-Session-Id` header echoed from event `session_id` metadata |
-| `ai_agent_rest` | `AIAgentREST` | `POST` at `AFORO_LOADGEN_INGEST_URL` | Envelope JSON (metadata carries `capability_name` (snake) + `agentId` / `executionStatus` / `executionDurationMs` (camel — extractor reads camelCase from metadata as top-level DTO fallback) + `session_id`) | Bearer | `X-Loadgen-Session-Id` echoed from event `session_id` metadata; non-AI_AGENT events rejected at the driver so `product_mix` + `ingestion_paths` mis-pairings surface on the first batch |
+| `ai_agent_rest` | `AIAgentREST` | `POST` at `AFORO_LOADGEN_INGEST_URL` | Envelope JSON (metadata carries `capability_name` (snake) + `agentId` / `executionStatus` / `executionDurationMs` (camel — extractor reads camelCase from metadata as top-level DTO fallback) + `session_id`) | `X-API-Key` ingest key (else Bearer) | `X-Loadgen-Session-Id` echoed from event `session_id` metadata; non-AI_AGENT events rejected at the driver so `product_mix` + `ingestion_paths` mis-pairings surface on the first batch |
 
 **mcp_jsonrpc is structurally different from every other path.** All 16
 other paths post an already-cooked metering event to `/v1/ingest`,

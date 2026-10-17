@@ -20,7 +20,7 @@ func TestGolden_BuiltInScenariosLoadAndValidate(t *testing.T) {
 	// is updated when a session ships new ones. The hard contract is the
 	// `expectedNames` list below — anything in it MUST exist; new entries
 	// can be added without breaking older tests.
-	const expectedCount = 24
+	const expectedCount = 28
 	if len(names) != expectedCount {
 		t.Errorf("catalog has %d scenarios; expected %d (%v)",
 			len(names), expectedCount, names)
@@ -29,6 +29,11 @@ func TestGolden_BuiltInScenariosLoadAndValidate(t *testing.T) {
 	// Each canonical scenario name MUST be present. If a future session
 	// renames one, update both this list and docs/scenario-schema.md.
 	expectedNames := []string{
+		// 2026-10-17 ingest + bill-run benchmark (docs/runbooks/2026-10-17-ingest-billrun-benchmark.md):
+		"bench-ingest-unbatched",
+		"bench-ingest-batched",
+		"bench-ingest-replay",
+		"bench-billrun-1000",
 		// Session 2 (Crawl/Walk/Run + matrix + lifecycle):
 		"ci-smoke",
 		"crawl-e2e",

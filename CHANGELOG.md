@@ -11,6 +11,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — 2026-10-17 (ingest auth, batch path, production guard)
+
+- **Ingest uses an organization-service key** — `seed` now creates one API key
+  per tenant on organization-service (`POST /api/v1/api-keys`, scope
+  `usage:ingest`, `SANDBOX`/`sk_test_`) and writes it to the manifest as
+  `tenants[].ingest_key`. HTTP drivers send it as `X-API-Key` and no longer
+  send the per-subscription key. Why: usage-ingestor authenticates API keys
+  through aforo-common `ApiKeyAuthFilter`, which validates against
+  organization-service's own `api_keys` table; the pricing-service
+  per-subscription keys loadgen used to send are answered 401. Opt out with
+  `seed --provision-ingest-keys=false`. `seed --clean` revokes the key.
+  Manifests without `ingest_key` keep the old behaviour.
+- **New `rest_batch` ingestion path** — `POST /v1/ingest/batch`, one tenant
+  per request, sized by the new scenario block `rest_batch: {size, max_wait}`
+  (size 1..1000, defaults 100 / 100ms). Per-index `errors` in the response
+  become per-event 422s; negative-path events are sent alone via
+  `/v1/ingest`.
+- **Production guard** — `seed`, `run`, `e2e`, `replay`, `lifecycle`,
+  `payments` and `billrun` refuse a target whose URLs are `aforo.ai` /
+  `*.aforo.ai` unless `--allow-production` or
+  `AFORO_LOADGEN_ALLOW_PRODUCTION=i-understand-this-writes-to-production` is
+  given. The `staging` target and an un-overridden `ci` target resolve to the
+  production hosts; the June 2026 runs recorded as `target: staging` wrote to
+  production. Dry runs and `doctor` are not guarded. Coordinator workers
+  accept the env acknowledgement only.
+- **`run --target-tps N`** overrides `target_tps`, and `run` now refuses
+  `target_tps` above 1000 without `--i-know-what-im-doing` (the same
+  threshold the trigger server enforces with `acknowledge_high_tps`).
+- **Benchmark scenarios** — `bench-ingest-unbatched`, `bench-ingest-batched`,
+  `bench-ingest-replay`, `bench-billrun-1000` for the ingest + bill-run benchmark runbook.
+
 ### Changed — 2026-10-01 (billing_match prices every metric)
 
 - **`run.json` carries per-metric usage** — `per_tenant_metric`

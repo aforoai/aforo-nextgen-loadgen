@@ -137,9 +137,11 @@ func New(cfg Config) (*Runner, error) {
 	// constructs only the rest_direct driver — no extra cost for the
 	// non-multi-path case.
 	driverRegistry, err := driver.NewRegistry(driver.RegistryConfig{
-		Target:         cfg.Target,
-		AdminToken:     cfg.AdminToken,
-		WebhookSources: cfg.WebhookSources,
+		Target:           cfg.Target,
+		AdminToken:       cfg.AdminToken,
+		WebhookSources:   cfg.WebhookSources,
+		RESTBatchSize:    cfg.Scenario.RESTBatch.Size,
+		RESTBatchMaxWait: cfg.Scenario.RESTBatch.MaxWait.Std(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("runner: driver registry: %w", err)
@@ -273,6 +275,7 @@ func scenarioReferencedPaths(s *scenario.Scenario) []string {
 	add("mcp_jsonrpc", p.MCPJsonRPC)
 	add("ai_agent_rest", p.AIAgentREST)
 	add("ai_agent_wire", p.AIAgentWire)
+	add("rest_batch", p.RestBatch)
 	if len(paths) == 0 {
 		paths = append(paths, "rest_direct")
 	}

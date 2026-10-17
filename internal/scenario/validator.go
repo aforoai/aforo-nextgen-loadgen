@@ -636,6 +636,13 @@ func (v *validator) checkProductMix(s *Scenario) {
 }
 
 func (v *validator) checkIngestionPaths(s *Scenario) {
+	if s.RESTBatch.Size < 0 || s.RESTBatch.Size > 1000 {
+		v.addAt([]string{"rest_batch", "size"},
+			fmt.Sprintf("rest_batch.size is %d; must be 1..1000 (usage-ingestor rejects larger batches) or omitted for 100", s.RESTBatch.Size))
+	}
+	if s.RESTBatch.MaxWait < 0 {
+		v.addAt([]string{"rest_batch", "max_wait"}, "rest_batch.max_wait must not be negative")
+	}
 	sum := s.IngestionPaths.Sum()
 	if sum == 0 {
 		// Optional — runner default is rest_direct=1.0.

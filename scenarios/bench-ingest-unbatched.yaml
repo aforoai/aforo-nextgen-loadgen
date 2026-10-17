@@ -1,0 +1,63 @@
+# bench-ingest-unbatched — ingest benchmark, one event per request
+#
+# Purpose: step-load usage-ingestor POST /v1/ingest at 50 / 200 / 500 / 1000 /
+# 2000 events/s, 10 minutes per step, on ONE seeded manifest. The rate is set
+# per step with `run --target-tps N`; target_tps below is only the first step.
+# Runbook: docs/runbooks/2026-10-17-ingest-billrun-benchmark.md (workspace root).
+#
+# Population sizing (read before changing it). usage-ingestor rate-limits in
+# process, per instance, before any other work:
+#   - aforo-common RateLimitFilter: aforo.rate-limit.max-requests-per-minute
+#     per tenant — 1000/min in usage-ingestor application.yml (16.7 req/s).
+#   - CustomerRateLimitFilter: 200/min per tenant + X-Customer-Id (3.3 req/s).
+# 150 tenants x 10 customers keeps the 2000/s step at ~13.3 req/s per tenant
+# and ~1.3 req/s per customer with uniform spread, so the limiters do not
+# decide the result. Fewer tenants measures the limiter, not the service.
+#
+# Every event: one API product, PER_UNIT, ACTIVE subscription, small payload,
+# no negative paths — the benchmark measures accepted throughput only.
+
+schema_version: 2
+name: bench-ingest-unbatched
+description: Ingest benchmark — POST /v1/ingest one event per request; step the rate with --target-tps.
+target_tps: 50
+duration: 10m
+seed: 20261017
+
+tenants:
+  count: 150
+  distribution: uniform
+  archetypes:
+    - name: bench-api-perunit
+      weight: 1.0
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 10
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+time_pattern: constant
+
+product_mix:
+  API: 1.0
+
+ingestion_paths:
+  rest_direct: 1.0
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0
+
+assertions:
+  events_lost_max: 0
+  cross_tenant_leakage_max: 0
+
+metadata:
+  tier: benchmark
+  notes: Never run against production. Above 1000 events/s `run` needs --i-know-what-im-doing.

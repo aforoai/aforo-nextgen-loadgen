@@ -27,6 +27,11 @@ type RegistryConfig struct {
 	// CSVBatchSize tunes the csv_upload driver's per-tenant buffer.
 	// Default 100.
 	CSVBatchSize int
+
+	// RESTBatchSize / RESTBatchMaxWait tune the rest_batch driver
+	// (scenario rest_batch.size / rest_batch.max_wait). Zero → defaults.
+	RESTBatchSize    int
+	RESTBatchMaxWait time.Duration
 }
 
 // Registry resolves an ingestion-path name (e.g. "sdk_node", "gateway_kong")
@@ -87,6 +92,7 @@ func AllNames() []string {
 		"mcp_jsonrpc",
 		"ai_agent_rest",
 		"ai_agent_wire",
+		"rest_batch",
 	}
 }
 
@@ -135,6 +141,12 @@ func (r *Registry) construct(name string) (Driver, error) {
 			MaxIdleConnsPerHost: hb.MaxIdleConnsPerHost,
 			IdleConnTimeout:     hb.IdleConnTimeout,
 			AdminToken:          hb.AdminToken,
+		})
+	case "rest_batch":
+		return NewRESTBatch(RESTBatchConfig{
+			HTTPBaseConfig: hb,
+			Size:           r.cfg.RESTBatchSize,
+			MaxWait:        r.cfg.RESTBatchMaxWait,
 		})
 	case "sdk_node":
 		return NewSDKNode(hb)

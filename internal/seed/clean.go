@@ -16,6 +16,7 @@ type CleanResult struct {
 	RatePlansArchived     int
 	ProductsArchived      int
 	WalletsArchived       int
+	IngestKeysRevoked     int
 	Errors                []error
 }
 
@@ -95,6 +96,14 @@ func Clean(ctx context.Context, c *Client, m *Manifest) CleanResult {
 				continue
 			}
 			res.CustomersArchived++
+		}
+
+		if t.IngestKey != nil && t.IngestKey.KeyID != "" {
+			if err := revokeIngestKey(ctx, c, t.TenantID, t.IngestKey.KeyID); err != nil {
+				res.Errors = append(res.Errors, fmt.Errorf("tenant %s ingest key %s: %w", t.TenantID, t.IngestKey.KeyID, err))
+			} else {
+				res.IngestKeysRevoked++
+			}
 		}
 
 		if err := archiveTenant(ctx, c, t.TenantID); err != nil {

@@ -20,11 +20,12 @@ import (
 )
 
 type replayFlags struct {
-	runOutput string
-	target    string
-	manifest  string
-	out       string
-	tokenEnv  string
+	allowProduction bool
+	runOutput       string
+	target          string
+	manifest        string
+	out             string
+	tokenEnv        string
 }
 
 // newReplayCommand wires `aforo-loadgen replay`. Replay re-runs a recorded
@@ -50,6 +51,7 @@ Examples:
 	}
 	cmd.Flags().StringVar(&f.runOutput, "run-output", "", "directory of a prior run (must contain scenario.yaml)")
 	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, ci, or full URL")
+	cmd.Flags().BoolVar(&f.allowProduction, "allow-production", false, "allow sending traffic to production *.aforo.ai hosts (the staging target points there too); also "+aforo.AllowProductionEnv)
 	cmd.Flags().StringVar(&f.manifest, "manifest", "manifest.json", "path to manifest from `aforo-loadgen seed`")
 	cmd.Flags().StringVar(&f.out, "out", "", "replay output directory (default: <run-output>/replay-<unix>)")
 	cmd.Flags().StringVar(&f.tokenEnv, "token-env", "AFORO_ADMIN_TOKEN", "env var holding an admin bearer token")
@@ -83,6 +85,9 @@ func runReplay(ctx context.Context, out, errOut io.Writer, f *replayFlags) error
 
 	target, err := aforo.ResolveTarget(f.target)
 	if err != nil {
+		return err
+	}
+	if err := aforo.GuardProduction(target, f.allowProduction); err != nil {
 		return err
 	}
 

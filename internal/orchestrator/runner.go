@@ -56,6 +56,9 @@ func (DefaultStageRunner) Seed(ctx context.Context, in SeedInput) (*seed.RunResu
 		Scenario:     in.Scenario,
 		ManifestPath: in.ManifestPath,
 		RunID:        in.RunID,
+		// The run stage needs a usage:ingest key per tenant; the
+		// per-subscription keys are refused by usage-ingestor.
+		ProvisionIngestKeys: true,
 	})
 	if err != nil {
 		return nil, err

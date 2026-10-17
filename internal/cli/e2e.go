@@ -23,6 +23,7 @@ import (
 )
 
 type e2eFlags struct {
+	allowProduction  bool
 	scenarioFlag     string
 	target           string
 	out              string
@@ -74,6 +75,7 @@ Exit codes:
 	}
 	cmd.Flags().StringVar(&f.scenarioFlag, "scenario", "", "path to scenario YAML or built-in name (e.g. crawl-e2e)")
 	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, ci, or full URL")
+	cmd.Flags().BoolVar(&f.allowProduction, "allow-production", false, "allow sending traffic to production *.aforo.ai hosts (the staging target points there too); also "+aforo.AllowProductionEnv)
 	cmd.Flags().StringVar(&f.out, "out", "", "output dir (default: e2e/<scenario>-<unix>)")
 	cmd.Flags().StringVar(&f.tokenEnv, "token-env", "AFORO_ADMIN_TOKEN", "env var holding the bearer token")
 	cmd.Flags().StringVar(&f.duration, "duration", "", "override scenario.duration for the run + lifecycle stages (e.g. 60s, 5m)")
@@ -105,6 +107,9 @@ func runE2E(ctx context.Context, out, errOut io.Writer, f *e2eFlags) error {
 
 	target, err := aforo.ResolveTarget(f.target)
 	if err != nil {
+		return err
+	}
+	if err := aforo.GuardProduction(target, f.allowProduction); err != nil {
 		return err
 	}
 

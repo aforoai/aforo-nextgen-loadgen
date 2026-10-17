@@ -1,0 +1,66 @@
+# bench-billrun-1000 — usage for a 1,000-customer bill run
+#
+# Purpose: seed ONE tenant with 1,000 customers (one ACTIVE PER_UNIT
+# subscription each), send usage for 10 minutes (200 events/s = ~120,000
+# events, ~120 per customer), then bill the tenant with `aforo-loadgen
+# billrun` and time it. Also the tenant used for the two-concurrent-bill-runs
+# check. Runbook: docs/runbooks/2026-10-17-ingest-billrun-benchmark.md
+# (workspace root), part C.
+#
+# Batched (rest_batch, 100 events per request) so the per-tenant ingest
+# limiter (1000 requests/min per usage-ingestor instance) is not hit by a
+# single busy tenant. Run with --workers 300 or more.
+#
+# What the bill run does with it (billing-service BillRunServiceImpl):
+# customers are processed in waves of PARALLEL_BATCH_SIZE = 50 on
+# billRunExecutor (BillRunAsyncConfig: core 20, max 40, queue 200), so at most
+# 20 customers are rated at once unless the queue fills.
+
+schema_version: 2
+name: bench-billrun-1000
+description: One tenant, 1,000 customers, 10 minutes of usage — input for the 1,000-customer bill-run timing.
+target_tps: 200
+duration: 10m
+seed: 20261020
+
+tenants:
+  count: 1
+  distribution: uniform
+  archetypes:
+    - name: bench-billrun
+      weight: 1.0
+      pricing_model: PER_UNIT
+      billing_mode: POSTPAID
+      product_types: [API]
+      customer_count: 1000
+      currency_mix:
+        USD: 1.0
+      subscription_state_mix:
+        ACTIVE: 1.0
+      rate_config:
+        per_unit_rate_usd: 0.001
+
+time_pattern: constant
+
+product_mix:
+  API: 1.0
+
+ingestion_paths:
+  rest_batch: 1.0
+
+rest_batch:
+  size: 100
+  max_wait: 500ms
+
+payload_variation:
+  small_pct: 1.0
+  medium_pct: 0.0
+  large_pct: 0.0
+
+assertions:
+  events_lost_max: 0
+  cross_tenant_leakage_max: 0
+
+metadata:
+  tier: benchmark
+  notes: Never run against production.

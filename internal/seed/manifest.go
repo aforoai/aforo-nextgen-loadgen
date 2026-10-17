@@ -52,6 +52,12 @@ type ManifestTenant struct {
 	RatePlans    []ManifestRatePlan    `json:"rate_plans"`
 	Offerings    []ManifestOffering    `json:"offerings"`
 	Customers    []ManifestCustomer    `json:"customers"`
+	// IngestKey is the tenant-level organization-service key (scope
+	// usage:ingest) the run engine sends as X-API-Key. Nil when the seed ran
+	// with --provision-ingest-keys=false or the manifest predates it; drivers
+	// then fall back to the per-subscription key (which usage-ingestor
+	// rejects with 401 — see ManifestIngestKey).
+	IngestKey *ManifestIngestKey `json:"ingest_key,omitempty"`
 }
 
 // ManifestProduct mirrors a created product (catalog-service).

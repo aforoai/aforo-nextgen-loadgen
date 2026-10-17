@@ -28,6 +28,7 @@ import (
 )
 
 type lifecycleFlags struct {
+	allowProduction  bool
 	scenarioFlag     string
 	target           string
 	manifest         string
@@ -77,6 +78,7 @@ process to manage state transitions.
 	}
 	cmd.Flags().StringVar(&f.scenarioFlag, "scenario", "", "path to scenario YAML or built-in name (lifecycle-stress)")
 	cmd.Flags().StringVar(&f.target, "target", "local", "target environment: local, staging, prod, ci, or full URL")
+	cmd.Flags().BoolVar(&f.allowProduction, "allow-production", false, "allow sending traffic to production *.aforo.ai hosts (the staging target points there too); also "+aforo.AllowProductionEnv)
 	cmd.Flags().StringVar(&f.manifest, "manifest", "manifest.json", "path to manifest from `aforo-loadgen seed`")
 	cmd.Flags().StringVar(&f.out, "out", "", "run output directory (default: runs/<scenario>-<unix>)")
 	cmd.Flags().StringVar(&f.duration, "duration", "", "override scenario.duration (e.g. 30s, 5m)")
@@ -114,6 +116,9 @@ func runLifecycle(ctx context.Context, out, errOut io.Writer, f *lifecycleFlags)
 
 	target, err := aforo.ResolveTarget(f.target)
 	if err != nil {
+		return err
+	}
+	if err := aforo.GuardProduction(target, f.allowProduction); err != nil {
 		return err
 	}
 

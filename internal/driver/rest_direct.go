@@ -88,6 +88,7 @@ func (d *RESTDirect) Name() string { return "rest_direct" }
 //
 // Headers:
 //
+//	X-API-Key:     <tenant ingest key>   (when the manifest has one), else
 //	Authorization: Bearer <key.Secret>
 //	X-Tenant-Id:   <event.TenantID>
 //	X-Customer-Id: <event.CustomerID>   (defense-in-depth for some routes)
@@ -118,7 +119,13 @@ func (d *RESTDirect) Submit(ctx context.Context, e *generator.Event) Result {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	if e.Auth.Token != "" {
+	if e.Auth.IngestKey != "" {
+		// Tenant ingest key (organization-service, scope usage:ingest).
+		// usage-ingestor's ApiKeyAuthFilter validates keys against
+		// organization-service only; the per-subscription pricing-service
+		// key in Auth.Token would be answered 401.
+		req.Header.Set("X-API-Key", e.Auth.IngestKey)
+	} else if e.Auth.Token != "" {
 		// Some Aforo deployments accept "Bearer <client_id>:<client_secret>"
 		// for CLIENT_CREDENTIALS keys; for now we always send Bearer <token>.
 		// SDKs normalize this same way.
