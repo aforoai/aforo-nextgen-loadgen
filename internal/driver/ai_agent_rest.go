@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -80,10 +79,7 @@ type AIAgentRESTConfig struct {
 // NewAIAgentREST constructs the driver. Returns an error when the target
 // URL is empty AND the env var is unset — loud failure beats silent 404s.
 func NewAIAgentREST(cfg AIAgentRESTConfig) (*AIAgentREST, error) {
-	url := cfg.URL
-	if url == "" {
-		url = os.Getenv(AIAgentRESTEnvURL)
-	}
+	url := envDriverURL(cfg.URL, AIAgentRESTEnvURL)
 	if url == "" {
 		return nil, fmt.Errorf("ai_agent_rest: target URL missing — set %s or pass URL in config", AIAgentRESTEnvURL)
 	}

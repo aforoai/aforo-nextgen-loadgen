@@ -26,7 +26,19 @@ type LocalRunner struct {
 	BinaryPath       string
 	WorkDir          string
 	ScenariosBuiltIn []string // names accepted directly without --scenario path
+
+	// StartupGrace is how long the trigger handler waits after spawning
+	// for the worker to fail its pre-flight checks (scenario validation,
+	// production guard, high-TPS guard, manifest load). A worker that
+	// exits non-zero inside this window is reported to the API caller as
+	// a failed trigger instead of a 202. Zero disables the wait.
+	StartupGrace time.Duration
 }
+
+// DefaultStartupGrace is the StartupGrace NewLocalRunner sets. The run
+// command's pre-flight checks finish well inside it; a run that is still
+// alive afterwards has started sending traffic.
+const DefaultStartupGrace = 2 * time.Second
 
 // NewLocalRunner picks the binary path (defaults to os.Args[0]) and
 // validates the work directory exists.
@@ -44,7 +56,7 @@ func NewLocalRunner(workDir, binaryPath string, builtins []string) (*LocalRunner
 		}
 		binaryPath = exe
 	}
-	return &LocalRunner{BinaryPath: binaryPath, WorkDir: workDir, ScenariosBuiltIn: builtins}, nil
+	return &LocalRunner{BinaryPath: binaryPath, WorkDir: workDir, ScenariosBuiltIn: builtins, StartupGrace: DefaultStartupGrace}, nil
 }
 
 // Spawn launches the worker subprocess. The returned ProcHandle gives
@@ -72,19 +84,7 @@ func (l *LocalRunner) Spawn(_ context.Context, runID string, req TriggerRequest,
 		return nil, fmt.Errorf("scenario %q is not a built-in; server does not accept ad-hoc scenarios over HTTP", req.Scenario)
 	}
 
-	args := []string{"run",
-		"--scenario", scenarioFlag,
-		"--target", req.Target,
-		"--manifest", manifest,
-		"--out", outDir,
-		"--metrics-addr", "", // child doesn't expose metrics; the server already does
-	}
-	if req.DurationSecs > 0 {
-		args = append(args, "--duration", fmt.Sprintf("%ds", req.DurationSecs))
-	}
-	if req.Workers > 0 {
-		args = append(args, "--workers", fmt.Sprintf("%d", req.Workers))
-	}
+	args := runArgs(scenarioFlag, req, manifest, outDir)
 
 	// Detached context so the child outlives the HTTP request that
 	// triggered it. Cancellation is via SIGINT below, not context.
@@ -111,15 +111,45 @@ func (l *LocalRunner) Spawn(_ context.Context, runID string, req TriggerRequest,
 		cmd:     cmd,
 		log:     logFile,
 		ctxStop: cancel,
-		done:    make(chan error, 1),
+		exited:  make(chan struct{}),
 	}
 	go func() {
 		err := cmd.Wait()
 		_ = logFile.Close()
-		h.done <- err
-		close(h.done)
+		h.exitErr = err
+		close(h.exited)
 	}()
 	return h, nil
+}
+
+// acknowledgeHighTPSFlag is the `aforo-loadgen run` flag that confirms a
+// target_tps above the high-TPS threshold (internal/cli/run.go). The
+// trigger API's acknowledge_high_tps maps onto it.
+const acknowledgeHighTPSFlag = "--i-know-what-im-doing"
+
+// runArgs builds the `aforo-loadgen run` argument list for a trigger.
+// The high-TPS acknowledgement flag is passed only when the request
+// carried acknowledge_high_tps=true; handleTriggerRun clears that field
+// for scenarios that are not high-TPS, so the flag (which also lifts the
+// long-local-run guard) is never passed for a run that did not need it.
+func runArgs(scenarioFlag string, req TriggerRequest, manifest, outDir string) []string {
+	args := []string{"run",
+		"--scenario", scenarioFlag,
+		"--target", req.Target,
+		"--manifest", manifest,
+		"--out", outDir,
+		"--metrics-addr", "", // child doesn't expose metrics; the server already does
+	}
+	if req.DurationSecs > 0 {
+		args = append(args, "--duration", fmt.Sprintf("%ds", req.DurationSecs))
+	}
+	if req.Workers > 0 {
+		args = append(args, "--workers", fmt.Sprintf("%d", req.Workers))
+	}
+	if req.Acknowledge {
+		args = append(args, acknowledgeHighTPSFlag)
+	}
+	return args
 }
 
 // ProcHandle is a control + observation handle for a spawned worker.
@@ -131,7 +161,11 @@ type ProcHandle struct {
 	ctxStop context.CancelFunc
 
 	doneOnce sync.Once
-	done     chan error
+	// exited is closed when the worker has exited; exitErr is written
+	// before the close and only read after it, so any number of readers
+	// can observe the result (Wait, Exited).
+	exited  chan struct{}
+	exitErr error
 }
 
 // OutputDir returns the run's artifact directory (where run.json lives).
@@ -139,7 +173,27 @@ func (p *ProcHandle) OutputDir() string { return p.outDir }
 
 // Wait blocks until the worker exits and returns the exit error (nil
 // on graceful completion, non-nil on crash or non-zero exit).
-func (p *ProcHandle) Wait() error { return <-p.done }
+func (p *ProcHandle) Wait() error {
+	<-p.exited
+	return p.exitErr
+}
+
+// Exited returns a channel that is closed once the worker has exited.
+// Read the result with Wait after it is closed.
+func (p *ProcHandle) Exited() <-chan struct{} { return p.exited }
+
+// LogTail returns up to max bytes from the end of the worker's
+// stdout/stderr log. Used to explain a worker that exited at startup.
+func (p *ProcHandle) LogTail(max int) string {
+	b, err := os.ReadFile(filepath.Join(p.outDir, "stdout.log"))
+	if err != nil {
+		return ""
+	}
+	if len(b) > max {
+		b = b[len(b)-max:]
+	}
+	return string(b)
+}
 
 // Cancel sends SIGINT to the worker. The run engine's signal handler
 // then drains, writes partial output, and exits 0 within a few

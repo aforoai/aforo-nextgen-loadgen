@@ -312,10 +312,18 @@ func (s *Server) handleTriggerRun(w http.ResponseWriter, r *http.Request) {
 	// High-TPS guardrail. The CLI has --i-know-what-im-doing for the
 	// same purpose; the server requires acknowledge_high_tps=true so
 	// an accidental click in the UI doesn't spin up a 10K-TPS run.
-	if info, ok := s.scenarioInfo(req.Scenario); ok && info.HighTPS && !req.Acknowledge {
-		writeErr(w, http.StatusPreconditionFailed,
-			fmt.Sprintf("scenario %q is high-TPS (%d); set acknowledge_high_tps=true to confirm", req.Scenario, info.TargetTPS))
-		return
+	if info, ok := s.scenarioInfo(req.Scenario); ok {
+		if info.HighTPS && !req.Acknowledge {
+			writeErr(w, http.StatusPreconditionFailed,
+				fmt.Sprintf("scenario %q is high-TPS (%d); set acknowledge_high_tps=true to confirm", req.Scenario, info.TargetTPS))
+			return
+		}
+		// The acknowledgement becomes the child's --i-know-what-im-doing,
+		// which also lifts the long-local-run guard. Keep it only when the
+		// scenario actually needed it.
+		if !info.HighTPS {
+			req.Acknowledge = false
+		}
 	}
 
 	id := identityFrom(r.Context())
@@ -356,6 +364,32 @@ func (s *Server) handleTriggerRun(w http.ResponseWriter, r *http.Request) {
 		_ = s.cfg.Index.Update(r.Context(), row)
 		writeErr(w, http.StatusInternalServerError, "spawn worker: "+err.Error())
 		return
+	}
+
+	// Give the worker a short window to fail its pre-flight checks so the
+	// caller sees the reason (e.g. the production guard) instead of a 202
+	// for a run that never started.
+	if grace := s.cfg.Runner.StartupGrace; grace > 0 {
+		timer := time.NewTimer(grace)
+		select {
+		case <-handle.Exited():
+			timer.Stop()
+			if exitErr := handle.Wait(); exitErr != nil {
+				row.Status = RunStatusFailed
+				end := time.Now().UTC()
+				row.EndedAt = &end
+				_ = s.cfg.Index.Update(r.Context(), row)
+				msg := "worker exited during startup: " + exitErr.Error()
+				if tail := strings.TrimSpace(handle.LogTail(2048)); tail != "" {
+					msg += "\n" + tail
+				}
+				writeErr(w, http.StatusUnprocessableEntity, msg)
+				return
+			}
+			// Exited cleanly inside the window (a very short run) — fall
+			// through; observeRun records the completion.
+		case <-timer.C:
+		}
 	}
 
 	st := &runState{runID: runID, handle: handle}

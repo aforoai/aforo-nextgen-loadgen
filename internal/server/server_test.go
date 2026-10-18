@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/server"
 )
@@ -32,16 +35,25 @@ func (f *fixtureCatalog) Has(name string) bool {
 
 func newServerForTest(t *testing.T, identity *server.Identity) (*httptest.Server, *server.MemoryIndex) {
 	t.Helper()
+	ts, idx, _ := newServerWithWorker(t, identity, "/usr/bin/false", 0)
+	return ts, idx
+}
+
+// newServerWithWorker builds a test server whose runner spawns binary with
+// the given startup grace. Returns the runner's work directory.
+func newServerWithWorker(t *testing.T, identity *server.Identity, binary string, grace time.Duration) (*httptest.Server, *server.MemoryIndex, string) {
+	t.Helper()
 	idx := server.NewMemoryIndex()
 	tmp := t.TempDir()
 	store, err := server.NewLocalStore(tmp + "/manifests")
 	if err != nil {
 		t.Fatalf("local store: %v", err)
 	}
-	runner, err := server.NewLocalRunner(tmp+"/runs", "/usr/bin/false", []string{"ci-smoke", "high-tps"})
+	runner, err := server.NewLocalRunner(tmp+"/runs", binary, []string{"ci-smoke", "high-tps"})
 	if err != nil {
 		t.Fatalf("runner: %v", err)
 	}
+	runner.StartupGrace = grace
 	cat := &fixtureCatalog{scenarios: []server.ScenarioInfo{
 		{Name: "ci-smoke", TargetTPS: 10, DurationSecs: 30, Tenants: 5, HighTPS: false},
 		{Name: "high-tps", TargetTPS: 5000, DurationSecs: 60, Tenants: 50, HighTPS: true},
@@ -59,7 +71,7 @@ func newServerForTest(t *testing.T, identity *server.Identity) (*httptest.Server
 	}
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return ts, idx
+	return ts, idx, tmp + "/runs"
 }
 
 func adminIdentity() *server.Identity {
@@ -354,4 +366,84 @@ func mustRunner(t *testing.T) *server.LocalRunner {
 		t.Fatalf("runner: %v", err)
 	}
 	return r
+}
+
+// argRecorder writes a fake worker script that records its arguments, one
+// per line, to <--out dir>/args and exits 0.
+func argRecorder(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fake-loadgen.sh")
+	script := `#!/bin/sh
+out=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--out" ]; then out="$a"; fi
+  prev="$a"
+done
+for a in "$@"; do printf '%s\n' "$a"; done > "$out/args"
+`
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func triggerAndReadArgs(t *testing.T, req server.TriggerRequest) []string {
+	t.Helper()
+	ts, _, workDir := newServerWithWorker(t, adminIdentity(), argRecorder(t), 5*time.Second)
+	resp := do(t, ts, http.MethodPost, "/api/v1/runs", req)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("want 202, got %d", resp.StatusCode)
+	}
+	var tr server.TriggerResponse
+	_ = json.NewDecoder(resp.Body).Decode(&tr)
+	// The handler waited for the worker to exit (inside the grace window),
+	// so the args file is complete.
+	b, err := os.ReadFile(filepath.Join(workDir, tr.RunID, "args"))
+	if err != nil {
+		t.Fatalf("read recorded args: %v", err)
+	}
+	return strings.Split(strings.TrimSpace(string(b)), "\n")
+}
+
+func hasArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTriggerRun_HighTPSAckPassesFlagToWorker(t *testing.T) {
+	args := triggerAndReadArgs(t, server.TriggerRequest{Scenario: "high-tps", Target: "local", Acknowledge: true})
+	if !hasArg(args, "--i-know-what-im-doing") {
+		t.Fatalf("acknowledged high-TPS run must pass --i-know-what-im-doing, got %v", args)
+	}
+}
+
+func TestTriggerRun_LowTPSAckDoesNotPassFlag(t *testing.T) {
+	// acknowledge_high_tps on a scenario that is not high-TPS must not
+	// lift the worker's other safety checks.
+	args := triggerAndReadArgs(t, server.TriggerRequest{Scenario: "ci-smoke", Target: "local", Acknowledge: true})
+	if hasArg(args, "--i-know-what-im-doing") {
+		t.Fatalf("low-TPS run must not pass --i-know-what-im-doing, got %v", args)
+	}
+}
+
+func TestTriggerRun_WorkerStartupFailureReportedToCaller(t *testing.T) {
+	ts, idx, _ := newServerWithWorker(t, adminIdentity(), "/usr/bin/false", 5*time.Second)
+	resp := do(t, ts, http.MethodPost, "/api/v1/runs", server.TriggerRequest{Scenario: "ci-smoke", Target: "local"})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("want 422 for a worker that exits at startup, got %d", resp.StatusCode)
+	}
+	list, err := idx.List(context.Background(), server.ListQuery{Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Runs) != 1 || list.Runs[0].Status != server.RunStatusFailed {
+		t.Fatalf("index must record the run as failed, got %+v", list.Runs)
+	}
 }

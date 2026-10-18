@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -129,10 +128,7 @@ type AIAgentWireConfig struct {
 // NewAIAgentWire constructs the driver. Returns an error when the target
 // URL is empty AND the env var is unset — loud failure beats silent 404s.
 func NewAIAgentWire(cfg AIAgentWireConfig) (*AIAgentWire, error) {
-	url := cfg.URL
-	if url == "" {
-		url = os.Getenv(AIAgentWireEnvURL)
-	}
+	url := envDriverURL(cfg.URL, AIAgentWireEnvURL)
 	if url == "" {
 		return nil, fmt.Errorf("ai_agent_wire: target URL missing — set %s or pass URL in config", AIAgentWireEnvURL)
 	}

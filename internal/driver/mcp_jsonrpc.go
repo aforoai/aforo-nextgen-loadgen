@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -70,10 +69,7 @@ type MCPJsonRPCConfig struct {
 // NewMCPJsonRPC constructs the driver. Returns an error when the target
 // URL is empty AND the env var is unset — loud failure beats silent 404s.
 func NewMCPJsonRPC(cfg MCPJsonRPCConfig) (*MCPJsonRPC, error) {
-	url := cfg.URL
-	if url == "" {
-		url = os.Getenv(MCPJsonRPCEnvURL)
-	}
+	url := envDriverURL(cfg.URL, MCPJsonRPCEnvURL)
 	if url == "" {
 		return nil, fmt.Errorf("mcp_jsonrpc: target URL missing — set %s or pass URL in config", MCPJsonRPCEnvURL)
 	}
