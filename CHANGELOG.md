@@ -11,6 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — 2026-10-21 (internal endpoint credentials, G375)
+
+- **Loadgen has its own credential for Aforo internal endpoints.** Requests to
+  `/internal/**` and `/api/v1/internal/**` (seed, doctor, lifecycle, payments,
+  e2e) carry `X-Aforo-Service-Token`, an Ed25519-signed token with
+  `iss=aforo-loadgen`, the target service as `aud`, the request's tenant and a
+  60 s lifetime (aforo-common W1.5 format). Configure
+  `AFORO_LOADGEN_SERVICE_PRIVATE_KEY` + `AFORO_LOADGEN_SERVICE_KEY_ID`.
+- **The fleet-wide `X-Internal-Api-Key` is no longer forwarded on every seed
+  request.** It is sent only to internal paths, and only with
+  `AFORO_LOADGEN_SEND_SHARED_INTERNAL_KEY=true` (transition fallback for
+  targets in SHADOW with RBAC on).
+- **Migration:** `seed` and `e2e` now refuse to start without a token key or
+  the explicit fallback. Set the two new variables (README "Internal endpoint
+  credentials"), or, temporarily, `AFORO_LOADGEN_SEND_SHARED_INTERNAL_KEY=true`.
+
 ### Changed — 2026-10-17 (ingest auth, batch path, production guard)
 
 - **Ingest uses an organization-service key** — `seed` now creates one API key

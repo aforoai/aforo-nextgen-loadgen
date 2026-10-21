@@ -99,6 +99,7 @@ func provisionDefaultBillingEntity(ctx context.Context, c *Client, tenantID stri
 	if err := c.Do(ctx, http.MethodPost, url, body, &resp, RequestOptions{
 		TenantID:    tenantID,
 		Idempotency: "loadgen-billing-entity-" + tenantID,
+		Service:     aforo.ServiceBilling,
 	}); err != nil {
 		return billingEntityResponse{}, fmt.Errorf("provision default billing entity for %s: %w", tenantID, err)
 	}

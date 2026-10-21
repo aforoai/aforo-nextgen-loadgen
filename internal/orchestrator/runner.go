@@ -16,19 +16,25 @@ import (
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/lifecycle"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/runner"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/seed"
+	"github.com/aforoai/aforo-nextgen-loadgen/internal/serviceauth"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/validate"
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/validate/report"
 )
 
 // DefaultStageRunner is the production implementation of StageRunner.
 // Tests use the in-memory FakeStageRunner in runner_test.go.
-type DefaultStageRunner struct{}
+type DefaultStageRunner struct {
+	// ServiceAuth authenticates calls to Aforo internal endpoints with
+	// loadgen's service token (G375). Nil → those calls fail before sending.
+	ServiceAuth *serviceauth.Signer
+}
 
 // Doctor delegates to internal/doctor with a 5s per-probe timeout.
-func (DefaultStageRunner) Doctor(ctx context.Context, target aforo.Target, token string) (*doctor.Report, error) {
+func (r DefaultStageRunner) Doctor(ctx context.Context, target aforo.Target, token string) (*doctor.Report, error) {
 	d, err := doctor.New(doctor.Config{
 		Target:          target,
 		BearerToken:     token,
+		ServiceAuth:     r.ServiceAuth,
 		PerCheckTimeout: 5 * time.Second,
 	})
 	if err != nil {
@@ -39,13 +45,14 @@ func (DefaultStageRunner) Doctor(ctx context.Context, target aforo.Target, token
 
 // Seed delegates to internal/seed.NewSeeder.Run, persisting the manifest
 // at the orchestrator's chosen path.
-func (DefaultStageRunner) Seed(ctx context.Context, in SeedInput) (*seed.RunResult, error) {
+func (r DefaultStageRunner) Seed(ctx context.Context, in SeedInput) (*seed.RunResult, error) {
 	if in.BearerToken == "" {
 		return nil, errors.New("seed: bearer token is required")
 	}
 	c, err := seed.NewClient(seed.ClientConfig{
 		Target:      in.Target,
 		BearerToken: in.BearerToken,
+		ServiceAuth: r.ServiceAuth,
 	})
 	if err != nil {
 		return nil, err
@@ -98,7 +105,7 @@ func (DefaultStageRunner) RunLoad(ctx context.Context, in RunInput) (*runner.Run
 // Lifecycle delegates to internal/lifecycle. The agent owns its own
 // transition log under <out>/transitions.jsonl which the validate stage
 // later picks up via lifecycle.LoadTransitionLog.
-func (DefaultStageRunner) Lifecycle(ctx context.Context, in LifecycleInput) (lifecycle.Snapshot, error) {
+func (r DefaultStageRunner) Lifecycle(ctx context.Context, in LifecycleInput) (lifecycle.Snapshot, error) {
 	tlog, err := lifecycle.NewTransitionLog(in.OutputDir)
 	if err != nil {
 		return lifecycle.Snapshot{}, err
@@ -106,8 +113,9 @@ func (DefaultStageRunner) Lifecycle(ctx context.Context, in LifecycleInput) (lif
 	defer func() { _ = tlog.Close() }()
 
 	client, err := lifecycle.NewClient(lifecycle.ClientConfig{
-		Target: in.Target,
-		Token:  in.BearerToken,
+		Target:      in.Target,
+		Token:       in.BearerToken,
+		ServiceAuth: r.ServiceAuth,
 	})
 	if err != nil {
 		return lifecycle.Snapshot{}, fmt.Errorf("lifecycle client: %w", err)
@@ -177,13 +185,14 @@ func (DefaultStageRunner) Report(_ context.Context, runOut string, run *runner.R
 
 // Clean delegates to internal/seed.Clean. Non-empty error list rolls up
 // into a stage-level error with a friendly message.
-func (DefaultStageRunner) Clean(ctx context.Context, in CleanInput) error {
+func (r DefaultStageRunner) Clean(ctx context.Context, in CleanInput) error {
 	if in.BearerToken == "" {
 		return errors.New("clean: bearer token is required")
 	}
 	c, err := seed.NewClient(seed.ClientConfig{
 		Target:      in.Target,
 		BearerToken: in.BearerToken,
+		ServiceAuth: r.ServiceAuth,
 	})
 	if err != nil {
 		return err

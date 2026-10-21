@@ -67,7 +67,7 @@ Examples:
   aforo-loadgen seed --scenario scenarios/walk-realistic-50t.yaml --dry-run
   aforo-loadgen seed --scenario scenarios/matrix-billing.yaml --archetypes-only mtx-perunit-postpaid,mtx-flat-postpaid
   aforo-loadgen seed --clean --out manifest.json --target local
-`,
+` + internalCredentialsHelp,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runSeed(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), &f)
 		},
@@ -116,10 +116,17 @@ func runSeed(ctx context.Context, out, errOut io.Writer, f *seedFlags) error {
 	}
 	token := os.Getenv(f.tokenEnv)
 
+	// G375: loadgen authenticates to Aforo internal endpoints with its own
+	// signed service token, not the fleet-wide X-Internal-Api-Key.
+	auth, err := internalAuth(target, errOut, !f.dryRun, "seed")
+	if err != nil {
+		return err
+	}
+
 	clientCfg := seed.ClientConfig{
 		Target:         target,
 		BearerToken:    token,
-		InternalAPIKey: strings.TrimSpace(os.Getenv("AFORO_INTERNAL_API_KEY")),
+		ServiceAuth:    auth,
 		MaxConcurrency: f.maxConcurrency,
 		MinInterval:    time.Duration(f.minIntervalMS) * time.Millisecond,
 		DryRun:         f.dryRun,

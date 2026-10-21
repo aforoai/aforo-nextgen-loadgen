@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/aforo"
+	"github.com/aforoai/aforo-nextgen-loadgen/internal/serviceauth"
 )
 
 // Status is the per-check verdict.
@@ -106,6 +107,10 @@ type Config struct {
 	// BearerToken is required if you want auth + tenant existence
 	// checks to run. Empty token → those probes SKIP.
 	BearerToken string
+	// ServiceAuth authenticates the probes that hit Aforo internal endpoints
+	// (/api/v1/internal/tenants) with loadgen's service token (G375). Nil →
+	// those probes fail with a remedy naming the missing credential.
+	ServiceAuth *serviceauth.Signer
 	// HTTPClient — nil falls back to a sensible default with timeouts.
 	HTTPClient *http.Client
 	// PerCheckTimeout is the hard cap on any one HTTP request the doctor
@@ -305,10 +310,15 @@ func (d *Doctor) probeAuth(ctx context.Context) CheckResult {
 	res.URL = url
 
 	t0 := d.now()
-	_, code, err := d.httpGetAuth(ctx, url, d.cfg.BearerToken)
+	_, code, err := d.httpGetInternal(ctx, url, d.cfg.BearerToken, aforo.ServiceOrganization)
 	res.Duration = d.now().Sub(t0)
 
 	switch {
+	case errors.Is(err, serviceauth.ErrNoCredential) || errors.Is(err, serviceauth.ErrAudienceUnknown):
+		res.Status = StatusFail
+		res.Detail = err.Error()
+		res.Remedy = "export " + serviceauth.EnvPrivateKey + " and " + serviceauth.EnvKeyID +
+			" (loadgen's service-token key; see README \"Internal endpoint credentials\")"
 	case err != nil:
 		res.Status = StatusFail
 		res.Detail = fmt.Sprintf("transport error: %v", err)
@@ -360,7 +370,7 @@ func (d *Doctor) probeTenantExistence(ctx context.Context) CheckResult {
 	res.URL = url
 
 	t0 := d.now()
-	body, code, err := d.httpGetAuth(ctx, url, d.cfg.BearerToken)
+	body, code, err := d.httpGetInternal(ctx, url, d.cfg.BearerToken, aforo.ServiceOrganization)
 	res.Duration = d.now().Sub(t0)
 
 	if err != nil || code >= 400 {
@@ -445,6 +455,12 @@ func (d *Doctor) httpGet(ctx context.Context, url string) (string, int, error) {
 }
 
 func (d *Doctor) httpGetAuth(ctx context.Context, url, token string) (string, int, error) {
+	return d.httpGetInternal(ctx, url, token, "")
+}
+
+// httpGetInternal is httpGetAuth plus loadgen's service credential when url
+// is an Aforo internal endpoint; svc names the target service.
+func (d *Doctor) httpGetInternal(ctx context.Context, url, token string, svc aforo.Service) (string, int, error) {
 	ctx, cancel := context.WithTimeout(ctx, d.cfg.PerCheckTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -453,6 +469,9 @@ func (d *Doctor) httpGetAuth(ctx context.Context, url, token string) (string, in
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if err := d.cfg.ServiceAuth.Authorize(req, svc); err != nil {
+		return "", 0, err
 	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := d.hc.Do(req)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/aforo"
+	"github.com/aforoai/aforo-nextgen-loadgen/internal/serviceauth"
 )
 
 // HTTPDoer is the minimal HTTP interface the transition modules need. The
@@ -37,6 +38,7 @@ type Client struct {
 	token     string
 	timeout   time.Duration
 	userAgent string
+	auth      *serviceauth.Signer
 }
 
 // ClientConfig configures a Client. Zero defaults applied for omitted fields.
@@ -46,6 +48,10 @@ type ClientConfig struct {
 	HTTP      HTTPDoer      // nil → stdlib http.Client with sane defaults
 	Timeout   time.Duration // 0 → 30s
 	UserAgent string        // 0 → "aforo-loadgen/lifecycle"
+	// ServiceAuth authenticates calls to Aforo internal endpoints
+	// (/internal/**, /api/v1/internal/**) with loadgen's service token
+	// (G375). Nil → internal calls fail before they are sent.
+	ServiceAuth *serviceauth.Signer
 }
 
 // NewClient constructs a Client. Returns an error only on misconfiguration.
@@ -72,6 +78,7 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		token:     cfg.Token,
 		timeout:   cfg.Timeout,
 		userAgent: cfg.UserAgent,
+		auth:      cfg.ServiceAuth,
 	}, nil
 }
 
@@ -97,7 +104,7 @@ func (c *Client) PostJSON(
 	if err != nil {
 		return 0, err
 	}
-	return c.do(ctx, http.MethodPost, url, tenantID, idempotencyKey, body, out)
+	return c.do(ctx, svc, http.MethodPost, url, tenantID, idempotencyKey, body, out)
 }
 
 // GetJSON is the read-side counterpart. No body. Returns the response body
@@ -113,7 +120,7 @@ func (c *Client) GetJSON(
 	if err != nil {
 		return 0, err
 	}
-	return c.do(ctx, http.MethodGet, url, tenantID, "", nil, out)
+	return c.do(ctx, svc, http.MethodGet, url, tenantID, "", nil, out)
 }
 
 // DeleteJSON is the cancel/delete counterpart.
@@ -129,11 +136,12 @@ func (c *Client) DeleteJSON(
 	if err != nil {
 		return 0, err
 	}
-	return c.do(ctx, http.MethodDelete, url, tenantID, idempotencyKey, nil, out)
+	return c.do(ctx, svc, http.MethodDelete, url, tenantID, idempotencyKey, nil, out)
 }
 
 func (c *Client) do(
 	ctx context.Context,
+	svc aforo.Service,
 	method, url, tenantID, idempotency string,
 	body any,
 	out any,
@@ -163,6 +171,10 @@ func (c *Client) do(
 	}
 	if idempotency != "" {
 		req.Header.Set("Idempotency-Key", idempotency)
+	}
+	// After X-Tenant-Id, so the token binds to it. No-op off internal paths.
+	if err := c.auth.Authorize(req, svc); err != nil {
+		return 0, fmt.Errorf("lifecycle: %w", err)
 	}
 
 	resp, err := c.doer.Do(req)

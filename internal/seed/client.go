@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/aforo"
+	"github.com/aforoai/aforo-nextgen-loadgen/internal/serviceauth"
 )
 
 // Default transport tuning.
@@ -30,13 +32,15 @@ const (
 type ClientConfig struct {
 	Target      aforo.Target
 	BearerToken string
-	// InternalAPIKey, when set, is forwarded as X-Internal-Api-Key on every
-	// request. Endpoints under /api/v1/internal/** (e.g. org-service's
-	// tenant lookup/create) are gated by this shared platform key in addition
-	// to (or instead of) the bearer token — see AFORO_INTERNAL_API_KEY in
-	// aforo-common's SecurityProperties.Internal. Populated from the env var
-	// of the same name by the seed CLI.
-	InternalAPIKey string
+	// ServiceAuth authenticates requests to Aforo internal endpoints
+	// (/internal/** and /api/v1/internal/**, e.g. org-service's tenant
+	// create/list) with loadgen's own signed service token (G375, aforo-common
+	// W1.5). Non-internal requests are never touched. Nil, or a Signer with no
+	// credential, makes every internal request fail before it is sent with
+	// serviceauth.ErrNoCredential. The fleet-wide X-Internal-Api-Key is no
+	// longer forwarded on every request: the Signer sends it to internal paths
+	// only, and only when AFORO_LOADGEN_SEND_SHARED_INTERNAL_KEY=true.
+	ServiceAuth    *serviceauth.Signer
 	HTTPClient     *http.Client  // nil → default with reasonable timeouts
 	MaxConcurrency int           // 0 → 50
 	MinInterval    time.Duration // 0 → 200ms
@@ -177,6 +181,12 @@ type RequestOptions struct {
 	Idempotency string
 	// Query parameters appended to the URL.
 	Query url.Values
+	// Service names the target service. Used to pick the audience of the
+	// service token on internal endpoints; when empty it is derived from the
+	// URL (which fails on single-ingress targets).
+	Service aforo.Service
+	// Scopes are added to the service token on internal endpoints.
+	Scopes []string
 }
 
 // Do issues an HTTP request and decodes the JSON response into out (if non-nil).
@@ -224,6 +234,10 @@ func (c *Client) Do(ctx context.Context, method string, fullURL string, body any
 			return nil
 		}
 		lastErr = err
+		var ae *serviceAuthError
+		if errors.As(err, &ae) {
+			return ae.err
+		}
 		if !aforo.IsRetryable(err) {
 			return err
 		}
@@ -277,9 +291,6 @@ func (c *Client) doOnce(ctx context.Context, method, fullURL string, body []byte
 	if c.cfg.BearerToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.cfg.BearerToken)
 	}
-	if c.cfg.InternalAPIKey != "" {
-		req.Header.Set("X-Internal-Api-Key", c.cfg.InternalAPIKey)
-	}
 	if opts.TenantID != "" {
 		req.Header.Set("X-Tenant-Id", opts.TenantID)
 	}
@@ -291,6 +302,10 @@ func (c *Client) doOnce(ctx context.Context, method, fullURL string, body []byte
 	}
 	if opts.Idempotency != "" {
 		req.Header.Set("Idempotency-Key", opts.Idempotency)
+	}
+	// Last, so the token binds to the X-Tenant-Id set above.
+	if err := c.cfg.ServiceAuth.AuthorizeScoped(req, opts.Service, opts.Scopes); err != nil {
+		return &serviceAuthError{err: err}
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -319,6 +334,14 @@ func (c *Client) doOnce(ctx context.Context, method, fullURL string, body []byte
 	}
 	return nil
 }
+
+// serviceAuthError marks a failure to authenticate an internal request
+// (missing credential, unknown audience, invalid tenant). It is a local
+// configuration problem, so Do returns it at once instead of retrying.
+type serviceAuthError struct{ err error }
+
+func (e *serviceAuthError) Error() string { return e.err.Error() }
+func (e *serviceAuthError) Unwrap() error { return e.err }
 
 // unmarshalAforoResponse decodes a backend response into out. Aforo services
 // return one of these shapes:
@@ -412,6 +435,14 @@ func (c *Client) recordDryRun(method, fullURL string, body []byte, opts RequestO
 	}
 	if opts.Idempotency != "" {
 		rec.Headers.Set("Idempotency-Key", opts.Idempotency)
+	}
+	if u, err := url.Parse(fullURL); err == nil && serviceauth.IsInternalPath(u.Path) {
+		if c.cfg.ServiceAuth.CanMint() {
+			rec.Headers.Set(serviceauth.Header, "***")
+		}
+		if c.cfg.ServiceAuth.SendsSharedKey() {
+			rec.Headers.Set(serviceauth.SharedKeyHeader, "***")
+		}
 	}
 	if body != nil {
 		rec.Body = append(json.RawMessage(nil), body...)

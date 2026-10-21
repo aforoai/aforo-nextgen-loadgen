@@ -418,9 +418,12 @@ offering → customers → subscriptions (incl. CANCELLED + EXPIRED for stale
 key tests) → wallets (PREPAID/HYBRID) → payment methods → discounts → API
 keys. Outputs `manifest.json` (schema v2) that downstream subcommands read.
 
-Auth: set `AFORO_ADMIN_TOKEN` in the environment. The harness self-rate-
-limits at one request every 200ms (configurable) and caps in-flight HTTP
-requests at 50 to keep from DDoS'ing the admin API.
+Auth: set `AFORO_ADMIN_TOKEN` in the environment, plus loadgen's
+internal-endpoint key (see [Internal endpoint credentials](#internal-endpoint-credentials)) —
+tenant create/list/archive and billing-entity provisioning are internal
+endpoints. The harness self-rate-limits at one request every 200ms
+(configurable) and caps in-flight HTTP requests at 50 to keep from DDoS'ing
+the admin API.
 
 Idempotency: every entity is created with a deterministic `external_id`
 (`loadgen-{kind}-{archetype}-{run_id}-{seq}`); a re-run with the same run id
@@ -432,6 +435,56 @@ Live integration test (against running Aforo):
 docker compose up -d                          # in ../aforo-nextgen-docker
 export AFORO_ADMIN_TOKEN=$(...your token...)
 go test -tags integration ./internal/seed/... # seeds, picks a stale key, hits ingestor
+```
+
+## Internal endpoint credentials
+
+Some calls loadgen makes go to Aforo **internal** endpoints
+(`/internal/**`, `/api/v1/internal/**`): tenant create/list/archive on
+organization-service, `provision-default` on billing-service, the
+subscription expire hook on pricing-service, and the
+`/api/v1/internal/payments/drive` fallback. Loadgen authenticates those with
+its **own** short-lived signed service token (aforo-common W1.5, gap G375),
+not the fleet-wide `X-Internal-Api-Key`.
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `AFORO_LOADGEN_SERVICE_PRIVATE_KEY` | yes (with the key id) | Loadgen's Ed25519 private key: PKCS#8, PEM or the one-line base64 that `ServiceKeyTool` prints. A literal `\n` is accepted. |
+| `AFORO_LOADGEN_SERVICE_KEY_ID` | yes (with the key) | The key id printed with it. |
+| `AFORO_LOADGEN_SERVICE_AUDIENCES` | no | `<url-or-host>=<service-name>,...` overrides, only when a target's `spring.application.name` is not the default (`organization-service`, `pricing-service`, `billing-service`, `usage-ingestor-service`, …). A URL entry beats a host entry. |
+| `AFORO_INTERNAL_API_KEY` + `AFORO_LOADGEN_SEND_SHARED_INTERNAL_KEY=true` | no | Transition fallback, see below. |
+
+Each internal request gets `X-Aforo-Service-Token`: an EdDSA JWS with
+`iss = sub = aforo-loadgen`, `aud` = the target service, `tenant_id` = the
+request's `X-Tenant-Id` (or `tenantId` query parameter) when there is one,
+`scope = platform` on the tenant admin endpoints, 60 s lifetime, a fresh
+`jti`. Tokens are reused per (audience, tenant, scope) until 10 s before they
+expire. Requests to public endpoints never carry it.
+
+A target accepts the token only when its `aforo.service-auth.trusted.aforo-loadgen`
+entry holds loadgen's public key — set that **in test environments only**.
+Removing the entry revokes loadgen on that target without touching any other
+service.
+
+**Shared-key fallback.** `AFORO_INTERNAL_API_KEY` is no longer sent by
+default. Set `AFORO_LOADGEN_SEND_SHARED_INTERNAL_KEY=true` to also send it on
+internal requests (never on public ones) while a target is still in service-auth
+`SHADOW` with RBAC on: in `SHADOW`, aforo-common's `InternalApiKeyFilter`
+still rejects internal calls without the shared key, and a token alone does not
+satisfy it. Once every target loadgen calls runs `ENFORCE` (where the shared key
+is no longer accepted on its own), unset the flag. Loadgen logs a WARN at
+startup while the fallback is on.
+
+**No credential.** `seed` and `e2e` refuse to start without either a token key
+or the explicit fallback. `doctor` reports the auth probe as failed with the
+fix. In `lifecycle` and `payments` an internal call fails before it is sent.
+A half-filled or unparsable key is a startup error. Key material is never
+logged.
+
+Check a token against aforo-common's real Java verifier:
+
+```bash
+AFORO_COMMON_DIR=../aforo-nextgen-common go test ./internal/serviceauth -run JavaVerifier -v
 ```
 
 ## Global flags

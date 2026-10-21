@@ -132,6 +132,7 @@ func TestSeederWithFakeBackend(t *testing.T) {
 	c, err := NewClient(ClientConfig{
 		Target:      target,
 		BearerToken: "test-token",
+		ServiceAuth: testServiceAuth(t),
 		MinInterval: 1 * time.Microsecond,
 		Logger:      log.New(io.Discard, "", 0),
 	})
@@ -187,6 +188,7 @@ func TestSeederHandlesCancelledStateThroughCancelEndpoint(t *testing.T) {
 	c, err := NewClient(ClientConfig{
 		Target:      target,
 		BearerToken: "test-token",
+		ServiceAuth: testServiceAuth(t),
 		MinInterval: 1 * time.Microsecond,
 		Logger:      log.New(io.Discard, "", 0),
 	})
@@ -258,6 +260,7 @@ func TestSeederIdempotent(t *testing.T) {
 	c, err := NewClient(ClientConfig{
 		Target:      target,
 		BearerToken: "test-token",
+		ServiceAuth: testServiceAuth(t),
 		MinInterval: 1 * time.Microsecond,
 		Logger:      log.New(io.Discard, "", 0),
 	})
@@ -318,6 +321,7 @@ func TestSeederFiltersByArchetype(t *testing.T) {
 	c, err := NewClient(ClientConfig{
 		Target:      target,
 		BearerToken: "test-token",
+		ServiceAuth: testServiceAuth(t),
 		MinInterval: 1 * time.Microsecond,
 		Logger:      log.New(io.Discard, "", 0),
 	})
@@ -358,6 +362,7 @@ func TestSeederReuseTenantID(t *testing.T) {
 	c, err := NewClient(ClientConfig{
 		Target:      target,
 		BearerToken: "test-token",
+		ServiceAuth: testServiceAuth(t),
 		MinInterval: 1 * time.Microsecond,
 		Logger:      log.New(io.Discard, "", 0),
 	})
@@ -457,6 +462,12 @@ func newFakeAforoServer(t *testing.T) (*httptest.Server, *callRecorder) {
 		body, _ := io.ReadAll(r.Body)
 		r.Body.Close()
 		cr.record(recordedCall{method: r.Method, path: r.URL.Path, body: json.RawMessage(body)})
+		// G375 contract: a real target in ENFORCE answers 401 here.
+		if why := internalAuthViolation(r); why != "" {
+			t.Errorf("%s %s: %s", r.Method, r.URL.Path, why)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		be.handle(w, r, body)
 	}))
 	return server, cr
