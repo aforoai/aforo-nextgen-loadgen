@@ -115,3 +115,19 @@ jobs:
           # template-renders {{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }} unless
           # the brews block is skipped. We pass an empty placeholder.
           HOMEBREW_TAP_GITHUB_TOKEN: dry-run-placeholder
+
+
+  ci:
+    name: ci
+    if: always()
+    needs: [build-test, contract-test, lint, goreleaser-check]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all checks passed
+        run: |
+          failed=$(printf '%s' '${{ toJSON(needs) }}' | jq -r 'to_entries | map(select(.value.result != "success" and .value.result != "skipped")) | length')
+          if [ "$failed" -gt 0 ]; then
+            echo "::error::$failed required check(s) did not pass"
+            exit 1
+          fi
+          echo "All checks passed"
