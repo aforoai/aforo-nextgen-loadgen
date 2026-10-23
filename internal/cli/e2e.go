@@ -68,7 +68,7 @@ Examples:
 Exit codes:
   0  every stage PASS or SKIP
   1  any stage FAIL — see the printed summary + e2e.json for details
-`,
+` + internalCredentialsHelp,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runE2E(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), &f)
 		},
@@ -157,7 +157,14 @@ func runE2E(ctx context.Context, out, errOut io.Writer, f *e2eFlags) error {
 		outDir = filepath.Join("e2e", fmt.Sprintf("%s-%d", doc.Scenario.Name, time.Now().Unix()))
 	}
 
+	// The seed stage always calls Aforo internal endpoints (tenant create).
+	auth, err := internalAuth(target, errOut, true, "e2e")
+	if err != nil {
+		return err
+	}
+
 	cfg := orchestrator.Config{
+		Runner:                    &orchestrator.DefaultStageRunner{ServiceAuth: auth},
 		Scenario:                  doc.Scenario,
 		Target:                    target,
 		OutputDir:                 outDir,

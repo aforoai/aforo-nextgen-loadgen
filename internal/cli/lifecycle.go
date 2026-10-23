@@ -71,7 +71,7 @@ Examples:
 The --no-runner flag is for focused lifecycle testing — useful when you
 already have a separate run engine driving traffic and only want this
 process to manage state transitions.
-`,
+` + internalCredentialsHelp,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runLifecycle(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), &f)
 		},
@@ -161,9 +161,14 @@ func runLifecycle(ctx context.Context, out, errOut io.Writer, f *lifecycleFlags)
 	defer tlog.Close()
 
 	token := os.Getenv(f.tokenEnv)
+	auth, err := internalAuth(target, errOut, false, "lifecycle")
+	if err != nil {
+		return err
+	}
 	client, err := lifecycle.NewClient(lifecycle.ClientConfig{
-		Target: target,
-		Token:  token,
+		Target:      target,
+		Token:       token,
+		ServiceAuth: auth,
 	})
 	if err != nil {
 		return fmt.Errorf("lifecycle client: %w", err)

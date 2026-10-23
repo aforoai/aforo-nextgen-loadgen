@@ -73,6 +73,8 @@ func provisionTenant(ctx context.Context, c *Client, externalID, name, archetype
 	var resp tenantResponse
 	if err := c.Do(ctx, http.MethodPost, createURL, body, &resp, RequestOptions{
 		Idempotency: externalID,
+		Service:     aforo.ServiceOrganization,
+		Scopes:      tenantAdminScopes,
 	}); err != nil {
 		// 409 Conflict → fetch existing
 		if aforo.IsConflict(err) {
@@ -116,7 +118,7 @@ func lookupTenantByExternalID(ctx context.Context, c *Client, externalID string)
 	var page struct {
 		Data []tenantResponse `json:"data"`
 	}
-	err = c.Do(ctx, http.MethodGet, listURL, nil, &page, RequestOptions{Query: q})
+	err = c.Do(ctx, http.MethodGet, listURL, nil, &page, RequestOptions{Query: q, Service: aforo.ServiceOrganization, Scopes: tenantAdminScopes})
 	if err != nil {
 		if aforo.IsNotFound(err) {
 			return tenantResponse{}, false, nil
@@ -131,6 +133,11 @@ func lookupTenantByExternalID(ctx context.Context, c *Client, externalID string)
 	return tenantResponse{}, false, nil
 }
 
+// tenantAdminScopes go on the service token for organization-service's
+// platform-wide tenant admin endpoints (create/list/archive across tenants);
+// aforo-common's docs/service-auth.md reserves "platform" for them.
+var tenantAdminScopes = []string{"platform"}
+
 // archiveTenant is the --clean entry point for a single tenant. We
 // soft-archive via DELETE /api/v1/internal/tenants/{id}; org-service treats
 // this as setting status=ARCHIVED rather than a hard delete.
@@ -142,7 +149,7 @@ func archiveTenant(ctx context.Context, c *Client, tenantID string) error {
 	if err != nil {
 		return err
 	}
-	if err := c.Do(ctx, http.MethodDelete, delURL, nil, nil, RequestOptions{}); err != nil {
+	if err := c.Do(ctx, http.MethodDelete, delURL, nil, nil, RequestOptions{Service: aforo.ServiceOrganization, Scopes: tenantAdminScopes}); err != nil {
 		// Already archived → 404. Treat as success.
 		if aforo.IsNotFound(err) {
 			return nil

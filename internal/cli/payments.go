@@ -84,7 +84,8 @@ Examples:
        --target local --manifest manifest.json --post-window 90s
 
 Acceptance: every check in 'aforo-loadgen validate' must PASS after this
-runs. Run 'aforo-loadgen validate' against the same --out directory.`,
+runs. Run 'aforo-loadgen validate' against the same --out directory.
+` + internalCredentialsHelp,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runPayments(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), &f)
 		},
@@ -187,9 +188,14 @@ func runPayments(ctx context.Context, out, errOut io.Writer, f *paymentsFlags) e
 	}
 
 	// Build shared infra.
+	auth, err := internalAuth(target, errOut, false, "payments")
+	if err != nil {
+		return err
+	}
 	client, err := lifecycle.NewClient(lifecycle.ClientConfig{
-		Target: target,
-		Token:  token,
+		Target:      target,
+		Token:       token,
+		ServiceAuth: auth,
 	})
 	if err != nil {
 		return fmt.Errorf("client: %w", err)

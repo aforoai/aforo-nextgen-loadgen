@@ -210,7 +210,7 @@ func transitionSubscription(ctx context.Context, c *Client, tenantID, subID stri
 		if urlErr != nil {
 			return nil, urlErr
 		}
-		err := c.Do(ctx, http.MethodPost, expireURL, nil, nil, RequestOptions{TenantID: tenantID})
+		err := c.Do(ctx, http.MethodPost, expireURL, nil, nil, RequestOptions{TenantID: tenantID, Service: aforo.ServicePricing})
 		switch {
 		case err == nil:
 			return &now, nil

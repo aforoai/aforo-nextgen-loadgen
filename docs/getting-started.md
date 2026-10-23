@@ -54,6 +54,18 @@ If you've lost that initial output, log into Control Tower (port 3001)
 and copy a fresh token from `Settings → API Keys → Generate Admin
 Token`. Tokens are valid for 24 hours.
 
+Seeding also calls Aforo internal endpoints (tenant create, billing-entity
+provisioning). Export loadgen's own service-token key too — DevOps generates
+it with aforo-common's `ServiceKeyTool aforo-loadgen` and gives your local
+stack the matching public key:
+
+```bash
+export AFORO_LOADGEN_SERVICE_PRIVATE_KEY=MC4CAQAw...   # from the secret manager
+export AFORO_LOADGEN_SERVICE_KEY_ID=aforo-loadgen-20261021
+```
+
+See [Internal endpoint credentials](../README.md#internal-endpoint-credentials).
+
 ## 4. Run doctor
 
 ```bash

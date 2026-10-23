@@ -2,6 +2,9 @@ package doctor
 
 import (
 	"context"
+	"crypto/ed25519"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,7 +13,16 @@ import (
 	"time"
 
 	"github.com/aforoai/aforo-nextgen-loadgen/internal/aforo"
+	"github.com/aforoai/aforo-nextgen-loadgen/internal/serviceauth"
 )
+
+// testSigner returns loadgen's internal-endpoint credential with a
+// throwaway Ed25519 key (G375).
+func testSigner() *serviceauth.Signer {
+	_, key, _ := ed25519.GenerateKey(nil)
+	return serviceauth.NewSigner(serviceauth.Config{PrivateKey: key, KeyID: "loadgen-test"},
+		aforo.Target{}, log.New(io.Discard, "", 0))
+}
 
 // fakeServer hosts an /actuator/health endpoint with operator-controlled
 // status code + body. We use one server per service to avoid cross-test
@@ -29,6 +41,11 @@ func newFakeServer(status int, body string) *fakeServer {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.hits++
+		if serviceauth.IsInternalPath(r.URL.Path) && r.Header.Get(serviceauth.Header) == "" {
+			// A target in service-auth ENFORCE refuses internal calls without a token.
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(f.status)
 		_, _ = w.Write([]byte(f.body))
@@ -62,6 +79,7 @@ func TestDoctor_AllUp_ReportsOK(t *testing.T) {
 	d, err := New(Config{
 		Target:          targetFromServers(urls),
 		BearerToken:     "test-token",
+		ServiceAuth:     testSigner(),
 		PerCheckTimeout: 2 * time.Second,
 	})
 	if err != nil {
@@ -112,6 +130,7 @@ func TestDoctor_OrgServiceDown_FailsCritical(t *testing.T) {
 	d, _ := New(Config{
 		Target:          targetFromServers(urls),
 		BearerToken:     "tok",
+		ServiceAuth:     testSigner(),
 		PerCheckTimeout: 500 * time.Millisecond,
 	})
 	rep := d.Run(context.Background())
@@ -146,6 +165,7 @@ func TestDoctor_AIServiceWarning_DoesNotFlipOverall(t *testing.T) {
 	d, _ := New(Config{
 		Target:          targetFromServers(urls),
 		BearerToken:     "tok",
+		ServiceAuth:     testSigner(),
 		PerCheckTimeout: 500 * time.Millisecond,
 	})
 	rep := d.Run(context.Background())
@@ -197,6 +217,7 @@ func TestDoctor_AuthBadToken_FailsCritical(t *testing.T) {
 	d, _ := New(Config{
 		Target:          targetFromServers(urls),
 		BearerToken:     "bogus",
+		ServiceAuth:     testSigner(),
 		PerCheckTimeout: 1 * time.Second,
 	})
 	rep := d.Run(context.Background())
@@ -270,7 +291,7 @@ func TestDoctor_ActuatorDOWN_FailsWithFailingComponents(t *testing.T) {
 		servers = append(servers, s)
 		urls[svc] = s.URL()
 	}
-	d, _ := New(Config{Target: targetFromServers(urls), BearerToken: "tok", PerCheckTimeout: time.Second})
+	d, _ := New(Config{Target: targetFromServers(urls), BearerToken: "tok", ServiceAuth: testSigner(), PerCheckTimeout: time.Second})
 	rep := d.Run(context.Background())
 	if !rep.HasCritical() {
 		t.Fatalf("expected critical fail when one service reports DOWN")
@@ -313,5 +334,45 @@ func TestRemedyForUnreachable_RemoteSuggestsNetwork(t *testing.T) {
 	got := remedyForUnreachable(aforo.ServiceCatalog, "https://catalog.aforo.ai/actuator/health")
 	if !strings.Contains(got, "VPN") {
 		t.Errorf("remote-target remedy should mention network/VPN; got %q", got)
+	}
+}
+
+// G375: the auth probe hits /api/v1/internal/tenants; without loadgen's
+// service credential it must fail with a remedy naming the env vars, and the
+// request must not be sent.
+func TestDoctor_AuthProbe_NoServiceCredential_FailsWithRemedy(t *testing.T) {
+	upBody := `{"status":"UP"}`
+	urls := map[aforo.Service]string{}
+	var internalHits int
+	for _, svc := range aforo.AllProbeServices {
+		s := newFakeServer(http.StatusOK, upBody)
+		defer s.Close()
+		urls[svc] = s.URL()
+	}
+	org := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serviceauth.IsInternalPath(r.URL.Path) {
+			internalHits++
+		}
+		_, _ = w.Write([]byte(upBody))
+	}))
+	defer org.Close()
+	urls[aforo.ServiceOrganization] = org.URL
+
+	d, _ := New(Config{Target: targetFromServers(urls), BearerToken: "tok", PerCheckTimeout: time.Second})
+	rep := d.Run(context.Background())
+	var found bool
+	for _, c := range rep.Checks {
+		if c.Name == "auth:bearer-token" {
+			found = true
+			if c.Status != StatusFail || !strings.Contains(c.Remedy, serviceauth.EnvPrivateKey) {
+				t.Errorf("want FAIL naming %s, got %s / %s", serviceauth.EnvPrivateKey, c.Status, c.Remedy)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no auth:bearer-token row")
+	}
+	if internalHits != 0 {
+		t.Errorf("internal endpoint called %d time(s) without a credential", internalHits)
 	}
 }

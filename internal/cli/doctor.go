@@ -50,7 +50,7 @@ Examples:
   aforo-loadgen doctor --target local
   aforo-loadgen doctor --target staging --token-env AFORO_STAGING_TOKEN
   aforo-loadgen doctor --target local --json doctor.json
-`,
+` + internalCredentialsHelp,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runDoctor(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), &f)
 		},
@@ -69,10 +69,15 @@ func runDoctor(ctx context.Context, out, errOut io.Writer, f *doctorFlags) error
 		return err
 	}
 	token := os.Getenv(f.tokenEnv)
+	auth, err := internalAuth(target, errOut, false, "doctor")
+	if err != nil {
+		return err
+	}
 
 	d, err := doctor.New(doctor.Config{
 		Target:          target,
 		BearerToken:     token,
+		ServiceAuth:     auth,
 		PerCheckTimeout: time.Duration(f.timeoutSec) * time.Second,
 	})
 	if err != nil {

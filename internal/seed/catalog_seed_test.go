@@ -62,6 +62,7 @@ func newCatalogSeeder(t *testing.T, cat *DemoCatalog) (*Seeder, *callRecorder) {
 	c, err := NewClient(ClientConfig{
 		Target:      singleHostTarget(server.URL),
 		BearerToken: "test-token",
+		ServiceAuth: testServiceAuth(t),
 		MinInterval: 1 * time.Microsecond,
 		Logger:      log.New(io.Discard, "", 0),
 	})
